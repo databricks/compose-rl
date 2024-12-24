@@ -1,0 +1,47 @@
+name: PR CPU tests
+on:
+  push:
+    branches:
+    - main
+    - release/*
+  pull_request:
+    branches:
+    - main
+    - release/*
+  workflow_dispatch:
+# Cancel old runs when a new commit is pushed to the same branch if not on main or dev
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  pytest-cpu:
+    name: ${{ matrix.name }}
+    if: github.repository_owner == 'databricks'
+    runs-on: linux-ubuntu-latest
+    container: ${{ matrix.container }}
+    strategy:
+      matrix:
+        include:
+        - name: "cpu-2.4.0"
+          container: mosaicml/pytorch:2.4.0_cpu-python3.11-ubuntu20.04
+          pytest_markers: "not gpu"
+          pytest_command: "coverage run -m pytest"
+          pip_deps: "[cpu]"
+          safe_directory: RLHF
+    steps:
+    - name: Run PR CPU Tests
+      uses: mosaicml/ci-testing/.github/actions/pytest-cpu@v0.2.2
+      with:
+        container: ${{ matrix.container }}
+        name: ${{ matrix.name }}
+        pip_deps: ${{ matrix.pip_deps }}
+        pytest_command: ${{ matrix.pytest_command }}
+        pytest_markers: ${{ matrix.pytest_markers }}
+        safe_directory: ${{ matrix.safe_directory }}
+  coverage:
+    uses: ./.github/workflows/coverage.yaml
+    name: Coverage Results
+    if: github.repository_owner == 'databricks'
+    needs: [pytest-cpu]
+    with:
+      download-path: artifacts

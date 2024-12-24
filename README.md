@@ -137,7 +137,7 @@ callbacks:
         save_interval: 1ep
         # Specify the appropriave save path (this can be a local checkpoint, s3, oci, or any other
         # saving mechanism supported by Composer.)
-        save_folder: 
+        save_folder:
         # Specify the precision to save the checkpoint.
         precision: bfloat16
 ```
