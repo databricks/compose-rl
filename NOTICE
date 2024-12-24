@@ -1,0 +1,18 @@
+Copyright (2024) Databricks, Inc.
+
+This Software includes software developed at Databricks (https://www.databricks.com/) and its use is subject to the included LICENSE file.
+
+________________
+This Software contains code from the following open source projects, licensed under the Apache 2.0 license (https://www.apache.org/licenses/LICENSE-2.0):
+
+kubernetes/kubernetes - https://github.com/kubernetes/kubernetes
+Copyright kubernetes Authors
+
+________________
+This Software contains code from the following open source projects, licensed under the MIT license (https://opensource.org/license/mit):
+
+explosion/spaCy - https://github.com/explosion/spaCy
+Copyright (C) 2016-2024 ExplosionAI GmbH, 2016 spaCy GmbH, 2015 Matthew Honnibal
+
+explosion/spacy-alignments - https://github.com/explosion/spacy-alignments
+Copyright (c) 2020 ExplosionAI GmbH, tamuhey

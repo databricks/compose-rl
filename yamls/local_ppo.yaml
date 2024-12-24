@@ -1,0 +1,190 @@
+run_name:  # TODO: fill in
+max_seq_len: 2048
+
+variables:
+  tokenizer_name: meta-llama/Meta-Llama-3.1-8B-Instruct
+
+  reference_model:
+    model_config: &base_model
+      name: hf_causal_lm
+      pretrained: true
+      use_auth_token: true
+      use_flash_attention_2: true
+      pretrained_model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+
+    precision: amp_bf16
+
+    # load_path: # TODO: fiill in load path if applicable
+
+  kl_controller:
+    init_kl_coef: 0.01
+    target: 0.2  # We want the KL target to be ~0.2
+    horizon: 12800
+    kl_ctl_type: adaptive
+
+  # The non-train-FSDP config
+  non_train_fsdp_config:
+    sharding_strategy: SHARD_GRAD_OP
+    mixed_precision: DEFAULT
+    activation_checkpointing: true
+    activation_cpu_offload: false
+    verbose: true
+    limit_all_gathers: true
+    state_dict_type: sharded
+    use_orig_params: true
+
+  generation_kwargs:
+    top_p: 1.0
+    top_k: 0
+    use_cache: True
+    temperature: 1.0
+    do_sample: True
+
+  # RL parameters
+  gamma: 1.0
+  lambda_gae: 0.95
+
+  device_generate_batch_size: 32
+
+  epoch_per_iteration: 1
+  num_batches_per_update: 8
+
+  max_gen_len: 32
+
+  rewards:
+    short_response_reward:
+      reward_type: short_response_reward
+      reward: -1.0
+      len_threshold: 5
+
+  buffer:
+    name: MinibatchRolloutBuffer
+    max_buffer_size: ${variables.num_batches_per_update}
+
+  center_reward_mean:
+
+model:
+  <<: *base_model
+  name: hf_ppo_lm
+
+  config_overrides:
+    critic_dropout: 0.0
+    value_clip_range: 0.2
+    value_loss_weight: 0.2
+    target_kl: 0.1
+
+    policy_clip_ratio: 0.15
+
+    joint_actor_critic: true
+    compute_kl_loss: true
+
+# load_path: # TODO: fill in load path if applicable
+# load_weights_only: true
+# load_ignore_keys:
+# - "state/model/model.critic_head.*"
+# load_strict_model_weights: false
+
+autoresume: true
+
+algorithms:
+  gradient_clipping:
+    clipping_threshold: 1.0
+    clipping_type: norm
+
+dist_timeout: 1000
+
+# Tokenizer
+tokenizer:
+  name: ${variables.tokenizer_name}
+  kwargs:
+    model_max_length: ${max_seq_len}
+    padding_side: left
+    trust_remote_code: true
+    padding: "longest"
+    truncation: true
+
+train_loader:
+  name: prompt
+  dataset:
+    # local: # local path
+    split: train
+    # remote: #
+    shuffle: true
+    max_gen_len: ${variables.max_gen_len}
+    max_seq_len: ${max_seq_len}
+    predownload: 1000
+    shuffle_seed: ${seed}
+    download_timeout: 60
+  drop_last: true
+  num_workers: 8
+
+optimizer:
+  name: decoupled_adamw
+  lr: 5.0e-6
+  betas:
+  - 0.9
+  - 0.95
+  eps: 1.0e-9
+  weight_decay: 1.0e-7
+
+scheduler:
+  name: constant_with_warmup
+  t_warmup: 0ba
+  t_max: 12800ep
+
+global_train_batch_size: 32
+device_train_microbatch_size: 1
+device_eval_batch_size: 1
+
+max_duration: 10iter
+eval_interval: 1
+eval_subset_num_batches: -1
+eval_first: false
+
+# System
+seed: 17
+precision: amp_bf16
+
+# FSDP
+fsdp_config:
+  sharding_strategy: SHARD_GRAD_OP
+  mixed_precision: DEFAULT
+  activation_checkpointing: true
+  activation_cpu_offload: false
+  verbose: true
+  limit_all_gathers: true
+  state_dict_type: sharded
+  use_orig_params: true
+
+# Logging
+progress_bar: false
+log_to_console: true
+console_log_interval: 1ba
+
+callbacks:
+  speed_monitor:
+    window_size: 10
+  lr_monitor: {}
+  memory_monitor: {}
+
+  # hf_checkpointer:
+  # save_folder: # TODO: add save path for the hf checkpoint
+  # save_interval: 10iter
+
+  ppo: {}
+
+save_folder: /tmp/ppo_models   # TODO: fill in with an appropriate value
+# only_composer_checkpoint: true
+# save_weights_only: false
+
+save_interval: 2iter
+save_overwrite: True
+python_log_level: debug
+
+# loggers:
+#   mlflow:
+#     tags:
+#       run:
+#     tracking_uri:
+#     experiment_name:
+#   wandb: {}
