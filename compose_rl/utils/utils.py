@@ -506,7 +506,11 @@ def rescale(tensor: torch.Tensor, scale_min: float, scale_max: float):
     return (tensor - scale_min) / (scale_max - scale_min)
 
 
-def format_reward_input(prompt: str, generated_sequences: list[str]):
+def format_reward_input(
+    prompt: str,
+    generated_sequences: list[str],
+    tokenizer: Tokenizer,
+):
     """Formatting for reward strings before they go into reward model.
 
     Args:
@@ -516,8 +520,11 @@ def format_reward_input(prompt: str, generated_sequences: list[str]):
     Returns:
         _type_: formatted input to reward fn
     """
-    # TODO add formatting for reward input here, separate with SEPs depending on training
-    formatted_sequence = prompt + ''.join(generated_sequences)
+    # Add formatting for reward input here, separate with SEPs depending on training
+    join_token = ''
+    if hasattr(tokenizer, 'sep_token') and tokenizer.sep_token is not None:
+        join_token = tokenizer.sep_token
+    formatted_sequence = prompt + join_token.join(generated_sequences)
     return formatted_sequence
 
 
@@ -544,7 +551,7 @@ def process_fine_granularities(
         prompt_len (int): Total length of original prompt
         generated (str): Original generated text
         generated_len (int): Total length of original generated text
-        original_obs (list[int]): Original observvation in token ids
+        original_obs (list[int]): Original observation in token ids
         granularity (str): Granularity type
         parser (): Spacy or other sent/subsent parser
         tokenizer (Tokenizer): Tokenizer
@@ -585,10 +592,14 @@ def process_fine_granularities(
     reward_prompt_len = len(reward_prompt_tokens)
 
     # Format the reward
-    reward_input = format_reward_input(prompt, generated_sequences=[generated])
+    reward_input = format_reward_input(
+        prompt,
+        generated_sequences=generated_sequences,
+        tokenizer=tokenizer,
+    )
     tokenized_reward_input = tokenizer.tokenize(reward_input)
     tokenized_reward_input = [
-        t for t in tokenized_reward_input if t is not None  # type: ignore
+        t for t in tokenized_reward_input if t is not None
     ]
     concatenated_subseq_tokens = [
         t for t in concatenated_subseq_tokens if t is not None
@@ -623,22 +634,22 @@ def process_fine_granularities(
         else:
             # Document weird edge cases where unicode based sequence alignment fails
             log.warning(
-                f'You\'ve been hit by a smooth {concatenated_subseq_tokens[end_idx]}',
+                f'Tokenizer sequence alignment failed. You\'ve been hit by a smooth {concatenated_subseq_tokens[end_idx]}',
             )
 
     # The original tokenized obses RL training sees, without the decode step
     original_generated_token_ids = original_obs[prompt_len:prompt_len +
                                                 generated_len]
     original_generated_tokens = tokenizer.convert_ids_to_tokens(
-        original_generated_token_ids,  # type: ignore
+        original_generated_token_ids,
     )
 
     # Align between the tokenized outputs of the policy and the tokenized inputs to reward
     original_generated_tokens = [
-        t for t in original_generated_tokens if t is not None  # type: ignore
+        t for t in original_generated_tokens if t is not None
     ]
     tokenized_generated_input = [
-        t for t in tokenized_generated_input if t is not None  # type: ignore
+        t for t in tokenized_generated_input if t is not None
     ]
     og_alignment_forward, og_alignment_backward = tokenizations.get_alignments(
         original_generated_tokens,
@@ -657,7 +668,7 @@ def process_fine_granularities(
         else:
             # Document weird edge cases where unicode based sequence alignment fails
             log.warning(
-                f'You\'ve been struck by a smooth {i, tokenized_generated_input[end_idx]}',
+                f'Tokenizer sequence alignment failed. You\'ve been struck by a smooth {i, tokenized_generated_input[end_idx]}',
             )
             failed_align_end_idxs.append(i)
     # Get rid of indices in the final gather where the sequence alignment fails
@@ -684,9 +695,17 @@ def process_fine_granularities(
 
     # Special edge case when all sequence alignment fails, fall through to document level rewards
     # TODO Note that we might want to change this behavior in the future depending on vendor data
-    if len(end_indices_aligned_gather) == 0:
+    if (
+        len(
+            end_indices_aligned_gather,
+        ) == 0 or reward_generated_len - 1 not in end_indices_aligned_gather
+    ):
         end_indices_aligned_gather.append(reward_generated_len - 1)
-    if len(end_indices_aligned_scatter) == 0:
+    if (
+        len(
+            end_indices_aligned_scatter,
+        ) == 0 or generated_len - 1 not in end_indices_aligned_scatter
+    ):
         end_indices_aligned_scatter.append(generated_len - 1)
 
     return reward_input, reward_prompt_len, reward_generated_len, reward_seq_len, \
@@ -718,9 +737,10 @@ def batch_process_fine_granularities(
         device (str, optional): Device, defaults to 'cpu'.
 
     Returns:
-        Dict with keys mapping to dictionaries for the end indices to gather the reward scores
-        from the reward model and to scatter to RL, along with the overall prompt, generated, seq lengths.
-        All the internal dicts are keyed based on granularity type.
+        <end_idxs_gather_dict, end_idxs_scatter_dict, end_reward_inputs_dict,
+        reward_seq_lens_dict, reward_prompt_lens_dict, reward_generated_lens_dict> :
+        end indexs of indices to gather reward scores from reward model and to scatter to RL
+        and overall prompt, generated, seq lengths, all dicts keyed on granularity type
     """
     # TODO (raj) MPT specific, make custom with data loader changes
     tokenizer.padding_side = 'right'
