@@ -18,9 +18,9 @@ from compose_rl.reward_learning.hf_utils import (
 )
 from compose_rl.reward_learning.inference_model import InferenceRewardModel
 from compose_rl.reward_learning.model import (
+    ComposerHFCausalRewardModel,
     ComposerHFPairwiseRewardModel,
     ComposerMPTPairwiseRewardModel,
-    ComposerHFCausalRewardModel,
 )
 
 # Necessary to upload code when saving

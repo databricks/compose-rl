@@ -7,15 +7,15 @@ import logging
 from typing import Any, Mapping, MutableMapping, Optional, Union
 
 import torch
-from llmfoundry.models import ComposerMPTCausalLM, ComposerHFCausalLM
+from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 
 from compose_rl.reward_learning.base_reward import RewardModel, Tokenizer
 from compose_rl.reward_learning.hf_utils import SequenceClassifierOutput
 from compose_rl.reward_learning.model_methods import (
     PairwiseRewardEnum,
+    causal_rm_forward,
     pairwise_forward,
     pairwise_loss,
-    causal_rm_forward,
 )
 from compose_rl.reward_learning.modeling_hf import \
     ComposerHFSequenceClassification
@@ -172,6 +172,7 @@ class ComposerMPTPairwiseRewardModel(ComposerMPTCausalLM, RewardModel):
             self.loss_type,
         )
 
+
 class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
 
     default_train_metrics: tuple = ()
@@ -189,7 +190,7 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
     ):
         self.loss_type = PairwiseRewardEnum(loss_type)
         self.return_last = return_last
-        self.eos_token_id = tokenizer.eos_token_id
+        self.eos_token_id = tokenizer.eos_token_id # type: ignore
 
         config_overrides = {}
 
@@ -208,14 +209,17 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
             **kwargs,
         )
 
-    def forward(self,
+    def forward(
+        self,
         batch: MutableMapping,
     ) -> Union[dict[str, torch.Tensor], torch.Tensor]:
         is_inference = batch.get('is_inference', False)
         if is_inference:
-            # Inference code should be able to 
-            logits = model(batch['input_ids'],
-                           attention_mask=batch['attention_mask']).logits
+            # Inference code should be able to
+            logits = self.model(
+                batch['input_ids'],
+                attention_mask=batch['attention_mask'],
+            ).logits
             logits = logits[:, :, self.eos_token_id]
             if self.min_threshold is not None and self.max_threshold is not None:
                 logits: torch.Tensor = torch.clamp(
@@ -231,7 +235,6 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
                 batch=batch,
             )
         return outputs
-    
 
     def eval_forward(
         self,
@@ -239,7 +242,6 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
         outputs: Optional[SequenceClassifierOutput] = None,
     ) -> dict[str, torch.Tensor]:
         return outputs if outputs is not None else self.forward(batch)
-        
 
     def loss(self, outputs: SequenceClassifierOutput,
              batch: Mapping) -> dict[str, torch.Tensor]:

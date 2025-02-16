@@ -220,16 +220,17 @@ def pairwise_loss(
 
     return loss_dict
 
+
 def causal_rm_forward(
     model: nn.Module,
-    tokenizer: Tokenizer, 
+    tokenizer: Tokenizer,
     batch: MutableMapping,
     policy_model_config: Optional[PretrainedConfig] = None,
     use_attention_sequence_id: bool = False,
 ):
     """Forwards the model for the causal RM forwards.
 
-    Here we gather the logit from the first EOS token in the sequence. 
+    Here we gather the logit from the first EOS token in the sequence.
 
     Args:
         model (nn.Module): Model we are forwarding.
@@ -242,7 +243,7 @@ def causal_rm_forward(
     """
     if policy_model_config is not None and hasattr(model, 'transformer'):
         clear_mb_load_balancing_loss(policy_model_config, model.transformer)
-    
+
     batch_size, concat_seq_len = batch['input_ids'].shape
     pad_token_id = tokenizer.pad_token_id  # type: ignore
     eos_token_id = tokenizer.eos_token_id  # type: ignore
@@ -250,7 +251,9 @@ def causal_rm_forward(
         raise ValueError('Tokenizer must have a PAD token.')
 
     if use_attention_sequence_id:
-        raise NotImplementedError('Attention sequence ID not implemented for Causal RM.')
+        raise NotImplementedError(
+            'Attention sequence ID not implemented for Causal RM.',
+        )
     else:
         # If we can't use attn_seq_id then we need to unpack each batch and
         # Pack along the batch dimension instead.
@@ -260,7 +263,7 @@ def causal_rm_forward(
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
             max_seq_len=batch['input_ids'].shape[1] // 2,
-            pad_token_id=tokenizer.pad_token_id,
+            pad_token_id=pad_token_id,
         )
 
         chosen_attention_mask, rejected_attention_mask = extract_packed_chosen_rejected(
@@ -288,7 +291,7 @@ def causal_rm_forward(
         model_output = model(
             batch_cat_inputs,
             attention_mask=batch_attn_mask,
-        )        # If we can't use attn_seq_id then we need to unpack each batch and
+        )  # If we can't use attn_seq_id then we need to unpack each batch and
         # Pack along the batch dimension instead.
 
         chosen_inputs, rejected_inputs = extract_packed_chosen_rejected(
@@ -319,7 +322,7 @@ def causal_rm_forward(
         # Dynamic Padding
         max_length = max(max(batch['chosen_len']), max(batch['rejected_len']))
         batch_cat_inputs = batch_cat_inputs[:, :max_length]
-        batch_attn_mask = batch_attn_mask[:, :max_length]        
+        batch_attn_mask = batch_attn_mask[:, :max_length]
 
         model_output = model(
             batch_cat_inputs,
@@ -333,7 +336,7 @@ def causal_rm_forward(
         # Expected Shape: (Batch Size, Max Seq. Length)
         chosen_scores = scores[:batch_size]
         rejected_scores = scores[batch_size:]
-    
+
     # The scores for every sequence is just the logit from the EOS token
     chosen_scores = chosen_scores[:, :, eos_token_id]
     rejected_scores = rejected_scores[:, :, eos_token_id]
@@ -353,6 +356,6 @@ def causal_rm_forward(
     outputs = {
         'chosen_scores': chosen_scores,
         'rejected_scores': rejected_scores,
-    }    
+    }
 
     return outputs
