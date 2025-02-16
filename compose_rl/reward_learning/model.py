@@ -237,8 +237,11 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
         with context_manager():
             mask = torch.full_like(self.model.lm_head.weight.data, fill_value)
 
-            mask[self.eos_token_id, :] = self.model.lm_head.weight.data[
-                self.eos_token_id, :]
+            # mask[self.eos_token_id, :] = self.model.lm_head.weight.data[
+                # self.eos_token_id, :]
+            
+            # Reset the values here? It might help
+            mask[self.eos_token_id, :] = 0.0
 
             with torch.no_grad():
                 self.model.lm_head.weight.copy_(mask)
