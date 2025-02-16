@@ -219,3 +219,140 @@ def pairwise_loss(
     loss_dict['total'] = losses
 
     return loss_dict
+
+def causal_rm_forward(
+    model: nn.Module,
+    tokenizer: Tokenizer, 
+    batch: MutableMapping,
+    policy_model_config: Optional[PretrainedConfig] = None,
+    use_attention_sequence_id: bool = False,
+):
+    """Forwards the model for the causal RM forwards.
+
+    Here we gather the logit from the first EOS token in the sequence. 
+
+    Args:
+        model (nn.Module): Model we are forwarding.
+        tokenizer (Tokenizer): Tokenizer for the model.
+        batch (Dict[str, torch.LongTensor]): Batch over which we should forward the model.
+            Note: this batch has chosen and rejected concated along the sequence dimension.
+        average_log_prob (bool): Whether should we average the log probabilities.
+        policy_model_config: Policy model config.
+        use_attention_sequence_id (bool): Whether we should use the attention sequence id.
+    """
+    if policy_model_config is not None and hasattr(model, 'transformer'):
+        clear_mb_load_balancing_loss(policy_model_config, model.transformer)
+    
+    batch_size, concat_seq_len = batch['input_ids'].shape
+    pad_token_id = tokenizer.pad_token_id  # type: ignore
+    eos_token_id = tokenizer.eos_token_id  # type: ignore
+    if pad_token_id is None:
+        raise ValueError('Tokenizer must have a PAD token.')
+
+    if use_attention_sequence_id:
+        raise NotImplementedError('Attention sequence ID not implemented for Causal RM.')
+    else:
+        # If we can't use attn_seq_id then we need to unpack each batch and
+        # Pack along the batch dimension instead.
+
+        chosen_inputs, rejected_inputs = extract_packed_chosen_rejected(
+            input_tensor=batch['input_ids'],
+            chosen_len=batch['chosen_len'],
+            rejected_len=batch['rejected_len'],
+            max_seq_len=batch['input_ids'].shape[1] // 2,
+            pad_token_id=tokenizer.pad_token_id,
+        )
+
+        chosen_attention_mask, rejected_attention_mask = extract_packed_chosen_rejected(
+            input_tensor=batch['text_attention_mask'],
+            chosen_len=batch['chosen_len'],
+            rejected_len=batch['rejected_len'],
+            max_seq_len=batch['input_ids'].shape[1] // 2,
+            pad_token_id=0,
+        )
+
+        batch_cat_inputs = torch.cat([chosen_inputs, rejected_inputs], dim=0)
+        batch_attn_mask = torch.cat(
+            [
+                chosen_attention_mask,
+                rejected_attention_mask,
+            ],
+            dim=0,
+        )
+
+        # Dynamic Padding
+        max_length = max(max(batch['chosen_len']), max(batch['rejected_len']))
+        batch_cat_inputs = batch_cat_inputs[:, :max_length]
+        batch_attn_mask = batch_attn_mask[:, :max_length]
+
+        model_output = model(
+            batch_cat_inputs,
+            attention_mask=batch_attn_mask,
+        )        # If we can't use attn_seq_id then we need to unpack each batch and
+        # Pack along the batch dimension instead.
+
+        chosen_inputs, rejected_inputs = extract_packed_chosen_rejected(
+            input_tensor=batch['input_ids'],
+            chosen_len=batch['chosen_len'],
+            rejected_len=batch['rejected_len'],
+            max_seq_len=concat_seq_len // 2,
+            pad_token_id=pad_token_id,
+        )
+
+        chosen_attention_mask, rejected_attention_mask = extract_packed_chosen_rejected(
+            input_tensor=batch['text_attention_mask'],
+            chosen_len=batch['chosen_len'],
+            rejected_len=batch['rejected_len'],
+            max_seq_len=concat_seq_len // 2,
+            pad_token_id=0,
+        )
+
+        batch_cat_inputs = torch.cat([chosen_inputs, rejected_inputs], dim=0)
+        batch_attn_mask = torch.cat(
+            [
+                chosen_attention_mask,
+                rejected_attention_mask,
+            ],
+            dim=0,
+        )
+
+        # Dynamic Padding
+        max_length = max(max(batch['chosen_len']), max(batch['rejected_len']))
+        batch_cat_inputs = batch_cat_inputs[:, :max_length]
+        batch_attn_mask = batch_attn_mask[:, :max_length]        
+
+        model_output = model(
+            batch_cat_inputs,
+            attention_mask=batch_attn_mask,
+        )
+
+        # We consider the scores the logits from the model
+        scores = model_output.logits
+
+        # Extract out the chosen and rejected logits along the batch dimension
+        # Expected Shape: (Batch Size, Max Seq. Length)
+        chosen_scores = scores[:batch_size]
+        rejected_scores = scores[batch_size:]
+    
+    # The scores for every sequence is just the logit from the EOS token
+    chosen_scores = chosen_scores[:, :, eos_token_id]
+    rejected_scores = rejected_scores[:, :, eos_token_id]
+
+    # Making the scores per sequence just the EOS token
+    chosen_scores = torch.gather(
+        chosen_scores,
+        dim=1,
+        index=batch['chosen_len'].view(-1, 1) - 1,
+    )
+    rejected_scores = torch.gather(
+        rejected_scores,
+        dim=1,
+        index=batch['rejected_len'].view(-1, 1) - 1,
+    )
+
+    outputs = {
+        'chosen_scores': chosen_scores,
+        'rejected_scores': rejected_scores,
+    }    
+
+    return outputs

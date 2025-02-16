@@ -20,6 +20,7 @@ from compose_rl.reward_learning.inference_model import InferenceRewardModel
 from compose_rl.reward_learning.model import (
     ComposerHFPairwiseRewardModel,
     ComposerMPTPairwiseRewardModel,
+    ComposerHFCausalRewardModel,
 )
 
 # Necessary to upload code when saving
@@ -32,6 +33,7 @@ __all__ = [
     'RewardModel',
     'ComposerMPTPairwiseRewardModel',
     'ComposerHFPairwiseRewardModel',
+    'ComposerHFCausalRewardModel',
     'InferenceRewardModel',
     'BadGenerationEndReward',
     'IncreasingNumbersReward',
