@@ -4,9 +4,12 @@
 """Reward Model Composer Implementation."""
 
 import logging
+from contextlib import nullcontext
+from functools import partial
 from typing import Any, Mapping, MutableMapping, Optional, Union
 
 import torch
+from composer.utils import is_model_fsdp
 from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 
 from compose_rl.reward_learning.base_reward import RewardModel, Tokenizer
@@ -186,11 +189,12 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
         additional_eval_metrics: Optional[list] = None,
         loss_type: str = 'bt',
         return_last: bool = True,
+        should_reset_output_embed: bool = True,
         **kwargs: Any,
     ):
         self.loss_type = PairwiseRewardEnum(loss_type)
         self.return_last = return_last
-        self.eos_token_id = tokenizer.eos_token_id # type: ignore
+        self.eos_token_id = tokenizer.eos_token_id  # type: ignore
 
         config_overrides = {}
 
@@ -209,10 +213,50 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
             **kwargs,
         )
 
+        self.reset_output_embed = False
+        self.should_reset_output_embed = should_reset_output_embed
+
+    def mask_last_embed_except_eos(
+        self,
+        fill_value: float = float('-inf'),
+    ) -> None:
+        """Mask out all but the last embedding for the EOS token."""
+        print('model is: ', self.model)
+        logging.info('Resetting output embedding layer.')
+
+        context_manager = nullcontext
+        if is_model_fsdp(self.model):
+            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+            context_manager = partial(
+                FSDP.summon_full_params,
+                self.model,
+                writeback=True,
+                recurse=False,
+            )
+
+        with context_manager():
+            mask = torch.full_like(self.model.lm_head.weight.data, fill_value)
+
+            mask[self.eos_token_id, :] = self.model.lm_head.weight.data[
+                self.eos_token_id, :]
+
+            with torch.no_grad():
+                self.model.lm_head.weight.copy_(mask)
+
+        with context_manager():
+            print(self.model.lm_head.weight.data[0, :])
+            print(self.model.lm_head.weight.data[self.eos_token_id, :])
+
+        self.reset_output_embed = True
+        logging.info("Finished resetting output embedding layer.')")
+
     def forward(
         self,
         batch: MutableMapping,
     ) -> Union[dict[str, torch.Tensor], torch.Tensor]:
+        if not self.reset_output_embed and self.should_reset_output_embed:
+            self.mask_last_embed_except_eos()
+
         is_inference = batch.get('is_inference', False)
         if is_inference:
             # Inference code should be able to
