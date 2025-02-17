@@ -9,7 +9,7 @@ from functools import partial
 from typing import Any, Mapping, MutableMapping, Optional, Union
 
 import torch
-from composer.utils import is_model_fsdp
+from composer.utils import dist, is_model_fsdp
 from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 
 from compose_rl.reward_learning.base_reward import RewardModel, Tokenizer
@@ -216,9 +216,13 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
         self.reset_output_embed = False
         self.should_reset_output_embed = should_reset_output_embed
 
+        # if kwargs['init_device'] == 'mixed':
+        # if dist.get_global_rank() == 0:
+        # self.mask_last_embed_except_eos()
+
     def mask_last_embed_except_eos(
         self,
-        fill_value: float = float('-inf'),
+        fill_value: float = -100,
     ) -> None:
         """Mask out all but the last embedding for the EOS token."""
         print('model is: ', self.model)
@@ -238,8 +242,8 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
             mask = torch.full_like(self.model.lm_head.weight.data, fill_value)
 
             # mask[self.eos_token_id, :] = self.model.lm_head.weight.data[
-                # self.eos_token_id, :]
-            
+            # self.eos_token_id, :]
+
             # Reset the values here? It might help
             mask[self.eos_token_id, :] = 0.0
 
@@ -251,7 +255,7 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
             print(self.model.lm_head.weight.data[self.eos_token_id, :])
 
         self.reset_output_embed = True
-        logging.info("Finished resetting output embedding layer.')")
+        logging.info('Finished resetting output embedding layer.')
 
     def forward(
         self,
@@ -262,7 +266,7 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
 
         is_inference = batch.get('is_inference', False)
         if is_inference:
-            # Inference code should be able to
+            # Inference code should be able to handle this arbitrary result
             logits = self.model(
                 batch['input_ids'],
                 attention_mask=batch['attention_mask'],

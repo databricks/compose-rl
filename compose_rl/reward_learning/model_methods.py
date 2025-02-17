@@ -291,42 +291,6 @@ def causal_rm_forward(
         model_output = model(
             batch_cat_inputs,
             attention_mask=batch_attn_mask,
-        )  # If we can't use attn_seq_id then we need to unpack each batch and
-        # Pack along the batch dimension instead.
-
-        chosen_inputs, rejected_inputs = extract_packed_chosen_rejected(
-            input_tensor=batch['input_ids'],
-            chosen_len=batch['chosen_len'],
-            rejected_len=batch['rejected_len'],
-            max_seq_len=concat_seq_len // 2,
-            pad_token_id=pad_token_id,
-        )
-
-        chosen_attention_mask, rejected_attention_mask = extract_packed_chosen_rejected(
-            input_tensor=batch['text_attention_mask'],
-            chosen_len=batch['chosen_len'],
-            rejected_len=batch['rejected_len'],
-            max_seq_len=concat_seq_len // 2,
-            pad_token_id=0,
-        )
-
-        batch_cat_inputs = torch.cat([chosen_inputs, rejected_inputs], dim=0)
-        batch_attn_mask = torch.cat(
-            [
-                chosen_attention_mask,
-                rejected_attention_mask,
-            ],
-            dim=0,
-        )
-
-        # Dynamic Padding
-        max_length = max(max(batch['chosen_len']), max(batch['rejected_len']))
-        batch_cat_inputs = batch_cat_inputs[:, :max_length]
-        batch_attn_mask = batch_attn_mask[:, :max_length]
-
-        model_output = model(
-            batch_cat_inputs,
-            attention_mask=batch_attn_mask,
         )
 
         # We consider the scores the logits from the model
@@ -352,6 +316,9 @@ def causal_rm_forward(
         dim=1,
         index=batch['rejected_len'].view(-1, 1) - 1,
     )
+
+    print('chosen scores are: ', chosen_scores)
+    print('rejected scores are: ', rejected_scores)
 
     outputs = {
         'chosen_scores': chosen_scores,
