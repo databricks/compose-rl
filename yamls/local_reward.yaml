@@ -9,6 +9,7 @@ seed: 17
 #     run: "{run_name}"
 
 model:
+  # name: hf_classifier_rm # for finegrained rewards
   name: hf_pairwise_rm
   pretrained_model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
   pretrained: true
@@ -22,6 +23,12 @@ model:
   - pairwise_rm_accuracy
   additional_eval_metrics:
   - pairwise_rm_accuracy
+  # For regression based rewards
+  # additional_train_metrics:
+  # - classifier_accuracy
+  # additional_eval_metrics:
+  # - classifier_accuracy
+
 
 callbacks:
   lr_monitor: {}
@@ -89,6 +96,7 @@ progress_bar: false
 #   num_workers: 8
 
 train_loader:
+  # name: finegrained_preference # For finegrained rewards
   name: pairwise_preference
   dataset:
     # remote: # TODO: Add remote path here if applicable
