@@ -36,6 +36,28 @@ class PairwisePreference(Dataset):
         }
 
 
+class FineGrainedPreference(Dataset):
+    """Mock dataset for testing fine-grained preferences."""
+
+    def __init__(self, size: int = 8, max_seq_len: int = 10):
+        self.max_seq_len = max_seq_len
+        self.size = size
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, index: int):
+        text = torch.ones(self.max_seq_len, dtype=torch.int64)
+        label = torch.zeros(1, dtype=torch.float32)
+        text_len = torch.tensor([self.max_seq_len], dtype=torch.int64)
+
+        return {
+            'text': text,
+            'labels': label,
+            'text_len': text_len,
+        }
+
+
 class PromptDataset(Dataset):
 
     def __init__(self, size: int = 8, prompt_len: int = 5):

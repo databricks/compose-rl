@@ -34,6 +34,10 @@ class PairwiseRewardEnum(Enum):
     BELLMAN_EURUS = 'bellman_eurus'
 
 
+class ClassifierRewardEnum(Enum):
+    BCE = 'bce'
+
+
 def pairwise_forward(
     model: nn.Module,
     tokenizer: Tokenizer,
@@ -162,6 +166,40 @@ def pairwise_forward(
     return outputs
 
 
+def classifier_forward(
+    model: nn.Module,
+    tokenizer: Tokenizer,
+    batch: MutableMapping,
+    policy_model_config: Optional[PretrainedConfig] = None,
+    use_attention_sequence_id: bool = False,
+    return_last: bool = True,
+    return_lm_logits: bool = False,
+) -> dict[str, torch.Tensor]:
+
+    model_output = model(
+        batch['text'],
+        attention_mask=batch['text_attention_mask'],
+        return_lm_logits=return_lm_logits,
+    )
+
+    output_scores = model_output.scores
+    if return_last:
+        # Expected Shape: (Batch Size, 1)
+        output_scores = torch.gather(
+            output_scores,
+            dim=1,
+            index=batch['text_len'].view(-1, 1) - 1,
+        )
+
+    # We need to add the labels here to compute metrics
+    outputs: dict[str, torch.Tensor] = {
+        'output_scores': output_scores,
+        'labels': batch['labels'],
+    }
+
+    return outputs
+
+
 def pairwise_loss(
     outputs: SequenceClassifierOutput,
     batch: Mapping,
@@ -217,5 +255,36 @@ def pairwise_loss(
         loss_dict['lbl'] = outputs['lbl']
 
     loss_dict['total'] = losses
+
+    return loss_dict
+
+
+def classifier_loss(
+    outputs: SequenceClassifierOutput,
+    batch: Mapping,
+    loss_type: ClassifierRewardEnum,
+) -> dict[str, torch.Tensor]:
+    """Computes Classifier loss.
+
+    Given precomputed values this will compute the specified classifier loss.
+
+    Args:
+        outputs (SequenceClassifierOutput): Outputs from forwarding the model over the batch.
+        batch (Mapping): Input batch of data.
+        loss_type (str): Loss type that we should compute (e.g. bce),
+    """
+    output_scores = outputs['output_scores']
+
+    if loss_type == ClassifierRewardEnum.BCE:
+        loss = F.binary_cross_entropy_with_logits(
+            output_scores,
+            batch['labels'],
+        )
+    else:
+        raise NotImplementedError(f'Loss type: {loss_type} is not supported.')
+
+    loss_dict = {
+        'total': loss,
+    }
 
     return loss_dict

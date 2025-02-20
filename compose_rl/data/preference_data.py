@@ -300,13 +300,15 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
             idx (int): the index where we fetch the data in the StreamingDataset.
         """
         sample = super().__getitem__(idx)
-        text = self._read_binary_tokenized_sample(sample, 'text')
-        label = self._read_binary_tokenized_sample(sample, 'label')
+        text = self._read_binary_tokenized_sample(sample, 'input')
+        label = torch.from_numpy(np.frombuffer(sample['label'], dtype=np.uint8))
+        # This needs to be a float tensor for BCE
+        label = label.to(torch.float32)
 
         text_len = len(text)
 
         return {
             'text': text,
-            'label': label,
+            'labels': label,
             'text_len': torch.Tensor([text_len]).to(torch.int64),
         }

@@ -56,6 +56,8 @@ class UnifiedTokenizedDataset(IterableDataset):
                 result = self._process_single_prompt_sample(sample)
                 if result is not None:
                     yield result
+            elif self.dataset_type == 'classifier':
+                yield self._process_classifier_sample(sample)
 
     def _process_preference_sample(self, sample: Any):
         """Process a preference sample.
@@ -104,6 +106,28 @@ class UnifiedTokenizedDataset(IterableDataset):
 
         return {'prompt': np.asarray(encoded_prompt).tobytes()}
 
+    def _process_classifier_sample(self, sample: Any):
+        """A dummy process a classifier sample.
+
+        Args:
+            sample (Any): a sample from the dataset
+        """
+        messages = [{
+            'role': 'user',
+            'content': f'This is a test',
+        }]
+        encoded_prompt = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+        )
+
+        label = np.random.randint(0, 2, size=(1,))
+
+        return {
+            'input': np.asarray(encoded_prompt).tobytes(),
+            'label': np.asarray(label).tobytes(),
+        }
+
 
 def main(
     dataset_name: str,
@@ -122,6 +146,10 @@ def main(
         },
         'single_prompt': {
             'prompt': 'bytes',
+        },
+        'classifier': {
+            'input': 'bytes',
+            'label': 'bytes',
         },
     }[dataset_type]
 
@@ -185,7 +213,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataset_type',
         type=str,
-        choices=['preference', 'single_prompt'],
+        choices=['preference', 'single_prompt', 'classifier'],
         required=True,
         help='Type of dataset to process',
     )

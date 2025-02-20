@@ -18,6 +18,7 @@ from compose_rl.reward_learning.hf_utils import (
 )
 from compose_rl.reward_learning.inference_model import InferenceRewardModel
 from compose_rl.reward_learning.model import (
+    ComposerHFClassifierRewardModel,
     ComposerHFPairwiseRewardModel,
     ComposerMPTPairwiseRewardModel,
 )
@@ -32,6 +33,7 @@ __all__ = [
     'RewardModel',
     'ComposerMPTPairwiseRewardModel',
     'ComposerHFPairwiseRewardModel',
+    'ComposerHFClassifierRewardModel',
     'InferenceRewardModel',
     'BadGenerationEndReward',
     'IncreasingNumbersReward',

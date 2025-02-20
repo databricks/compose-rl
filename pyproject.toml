@@ -38,6 +38,7 @@ mpt_dpo_lm = "compose_rl.dpo:ComposerDPOLM"
 hf_dpo_lm = "compose_rl.dpo:ComposerHFDPOLM"
 mpt_pairwise_rm = "compose_rl.reward_learning:ComposerMPTPairwiseRewardModel"
 hf_pairwise_rm = "compose_rl.reward_learning:ComposerHFPairwiseRewardModel"
+hf_classifier_rm = "compose_rl.reward_learning:ComposerHFClassifierRewardModel"
 mpt_ppo_lm = "compose_rl.ppo:ComposerMosaicPolicy"
 hf_ppo_lm = "compose_rl.ppo:ComposerHFPolicyModel"
 
@@ -52,6 +53,7 @@ ppo = "compose_rl.ppo:PPOCallback"
 
 [project.entry-points."llmfoundry_metrics"]
 pairwise_rm_accuracy = "compose_rl.metrics.reward_model_metrics:PairwiseRewardClassificationAccuracy"
+classifier_accuracy = "compose_rl.metrics.reward_model_metrics:BinaryRewardClassificationAccuracy"
 
 # iSort
 [tool.isort]

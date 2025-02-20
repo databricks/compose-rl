@@ -24,9 +24,12 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 from transformers.models.llama.modeling_llama import LlamaFlashAttention2
 
-from compose_rl.data import pairwise_preference_dataset_collate_fn
+from compose_rl.data import (
+    finegrained_preference_dataset_collate_fn,
+    pairwise_preference_dataset_collate_fn,
+)
 from compose_rl.reward_learning.hf_utils import AutoModelForCausalLMWithRM
-from tests.common import PairwisePreference, world_size
+from tests.common import FineGrainedPreference, PairwisePreference, world_size
 
 
 def get_config(conf_path: str = './yamls/testing.yaml',) -> DictConfig:
@@ -178,6 +181,7 @@ def test_forward_backward_hf_automodel():
     'conf_path',
     [
         'tests/yamls/testing_hf.yaml',
+        'tests/yamls/testing_hf_classifier.yaml',
     ],
 )
 def test_forward_backward(
@@ -209,18 +213,37 @@ def test_forward_backward(
 @pytest.mark.gpu
 @world_size(2)
 @pytest.mark.parametrize('fsdp_config', [None, {}])
+@pytest.mark.parametrize(
+    'model_params',
+    [
+        (
+            'hf_pairwise_rm',
+            PairwisePreference,
+            pairwise_preference_dataset_collate_fn,
+        ),
+        (
+            'hf_classifier_rm',
+            FineGrainedPreference,
+            finegrained_preference_dataset_collate_fn,
+        ),
+    ],
+)
 def test_hf_train(
     world_size: int,
+    model_params: tuple[str, type[PairwisePreference], Any],
     fsdp_config: dict[str, Any],
 ):
+    model_type, dataset_cls, collate_fn = model_params
     model_name = 'jdchang/llama3-small'
     tokenizer = AutoTokenizer.from_pretrained(model_name, pad_token='[PAD]')
     max_seq_len = 10
-    dataset = PairwisePreference(size=32, max_seq_len=max_seq_len)
+
+    dataset = dataset_cls(size=32, max_seq_len=max_seq_len)
+
     dataloader = DataLoader(
         dataset,
         collate_fn=partial(
-            pairwise_preference_dataset_collate_fn,
+            collate_fn,
             tokenizer,
             max_seq_len,
         ),
@@ -248,7 +271,7 @@ def test_hf_train(
     }
     init_context = process_init_device(model_config, fsdp_config)
     model = build_composer_model(
-        name='hf_pairwise_rm',
+        name=model_type,
         tokenizer=tokenizer,
         init_context=init_context,
         cfg=model_config,

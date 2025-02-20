@@ -4,7 +4,7 @@
 """Reward Model Composer Implementation."""
 
 import logging
-from typing import Any, Mapping, MutableMapping, Optional, Union
+from typing import Any, Mapping, MutableMapping, Optional
 
 import torch
 from llmfoundry.models import ComposerMPTCausalLM
@@ -12,7 +12,10 @@ from llmfoundry.models import ComposerMPTCausalLM
 from compose_rl.reward_learning.base_reward import RewardModel, Tokenizer
 from compose_rl.reward_learning.hf_utils import SequenceClassifierOutput
 from compose_rl.reward_learning.model_methods import (
+    ClassifierRewardEnum,
     PairwiseRewardEnum,
+    classifier_forward,
+    classifier_loss,
     pairwise_forward,
     pairwise_loss,
 )
@@ -62,24 +65,14 @@ class ComposerHFPairwiseRewardModel(
             **kwargs,
         )
 
-    def forward(
-        self,
-        batch: MutableMapping,
-    ) -> Union[dict[str, torch.Tensor], torch.Tensor]:
+    def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
         is_inference = batch.get('is_inference', False)
         if is_inference:
-            scores = self.model(
+            return self.model(
                 input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'],
                 return_lm_logits=self.return_lm_logits,
             ).scores
-            if self.min_threshold is not None and self.max_threshold is not None:
-                scores: torch.Tensor = torch.clamp(
-                    scores,
-                    min=self.min_threshold,
-                    max=self.max_threshold,
-                )
-            return scores
         else:
             return pairwise_forward(
                 model=self.model,
@@ -93,12 +86,78 @@ class ComposerHFPairwiseRewardModel(
         self,
         batch: MutableMapping,
         outputs: Optional[SequenceClassifierOutput] = None,
-    ) -> Union[dict[str, torch.Tensor], torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         return outputs if outputs is not None else self.forward(batch)
 
     def loss(self, outputs: SequenceClassifierOutput,
              batch: Mapping) -> dict[str, torch.Tensor]:
         return pairwise_loss(
+            outputs,
+            batch,
+            self.loss_type,
+        )
+
+
+class ComposerHFClassifierRewardModel(
+    ComposerHFSequenceClassification,
+    RewardModel,
+):
+
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        use_train_metrics: bool = True,
+        additional_train_metrics: Optional[list] = None,
+        additional_eval_metrics: Optional[list] = None,
+        loss_type: str = 'bce',
+        return_lm_logits: bool = False,
+        return_last: bool = True,
+        **kwargs: Any,
+    ):
+        self.loss_type = ClassifierRewardEnum(loss_type)
+        self.return_lm_logits = return_lm_logits
+        self.return_last = return_last
+
+        config_overrides = {
+            'return_logits': return_lm_logits,
+        }
+
+        if 'config_overrides' in kwargs:
+            config_overrides.update(kwargs.pop('config_overrides'))
+
+        self.min_threshold = kwargs.pop('min_threshold', None)
+        self.max_threshold = kwargs.pop('max_threshold', None)
+
+        super().__init__(
+            tokenizer=tokenizer,
+            use_train_metrics=use_train_metrics,
+            additional_train_metrics=additional_train_metrics,
+            additional_eval_metrics=additional_eval_metrics,
+            config_overrides=config_overrides,
+            **kwargs,
+        )
+
+    def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
+        ret_val = classifier_forward(
+            model=self.model,
+            tokenizer=self.tokenizer,
+            batch=batch,
+            return_last=self.return_last,
+            return_lm_logits=self.return_lm_logits,
+        )
+
+        return ret_val
+
+    def eval_forward(
+        self,
+        batch: MutableMapping,
+        outputs: Optional[SequenceClassifierOutput] = None,
+    ) -> dict[str, torch.Tensor]:
+        return outputs if outputs is not None else self.forward(batch)
+
+    def loss(self, outputs: SequenceClassifierOutput,
+             batch: Mapping) -> dict[str, torch.Tensor]:
+        return classifier_loss(
             outputs,
             batch,
             self.loss_type,

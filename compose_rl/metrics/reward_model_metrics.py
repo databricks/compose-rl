@@ -40,3 +40,64 @@ class PairwiseRewardClassificationAccuracy(Metric):
         assert isinstance(self.correct, Tensor)
         assert isinstance(self.total, Tensor)
         return self.correct / self.total
+
+
+class BinaryRewardClassificationAccuracy(Metric):
+    """Classification accuracy metric.
+
+    Computes the accuracy of a classifier by comparing predictions from logits
+    against ground truth labels. Handles both binary and multi-class
+    classification.
+    """
+
+    # Make torchmetrics call update only once
+    full_state_update = False
+
+    def __init__(
+        self,
+        threshold: float = 0.5,
+        dist_sync_on_step: bool = False,
+        **kwargs: Any,
+    ):
+        """Initialize the metric.
+
+        Args:
+            binary: If True, treats as binary classification with sigmoid.
+                   If False, treats as multi-class with softmax.
+            threshold: Decision threshold for binary classification
+            dist_sync_on_step: Synchronize metric state across processes
+        """
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+        self.threshold = threshold
+
+        self.add_state(
+            'correct',
+            default=torch.tensor(0.),
+            dist_reduce_fx='sum',
+        )
+        self.add_state('total', default=torch.tensor(0.), dist_reduce_fx='sum')
+
+    def update(self, batch: dict, output_logits: torch.Tensor):
+        """Update state with predictions and targets.
+
+        Args:
+            batch: Dictionary containing 'output_scores' and 'labels'
+            output_logits: `None`
+        """
+        del output_logits
+        logits = batch['output_scores']
+        targets = batch['labels'].squeeze(-1)
+        assert logits.shape[0] == targets.shape[0], 'Batch sizes must match'
+
+        # TODO (raj): Handle multi-class classification with logging
+        probs = torch.sigmoid(logits.squeeze())
+        predictions = (probs > self.threshold).long()
+
+        self.correct += (predictions == targets).sum().detach().cpu()
+        self.total += targets.shape[0]
+
+    def compute(self):
+        """Compute the accuracy."""
+        assert isinstance(self.correct, Tensor)
+        assert isinstance(self.total, Tensor)
+        return self.correct / self.total
