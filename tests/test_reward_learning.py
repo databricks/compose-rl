@@ -126,7 +126,7 @@ def gen_random_batch(
     test_cfg: Union[DictConfig, ListConfig],
     inputs: Optional[list[str]] = None,
 ):
-    dataloader_type = test_cfg['train_loader']['name'] # type: ignore
+    dataloader_type = test_cfg['train_loader']['name']  # type: ignore
     # inputs can be [], ['input_ids'], ['input_ids', 'inputs_embeds'], and ['inputs_embeds']
     # default to only input ids
     if inputs == None:
