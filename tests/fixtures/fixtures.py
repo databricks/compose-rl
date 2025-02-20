@@ -9,7 +9,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 
 def tiny_gpt2_tokenizer_helper():
     hf_tokenizer = AutoTokenizer.from_pretrained('gpt2')
-    hf_tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    hf_tokenizer.add_special_tokens({'pad_token': '<|endoftext|>'})
     return hf_tokenizer
 
 
