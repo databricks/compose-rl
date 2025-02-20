@@ -126,6 +126,7 @@ def gen_random_batch(
     test_cfg: Union[DictConfig, ListConfig],
     inputs: Optional[list[str]] = None,
 ):
+    dataloader_type = test_cfg['train_loader']['name'] # type: ignore
     # inputs can be [], ['input_ids'], ['input_ids', 'inputs_embeds'], and ['inputs_embeds']
     # default to only input ids
     if inputs == None:
@@ -143,18 +144,30 @@ def gen_random_batch(
         size=(batch_size, test_cfg.max_seq_len * 2),
         dtype=torch.int64,
     ).to(device)
-    batch['chosen_len'] = (
-        torch.ones(
+    if dataloader_type == 'pairwise_preference':
+        batch['chosen_len'] = (
+            torch.ones(
+                size=(batch_size,),
+                dtype=torch.int64,
+            ) * test_cfg.max_seq_len
+        ).to(device)
+        batch['rejected_len'] = (
+            torch.ones(
+                size=(batch_size,),
+                dtype=torch.int64,
+            ) * test_cfg.max_seq_len
+        ).to(device)
+    elif dataloader_type == 'finegrained_preference':
+        batch['text'] = torch.ones(
+            size=(batch_size, test_cfg.max_seq_len * 2),
+            dtype=torch.int64,
+        ).to(device)
+        batch['labels'] = torch.zeros((batch_size, 1),
+                                      dtype=torch.float32).to(device)
+        batch['text_len'] = torch.ones(
             size=(batch_size,),
             dtype=torch.int64,
-        ) * test_cfg.max_seq_len
-    ).to(device)
-    batch['rejected_len'] = (
-        torch.ones(
-            size=(batch_size,),
-            dtype=torch.int64,
-        ) * test_cfg.max_seq_len
-    ).to(device)
+        ).to(device) * test_cfg.max_seq_len
     return batch
 
 
