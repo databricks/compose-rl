@@ -22,26 +22,18 @@ jobs:
     strategy:
       matrix:
         include:
-        - name: "cpu-2.4.0"
-          container: mosaicml/pytorch:2.4.0_cpu-python3.11-ubuntu20.04
-          pytest_markers: "not gpu"
-          pytest_command: "coverage run -m pytest"
+        - name: "cpu-2.5.1"
+          container: mosaicml/pytorch:2.5.1_cpu-python3.11-ubuntu22.04
+          markers: "not gpu and not only_release"
           pip_deps: "[cpu]"
-          safe_directory: RLHF
+          pytest_command: "coverage run -m pytest"
     steps:
     - name: Run PR CPU Tests
-      uses: mosaicml/ci-testing/.github/actions/pytest-cpu@v0.2.2
+      uses: mosaicml/ci-testing/.github/actions/pytest-cpu@v0.3.3
       with:
         container: ${{ matrix.container }}
         name: ${{ matrix.name }}
         pip_deps: ${{ matrix.pip_deps }}
         pytest_command: ${{ matrix.pytest_command }}
-        pytest_markers: ${{ matrix.pytest_markers }}
-        safe_directory: ${{ matrix.safe_directory }}
-  coverage:
-    uses: ./.github/workflows/coverage.yaml
-    name: Coverage Results
-    if: github.repository_owner == 'databricks'
-    needs: [pytest-cpu]
-    with:
-      download-path: artifacts
+        pytest_markers: ${{ matrix.markers }}
+        safe_directory: compose-rl

@@ -28,9 +28,9 @@ You'll find in this repo:
 
 Clone the repository and install the dependencies:
 
-```bash
-git clone https://github.com/databricks/Compose-RL.git
-cd Compose-RL
+```
+git clone https://github.com/databricks/compose-rl.git
+cd compose-rl
 pip install -e .[gpu]
 python3 -m spacy download en_core_web_sm
 ```
