@@ -245,7 +245,7 @@ class ComposerHFCausalRewardModel(ComposerHFCausalLM, RewardModel):
             # self.eos_token_id, :]
 
             # Reset the values here? It might help
-            # mask[self.eos_token_id, :] = 0.0
+            mask[self.eos_token_id, :] = 0.0
 
             with torch.no_grad():
                 self.model.lm_head.weight.copy_(mask)
