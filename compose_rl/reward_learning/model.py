@@ -350,7 +350,7 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
         batch: MutableMapping,
         outputs: Optional[SequenceClassifierOutput] = None,
     ) -> dict[str, torch.Tensor]:
-        return outputs if outputs is not None else self.forward(batch)
+        return outputs if outputs is not None else self.forward(batch) # type: ignore
 
     def loss(self, outputs: SequenceClassifierOutput,
              batch: Mapping) -> dict[str, torch.Tensor]:
