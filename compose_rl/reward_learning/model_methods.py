@@ -200,6 +200,43 @@ def classifier_forward(
     return outputs
 
 
+def causal_classifier_forward(
+    model: nn.Module,
+    tokenizer: Tokenizer,
+    batch: MutableMapping,
+    policy_model_config: Optional[PretrainedConfig] = None,
+    use_attention_sequence_id: bool = False,
+    return_last: bool = True,
+) -> dict[str, torch.Tensor]:
+
+    model_output = model(
+        batch['text'],
+        attention_mask=batch['text_attention_mask'],
+        return_lm_logits=True, # Difference 1/2 from causal_forward: always return logits
+    )
+
+    # Difference 2/2 from causal_forward: scores are logits of EOS token
+    if tokenizer is None:
+        raise ValueError('Tokenizer must be provided for causal classifier forward.')
+    # Expected Shape: (Batch Size, Max Seq. Length)
+    output_scores = model_output.logits[:, :, tokenizer.eos_token_id]
+    if return_last:
+        # Expected Shape: (Batch Size, 1)
+        output_scores = torch.gather(
+            output_scores,
+            dim=1,
+            index=batch['text_len'].view(-1, 1) - 1,
+        )
+
+    # We need to add the labels here to compute metrics
+    outputs: dict[str, torch.Tensor] = {
+        'output_scores': output_scores,
+        'labels': batch['labels'],
+    }
+
+    return outputs
+
+
 def pairwise_loss(
     outputs: SequenceClassifierOutput,
     batch: Mapping,
