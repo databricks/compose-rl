@@ -39,6 +39,7 @@ hf_dpo_lm = "compose_rl.dpo:ComposerHFDPOLM"
 mpt_pairwise_rm = "compose_rl.reward_learning:ComposerMPTPairwiseRewardModel"
 hf_pairwise_rm = "compose_rl.reward_learning:ComposerHFPairwiseRewardModel"
 hf_classifier_rm = "compose_rl.reward_learning:ComposerHFClassifierRewardModel"
+hf_causal_classifier_rm = "compose_rl.reward_learning:ComposerHFCausalClassifierRewardModel"
 mpt_ppo_lm = "compose_rl.ppo:ComposerMosaicPolicy"
 hf_ppo_lm = "compose_rl.ppo:ComposerHFPolicyModel"
 
