@@ -28,7 +28,7 @@ dev = [
     'kubernetes==29.0.0',
 ]
 released = [
-    'llm-foundry[all]==0.15.1',
+    'llm-foundry[all]>=0.17.1',
     'kubernetes==29.0.0',
 ]
 
