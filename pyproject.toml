@@ -31,6 +31,10 @@ released = [
     'llm-foundry[all]>=0.17.1',
     'kubernetes==29.0.0',
 ]
+cpu_released = [
+    'llm-foundry[all-cpu]>=0.17.1,
+    'kubernetes==29.0.0',
+]
 
 # Registry entry points
 [project.entry-points."llmfoundry_models"]
