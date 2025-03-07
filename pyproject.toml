@@ -32,7 +32,7 @@ released = [
     'kubernetes==29.0.0',
 ]
 cpu_released = [
-    'llm-foundry[all-cpu]>=0.17.1,
+    'llm-foundry[all-cpu]>=0.17.1',
     'kubernetes==29.0.0',
 ]
 
