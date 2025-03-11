@@ -214,7 +214,12 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
     def set_batch_stats(self, batch_stats: dict[str, Any]):
         self.batch_stats = batch_stats
 
-    def load_state_dict(self, state_dict: MutableMapping, strict: bool = True):
+    def load_state_dict(
+        self,
+        state_dict: MutableMapping,
+        assign: bool,
+        strict: bool = True,
+    ):
         state_dict_keys = list(state_dict.keys())
         state_dict_has_lm_backbone = False
         for key in state_dict_keys:
@@ -242,4 +247,8 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
                     )
                     new_state_dict[new_key] = value
 
-        return super().load_state_dict(new_state_dict, strict=strict)
+        return super().load_state_dict(
+            new_state_dict,
+            assign=assign,
+            strict=strict,
+        )
