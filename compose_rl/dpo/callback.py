@@ -33,18 +33,21 @@ class DPOCallback(CallbackWithConfig):
 
     def after_load(self, state: State, logger: Logger) -> None:
         model_config = self.train_config['model']
-        reference_model_config = model_config.get('reference_model')
+        reference_model_name_or_path = model_config.pop('reference_model_name_or_path')
+        _ = model_config.pop('pretrained_model_name_or_path')
+        model_config['pretrained_model_name_or_path'] = reference_model_name_or_path
+
         init_context = process_init_device(
-            reference_model_config,
+            model_config,
             self.train_config.get('fsdp_config'),
         )
-        name = reference_model_config.pop('name')
+        name = model_config.pop('name')
         self.reference_model = build_composer_model(
             name=name,
-            cfg=reference_model_config,
+            cfg=model_config,
             tokenizer=state.model.tokenizer,
             init_context=init_context,
-            master_weights_dtype=reference_model_config.get('master_weights_dtype', None),
+            master_weights_dtype=model_config.get('master_weights_dtype', None),
         )
 
         original_load_path = self.train_config.get('load_path', None)
