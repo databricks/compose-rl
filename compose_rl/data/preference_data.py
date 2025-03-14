@@ -60,9 +60,9 @@ def pairwise_preference_dataset_collate_fn(
 
         # Add the eos token if it's not in the chosen sample
         if chosen[-1] != tokenizer.eos_token_id:
-            chosen[-1] = tokenizer.eos_token_id
+            chosen[-1] = tokenizer.eos_token_id  # type: ignore
         if rejected[-1] != tokenizer.eos_token_id:
-            rejected[-1] = tokenizer.eos_token_id
+            rejected[-1] = tokenizer.eos_token_id  # type: ignore
 
         pad_len = max_seq_len * 2 - chosen_len - rejected_len
         cat_batch = torch.cat([chosen, rejected], dim=-1)
@@ -73,10 +73,10 @@ def pairwise_preference_dataset_collate_fn(
 
             # Truncate each value by truncate length, and make the last token EOS
             chosen = chosen[:-truncate_len]
-            chosen[-1] = tokenizer.eos_token_id
+            chosen[-1] = tokenizer.eos_token_id  # type: ignore
 
             rejected = rejected[:-truncate_len]
-            rejected[-1] = tokenizer.eos_token_id
+            rejected[-1] = tokenizer.eos_token_id  # type: ignore
 
             cat_batch = torch.cat([chosen, rejected], dim=-1)
 
@@ -96,7 +96,7 @@ def pairwise_preference_dataset_collate_fn(
             )
 
         attention_mask = torch.logical_not(
-            torch.eq(cat_batch, tokenizer.pad_token_id),
+            torch.eq(cat_batch, tokenizer.pad_token_id),  # type: ignore
         )
 
         cur_sequence_ids = torch.tensor(([0] * chosen_len) +
@@ -181,7 +181,7 @@ def finegrained_preference_dataset_collate_fn(
 
         batch[key] = ref_collate_fn(cur_values)['input_ids']
     batch['text_attention_mask'] = torch.logical_not(
-        torch.eq(batch['text'], tokenizer.pad_token_id),
+        torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
     )
 
     return batch

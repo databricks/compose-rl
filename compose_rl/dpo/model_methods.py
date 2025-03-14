@@ -76,7 +76,7 @@ def dpo_forward(
             batch['chosen_len'],
             batch['rejected_len'],
             concat_seq_len // 2,
-            pad_token_id=pad_token_id,
+            pad_token_id=pad_token_id,  # type: ignore
         )
 
     else:
@@ -88,7 +88,7 @@ def dpo_forward(
             batch['chosen_len'],
             batch['rejected_len'],
             concat_seq_len // 2,
-            pad_token_id=pad_token_id,
+            pad_token_id=pad_token_id,  # type: ignore
         )
 
         chosen_attention_mask, rejected_attention_mask = extract_packed_chosen_rejected(

@@ -198,10 +198,10 @@ def env_generate(
                 sequences,
                 prompt_len,
                 max_gen_len,
-                pad_token_id,
+                pad_token_id,  # type: ignore
             )
             right_padded_attn_mask = torch.logical_not(
-                torch.eq(right_padded_obs, pad_token_id),
+                torch.eq(right_padded_obs, pad_token_id),  # type: ignore
             )
 
             (
@@ -216,8 +216,8 @@ def env_generate(
                 prompt_len=prompt_len,
                 generated_len=generated_len,
                 max_gen_len=max_gen_len,
-                eos_token=eos_token_id,
-                pad_token=pad_token_id,
+                eos_token=eos_token_id,  # type: ignore
+                pad_token=pad_token_id,  # type: ignore
             )
 
             untokenized_prompt_and_responses = []
