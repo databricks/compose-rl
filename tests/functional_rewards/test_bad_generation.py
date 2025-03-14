@@ -86,5 +86,5 @@ def test_call_bad_generation_invalid_input(
 
 def test_special_tokens_added(reward: BadGenerationEndReward) -> None:
     assert reward.tokenizer is not None
-    assert '<|im_end|>' in reward.tokenizer.additional_special_tokens
+    assert '<|im_end|>' in reward.tokenizer.additional_special_tokens  # type: ignore
     assert reward.tokenizer.additional_special_tokens_ids != []
