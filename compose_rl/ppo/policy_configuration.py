@@ -8,6 +8,8 @@ from typing import Any, Optional, Union
 from llmfoundry.models import MPTConfig
 from transformers import AutoConfig, PretrainedConfig
 
+from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
+
 
 class MPTPolicyConfig(MPTConfig):
     model_type = 'mpt_policy'
@@ -82,6 +84,7 @@ class HFPolicyConfig(PretrainedConfig):
         self.base_model = base_model
         self.base_config = base_config if base_config is not None else AutoConfig.from_pretrained(
             base_model,
+            torch_dtype=_MASTER_WEIGHTS_PRECISION,
         )
 
         temp_config = deepcopy(self.base_config)

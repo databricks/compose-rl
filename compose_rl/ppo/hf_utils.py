@@ -22,6 +22,7 @@ from compose_rl.ppo.modeling_utils import (
     prepare_critic_values_for_training,
 )
 from compose_rl.ppo.policy_configuration import HFPolicyConfig
+from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
@@ -42,6 +43,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
                 config.base_model,
                 config=config.base_config,
                 **pretrain_cfg,
+                torch_dtype=_MASTER_WEIGHTS_PRECISION,
             )
         else:
             # When downloading from hub, base config gets converted to dict
@@ -50,6 +52,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
                 config.base_config = AutoConfig.from_pretrained(
                     config.base_model,
                     **config.base_config,
+                    torch_dtype=_MASTER_WEIGHTS_PRECISION,
                 )
             self.lm_backbone = AutoModelForCausalLM.from_config(
                 config.base_config,
@@ -166,6 +169,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
             token=token,
             attn_implementation=attn_implementation,
             use_cache=False,
+            torch_dtype=_MASTER_WEIGHTS_PRECISION,
         )
 
         if isinstance(pretrained_model_config, cls.config_class):
