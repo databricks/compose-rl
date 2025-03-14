@@ -22,7 +22,7 @@ from omegaconf import OmegaConf as om
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
-from transformers.models.llama.modeling_llama import LlamaFlashAttention2
+from transformers.models.llama.modeling_llama import LlamaAttention
 
 from compose_rl.data import (
     finegrained_preference_dataset_collate_fn,
@@ -359,7 +359,8 @@ def test_flashattention2(world_size: int):
 
     transformer_block = model_flash.model.lm_backbone.model.layers[0]
     # Checks that Flash Attention has been properly initialized
-    assert isinstance(transformer_block.self_attn, LlamaFlashAttention2)
+    assert isinstance(transformer_block.self_attn, LlamaAttention)
+    assert model.model.config._attn_implementation == ('flash_attention_2')
 
     with get_precision_context('amp_bf16'):
         for batch in dataloader:
