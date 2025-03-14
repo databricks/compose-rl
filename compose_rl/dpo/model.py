@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping, MutableMapping, Union
+from typing import Any, Mapping, MutableMapping, Union, Optional
 
 import torch
 from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
@@ -29,6 +29,7 @@ class ComposerDPOLM(ComposerMPTCausalLM):
         beta: float = 0.1,
         label_smoothing: float = 0,
         sft_alpha: float = 0.0,
+        reference_model_name_or_path: Optional[str] = None,
         **kwargs: Any,
     ):
         self.loss_type = DPOEnum(loss_type)
@@ -78,6 +79,7 @@ class ComposerHFDPOLM(ComposerHFCausalLM):
         beta: float = 0.1,
         label_smoothing: float = 0,
         sft_alpha: float = 0.0,
+        reference_model_name_or_path: Optional[str] = None,
         **kwargs: Any,
     ):
         self.loss_type = DPOEnum(loss_type)
