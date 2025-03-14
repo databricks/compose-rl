@@ -21,6 +21,7 @@ from transformers.models.auto.auto_factory import _BaseAutoModelClass
 
 from compose_rl.ppo.hf_utils import AutoModelForCausalLMAsPolicy
 from compose_rl.ppo.policy_configuration import HFPolicyConfig
+from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
 
 if TYPE_CHECKING:
     from peft import PeftConfig, PeftModel
@@ -112,6 +113,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             attn_implementation=attn_implementation,
             use_cache=
             False,  # Necessary due to https://github.com/huggingface/transformers/issues/28056
+            torch_dtype=_MASTER_WEIGHTS_PRECISION,
         )
 
         pretrain_cfg = {

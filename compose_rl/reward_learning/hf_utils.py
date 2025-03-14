@@ -21,6 +21,8 @@ from transformers import (
 )
 from transformers.modeling_outputs import ModelOutput
 
+from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
+
 
 @dataclass
 class SequenceClassifierOutput(ModelOutput):
@@ -106,6 +108,7 @@ class RewardModelConfig(PretrainedConfig):
         self.base_model = base_model
         self.base_config = base_config if base_config is not None else AutoConfig.from_pretrained(
             base_model,
+            torch_dtype=_MASTER_WEIGHTS_PRECISION,
         )
         temp_config = deepcopy(self.base_config)
         if not isinstance(temp_config, dict):
@@ -143,6 +146,7 @@ class AutoModelForCausalLMWithRM(PreTrainedModel):
                 config.base_config = AutoConfig.from_pretrained(
                     config.base_model,
                     **config.base_config,
+                    torch_dtype=_MASTER_WEIGHTS_PRECISION,
                 )
             self.lm_backbone = AutoModelForCausalLM.from_config(
                 config.base_config,
@@ -266,6 +270,7 @@ class AutoModelForCausalLMWithRM(PreTrainedModel):
             token=token,
             attn_implementation=attn_implementation,
             use_cache=False,
+            torch_dtype=_MASTER_WEIGHTS_PRECISION,
         )
 
         if isinstance(pretrained_model_config, cls.config_class):

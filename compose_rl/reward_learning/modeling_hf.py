@@ -29,6 +29,7 @@ from compose_rl.reward_learning.hf_utils import (
     AutoModelForCausalLMWithRM,
     RewardModelConfig,
 )
+from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
 
 if TYPE_CHECKING:
     from peft import PeftConfig, PeftModel
@@ -133,6 +134,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
             attn_implementation=attn_implementation,
             use_cache=
             False,  # Necessary due to https://github.com/huggingface/transformers/issues/28056
+            torch_dtype=_MASTER_WEIGHTS_PRECISION,
         )
 
         pretrain_cfg = {

@@ -46,7 +46,8 @@ def prompt_dataset_collate_fn(
         collated_batch[key] = ref_collate_fn(cur_values)['input_ids']
 
     collated_batch['prompt_attention_mask'] = torch.logical_not(
-        torch.eq(collated_batch['prompt'], tokenizer.pad_token_id),
+        torch.eq(collated_batch['prompt'],
+                 tokenizer.pad_token_id),  # type: ignore
     )
 
     return collated_batch

@@ -81,7 +81,7 @@ def pairwise_forward(
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
             max_seq_len=concat_seq_len // 2,
-            pad_token_id=pad_token_id,
+            pad_token_id=pad_token_id,  # type: ignore
         )
 
     else:
@@ -93,7 +93,7 @@ def pairwise_forward(
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
             max_seq_len=concat_seq_len // 2,
-            pad_token_id=pad_token_id,
+            pad_token_id=pad_token_id,  # type: ignore
         )
 
         chosen_attention_mask, rejected_attention_mask = extract_packed_chosen_rejected(
