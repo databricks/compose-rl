@@ -110,7 +110,7 @@ class ComposerMosaicPolicy(HuggingFaceModel):
         return early_stop
 
     def set_batch_stats(self, batch_stats: dict[str, Any]):
-        self.batch_stats = batch_stats
+        self.batch_stats = batch_stats # pyright: ignore
 
 
 class ComposerHFPolicyModel(ComposerHFPolicy):

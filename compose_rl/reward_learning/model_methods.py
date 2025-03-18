@@ -60,7 +60,7 @@ def pairwise_forward(
         return_lm_logits (bool): Whether to only return the logits from the lm_head
     """
     if policy_model_config is not None and hasattr(model, 'transformer'):
-        clear_mb_load_balancing_loss(policy_model_config, model.transformer)
+        clear_mb_load_balancing_loss(policy_model_config, model.transformer) # type: ignore
 
     batch_size, concat_seq_len = batch['input_ids'].shape
     pad_token_id = tokenizer.pad_token_id  # type: ignore
@@ -159,7 +159,7 @@ def pairwise_forward(
         outputs['rejected_logits'] = rejected_logits
 
     if policy_model_config is not None and hasattr(model, 'transformer'):
-        lbl = get_mb_load_balancing_loss(policy_model_config, model.transformer)
+        lbl = get_mb_load_balancing_loss(policy_model_config, model.transformer) # type: ignore
         if lbl is not None:
             outputs['lbl'] = lbl
 

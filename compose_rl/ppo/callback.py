@@ -388,7 +388,7 @@ class PPOCallback(CallbackWithConfig):
             )
 
     def init(self, state: State, logger: Logger):
-        self.pad_token_idx = state.model.tokenizer.pad_token_id
+        self.pad_token_idx = state.model.tokenizer.pad_token_id # type: ignore
         self.actor_critic = state.model
 
         # TODO (#158): do this through composer.
@@ -409,8 +409,8 @@ class PPOCallback(CallbackWithConfig):
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
         kl_penalty_in_reward = True
-        if hasattr(self.actor_critic.model.config, 'compute_kl_loss'):
-            kl_penalty_in_reward = not self.actor_critic.model.config.compute_kl_loss
+        if hasattr(self.actor_critic.model.config, 'compute_kl_loss'): # type: ignore
+            kl_penalty_in_reward = not self.actor_critic.model.config.compute_kl_loss # type: ignore
 
         self.reward_manager = RewardManager(
             config=self.reward_cfg,
@@ -423,7 +423,7 @@ class PPOCallback(CallbackWithConfig):
         )
 
         # This is needed to ensure PyTorch 2.4 checkpointing doesn't break
-        self.actor_critic.tokenizer.batch_encode_plus(
+        self.actor_critic.tokenizer.batch_encode_plus( # type: ignore
             batch_text_or_text_pairs=['Dummy input'],
             padding='longest',
             truncation=True,
@@ -474,7 +474,7 @@ class PPOCallback(CallbackWithConfig):
     def epoch_end(self, state: State, logger: Logger):
         del logger  # unused
         assert self.epochs_per_iteration == state._iteration_length
-        if self.actor_critic.determine_early_stop():
+        if self.actor_critic.determine_early_stop(): # type: ignore
             state.timestamp.epoch_in_iteration = self.epochs_per_iteration
 
     def iteration_end(self, state: State, logger: Logger):
@@ -516,11 +516,11 @@ class PPOCallback(CallbackWithConfig):
                         )
                 elif key == 'prompt_attention_mask':
                     padding_key = False
-
+                
                 pad = torch.ones(
                     (bs, max_len - seq_len),
                     dtype=batch[key].dtype,
-                ) * padding_key
+                ) * padding_key # type: ignore
                 curr_values.append(torch.cat([pad, batch[key]], dim=-1))
 
             ret_batch[key] = torch.cat(curr_values)
@@ -663,10 +663,10 @@ class PPOCallback(CallbackWithConfig):
             output['obs'] = add_right_padding(
                 output['obs'],
                 max_len,
-                self.pad_token_idx,
+                self.pad_token_idx, # type: ignore
             )
             output['right_padded_attn_mask'] = torch.logical_not(
-                torch.eq(output['obs'], self.pad_token_idx),
+                torch.eq(output['obs'], self.pad_token_idx), # type: ignore
             )
 
         for key in outputs[0].keys():

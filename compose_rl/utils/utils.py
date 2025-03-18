@@ -53,7 +53,7 @@ def get_mb_load_balancing_loss(
         'mb_dmoe',
     ) and transformer.training:
         assert batched_load_balancing_loss is not None
-        return batched_load_balancing_loss(transformer.mb_args)
+        return batched_load_balancing_loss(transformer.mb_args) # type: ignore
     return None
 
 
@@ -866,14 +866,14 @@ def flip_pad_token_usage_for_generate(model: torch.nn.Module):
     needs_flipping = False
     if not hasattr(model, 'transformer'):
         return needs_flipping
-    assert len(model.transformer.blocks) > 0
-    block = model.transformer.blocks[0]
+    assert len(model.transformer.blocks) > 0 # type: ignore
+    block = model.transformer.blocks[0] # type: ignore
     # Logic takes care of the activation checkpointing case w/ FSDP
-    if hasattr(block._fsdp_wrapped_module, '_checkpoint_wrapped_module'):
-        needs_flipping = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn
+    if hasattr(block._fsdp_wrapped_module, '_checkpoint_wrapped_module'): # type: ignore
+        needs_flipping = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn # type: ignore
     else:
         # Otherwise we avoid the activation checkpointing and toggle the flag here
-        needs_flipping = not block._fsdp_wrapped_module.use_pad_tok_in_ffn
+        needs_flipping = not block._fsdp_wrapped_module.use_pad_tok_in_ffn # type: ignore
 
     if needs_flipping:
         flip_pad_token_usage_in_ffn(model)
@@ -889,7 +889,7 @@ def flip_pad_token_usage_in_ffn(model: torch.nn.Module):
     Args:
         model (torch.nn.Module): a torch model.
     """
-    for block in model.transformer.blocks:
+    for block in model.transformer.blocks: # type: ignore
 
         # Logic takes care of the activation checkpointing case w/ FSDP
         if hasattr(block._fsdp_wrapped_module, '_checkpoint_wrapped_module'):
