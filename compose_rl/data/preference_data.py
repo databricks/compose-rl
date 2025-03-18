@@ -29,6 +29,10 @@ def pairwise_preference_dataset_collate_fn(
         max_seq_len (int): The maximum sequence length of the model.
         data (list[dict[str, torch.Tensor]]): The preference data to collate.
     """
+
+    if max_seq_len % 2 != 0:
+        raise(ValueError(f"max_seq_len must be even for splitting evenly between chosen and rejected sequences. Found {max_seq_len=}"))
+
     if tokenizer.eos_token_id is None:
         raise ValueError('Tokenizer must have an EOS token.')
     if tokenizer.pad_token_id is None:
@@ -52,6 +56,7 @@ def pairwise_preference_dataset_collate_fn(
     for sample in data:
         chosen = sample['chosen']
         rejected = sample['rejected']
+        prompt_len = sample['prompt_len']
         chosen_len = sample['chosen_len']
         rejected_len = sample['rejected_len']
 
@@ -64,7 +69,7 @@ def pairwise_preference_dataset_collate_fn(
         if rejected[-1] != tokenizer.eos_token_id:
             rejected[-1] = tokenizer.eos_token_id  # type: ignore
 
-        pad_len = max_seq_len * 2 - chosen_len - rejected_len
+        pad_len = max_seq_len - chosen_len - rejected_len
         cat_batch = torch.cat([chosen, rejected], dim=-1)
 
         if pad_len < 0:
@@ -83,7 +88,7 @@ def pairwise_preference_dataset_collate_fn(
             chosen_len = torch.tensor([len(chosen)])
             rejected_len = torch.tensor([len(rejected)])
 
-            pad_len = max_seq_len * 2 - chosen_len - rejected_len
+            pad_len = max_seq_len - chosen_len - rejected_len
 
         if pad_len > 0:
             cat_batch = torch.cat(
@@ -108,7 +113,7 @@ def pairwise_preference_dataset_collate_fn(
         attention_masks.append(attention_mask)
         chosen_lens.append(chosen_len)
         rejected_lens.append(rejected_len)
-        prompt_lens.append(sample['prompt_len'])
+        prompt_lens.append(prompt_len)
         if 'chosen_reward' in sample:
             chosen_rewards.append(sample['chosen_reward'])
             rejected_rewards.append(sample['rejected_reward'])
@@ -228,7 +233,13 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
         chosen = self._read_binary_tokenized_sample(sample, 'chosen')
         rejected = self._read_binary_tokenized_sample(sample, 'rejected')
 
-        prompt_len = self.find_prompt_length(chosen, rejected)
+        if 'prompt' in sample:
+            prompt = self._read_binary_tokenized_sample(sample, 'prompt')
+            prompt_len = len(prompt)
+        else:
+            # Only use prefix matching version of prompt_len when
+            # 'prompt' is not directly given in the sample
+            prompt_len = self.find_prompt_length(chosen, rejected)
         chosen_len, rejected_len = len(chosen), len(rejected)
         return_dict = {
             'chosen': chosen,

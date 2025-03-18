@@ -147,7 +147,12 @@ def dpo_forward(
     outputs: dict[str, torch.Tensor] = {
         'policy_chosen_logp': chosen_logps,
         'policy_rejected_logp': rejected_logps,
+        'chosen_len': batch['chosen_len'],
     }
+
+    if 'chosen_reward' in batch:
+        outputs['chosen_reward'] = batch['chosen_reward']
+        outputs['rejected_reward'] = batch['rejected_reward']
 
     if policy_model_config is not None and hasattr(model, 'transformer'):
         lbl = get_mb_load_balancing_loss(
@@ -207,8 +212,8 @@ def dpo_loss(
         )
     elif loss_type == DPOEnum.RCDPO:
         # Adding reward-difference based label_smoothing = 1 - reward_bt_prob
-        chosen_reward = batch['chosen_reward']
-        rejected_reward = batch['rejected_reward']
+        chosen_reward = outputs['chosen_reward']
+        rejected_reward = outputs['rejected_reward']
         reward_diff = chosen_reward - rejected_reward
         reward_bt_prob = torch.sigmoid(reward_diff)
         rcdpo_losses = -F.logsigmoid(
@@ -221,8 +226,8 @@ def dpo_loss(
         # Reproducing the RPO loss from NVIDIA's paper: https://arxiv.org/pdf/2406.11704v1 page 13
         # Code: https://github.com/NVIDIA/NeMo-Aligner/blob/c92a3bf9c2d6312581982a8d1db30591855394c5/nemo_aligner/models/nlp/gpt/megatron_gpt_dpo_model.py#L261-L273
         eta = 1  # NOTE: Hardcoding this to be 1 as per the paper's recommendation
-        chosen_reward = batch['chosen_reward']
-        rejected_reward = batch['rejected_reward']
+        chosen_reward = outputs['chosen_reward']
+        rejected_reward = outputs['rejected_reward']
         reward_diff = chosen_reward - rejected_reward
 
         logsigmoid_a = F.logsigmoid(beta * logits)
@@ -241,8 +246,8 @@ def dpo_loss(
 
         logits = pi_logratios - ref_logratios  # Also known as h_{\pi_\theta}^{y_w,y_l}
 
-        chosen_reward = batch['chosen_reward']
-        rejected_reward = batch['rejected_reward']
+        chosen_reward = outputs['chosen_reward']
+        rejected_reward = outputs['rejected_reward']
         reward_diff = chosen_reward - rejected_reward
         losses = (beta * logits - reward_diff)**2
         # beta represents 1/eta hparam from the paper
@@ -266,7 +271,7 @@ def dpo_loss(
         raise ValueError(f'Loss type: {loss_type} is not supported.')
     if sft_alpha > 0:
         sft_losses = -1 * sft_alpha * policy_chosen_logp
-        sft_losses_normalized = sft_losses / batch['chosen_len']
+        sft_losses_normalized = sft_losses / outputs['chosen_len']
         losses_before_sft = losses.clone().detach()
         losses += sft_losses_normalized
 
