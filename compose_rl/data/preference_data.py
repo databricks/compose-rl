@@ -29,9 +29,12 @@ def pairwise_preference_dataset_collate_fn(
         max_seq_len (int): The maximum sequence length of the model.
         data (list[dict[str, torch.Tensor]]): The preference data to collate.
     """
-
     if max_seq_len % 2 != 0:
-        raise(ValueError(f"max_seq_len must be even for splitting evenly between chosen and rejected sequences. Found {max_seq_len=}"))
+        raise (
+            ValueError(
+                f'max_seq_len must be even for splitting evenly between chosen and rejected sequences. Found {max_seq_len=}',
+            )
+        )
 
     if tokenizer.eos_token_id is None:
         raise ValueError('Tokenizer must have an EOS token.')
