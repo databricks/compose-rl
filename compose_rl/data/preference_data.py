@@ -90,9 +90,9 @@ def pairwise_preference_dataset_collate_fn(
                 [
                     cat_batch,
                     torch.ones(int(pad_len.item()), dtype=cat_batch.dtype) *
-                    tokenizer.pad_token_id,
+                    tokenizer.pad_token_id,  # type: ignore
                 ],
-                dim=-1,
+                dim=-1,  # type: ignore
             )
 
         attention_mask = torch.logical_not(

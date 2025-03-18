@@ -64,13 +64,16 @@ class ComposerMosaicPolicy(HuggingFaceModel):
         return MPTPolicyConfig
 
     def forward(self, batch: MutableMapping):
-        clear_mb_load_balancing_loss(self.config, self.model.transformer)
+        clear_mb_load_balancing_loss(
+            self.config,
+            self.model.transformer,  # type: ignore
+        )
 
         ret_val = composer_ppo_forward(batch, self.model)
 
         lbl = get_mb_load_balancing_loss(
             self.config,
-            self.model.transformer,
+            self.model.transformer,  # type: ignore
         )
 
         ret_val['lbl'] = lbl
@@ -110,7 +113,7 @@ class ComposerMosaicPolicy(HuggingFaceModel):
         return early_stop
 
     def set_batch_stats(self, batch_stats: dict[str, Any]):
-        self.batch_stats = batch_stats # pyright: ignore
+        self.batch_stats = batch_stats  # pyright: ignore
 
 
 class ComposerHFPolicyModel(ComposerHFPolicy):

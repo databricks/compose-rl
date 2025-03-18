@@ -41,7 +41,7 @@ class DPOCallback(CallbackWithConfig):
         self.reference_model = build_composer_model(
             name=name,
             cfg=model_config,
-            tokenizer=state.model.tokenizer,
+            tokenizer=state.model.tokenizer, # type: ignore
             init_context=init_context,
             master_weights_dtype=model_config.get('master_weights_dtype', None),
         )

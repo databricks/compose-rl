@@ -186,7 +186,10 @@ def env_generate(
                     device=cur_device,
                     dtype=prompt_dtype,
                 ) * eos_token_id
-                sequences = torch.cat([sequences, extra_padding], dim=-1)
+                sequences = torch.cat(
+                    [sequences, extra_padding],  # type: ignore
+                    dim=-1,  # type: ignore
+                )
 
             # Sanity checking we're adding max_gen_len to prompt_tokens
             assert prompt_tokens.size(1) + max_gen_len == sequences.size(1)
@@ -388,7 +391,7 @@ class PPOCallback(CallbackWithConfig):
             )
 
     def init(self, state: State, logger: Logger):
-        self.pad_token_idx = state.model.tokenizer.pad_token_id # type: ignore
+        self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
 
         # TODO (#158): do this through composer.
@@ -409,13 +412,16 @@ class PPOCallback(CallbackWithConfig):
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
         kl_penalty_in_reward = True
-        if hasattr(self.actor_critic.model.config, 'compute_kl_loss'): # type: ignore
-            kl_penalty_in_reward = not self.actor_critic.model.config.compute_kl_loss # type: ignore
+        if hasattr(
+            self.actor_critic.model.config,  # type: ignore
+            'compute_kl_loss',
+        ):
+            kl_penalty_in_reward = not self.actor_critic.model.config.compute_kl_loss  # type: ignore
 
         self.reward_manager = RewardManager(
             config=self.reward_cfg,
             ref_config=self.ref_config,
-            tokenizer=self.actor_critic.tokenizer,
+            tokenizer=self.actor_critic.tokenizer, # type: ignore
             max_seq_len=self.max_seq_len,
             fsdp_config=self.non_train_fsdp_config,
             precision=state.precision,
@@ -474,7 +480,7 @@ class PPOCallback(CallbackWithConfig):
     def epoch_end(self, state: State, logger: Logger):
         del logger  # unused
         assert self.epochs_per_iteration == state._iteration_length
-        if self.actor_critic.determine_early_stop(): # type: ignore
+        if self.actor_critic.determine_early_stop():  # type: ignore
             state.timestamp.epoch_in_iteration = self.epochs_per_iteration
 
     def iteration_end(self, state: State, logger: Logger):
@@ -516,11 +522,11 @@ class PPOCallback(CallbackWithConfig):
                         )
                 elif key == 'prompt_attention_mask':
                     padding_key = False
-                
+
                 pad = torch.ones(
                     (bs, max_len - seq_len),
                     dtype=batch[key].dtype,
-                ) * padding_key # type: ignore
+                ) * padding_key  # type: ignore
                 curr_values.append(torch.cat([pad, batch[key]], dim=-1))
 
             ret_batch[key] = torch.cat(curr_values)
@@ -561,14 +567,14 @@ class PPOCallback(CallbackWithConfig):
             )
 
             env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_generate(
-                actor_critic=self.actor_critic, # pyright: ignore
+                actor_critic=self.actor_critic,  # pyright: ignore
                 reward_manager=self.reward_manager,
                 batch=gen_batch,
                 max_gen_len=self.max_gen_len,
                 precision=self.precision,
                 device_train_microbatch_size=self.device_train_microbatch_size,
                 generation_kwargs=self.generation_kwargs,
-                tokenizer=self.tokenizer,
+                tokenizer=self.tokenizer,  # type: ignore
             )
 
             self.prompts_and_gens.extend(prompts_and_gens)
@@ -663,10 +669,10 @@ class PPOCallback(CallbackWithConfig):
             output['obs'] = add_right_padding(
                 output['obs'],
                 max_len,
-                self.pad_token_idx, # type: ignore
+                self.pad_token_idx,  # type: ignore
             )
             output['right_padded_attn_mask'] = torch.logical_not(
-                torch.eq(output['obs'], self.pad_token_idx), # type: ignore
+                torch.eq(output['obs'], self.pad_token_idx),  # type: ignore
             )
 
         for key in outputs[0].keys():

@@ -55,7 +55,10 @@ def dpo_forward(
         use_attention_sequence_id (bool): Whether we should use the attention sequence id.
     """
     if policy_model_config is not None and hasattr(model, 'transformer'):
-        clear_mb_load_balancing_loss(policy_model_config, model.transformer) # type: ignore
+        clear_mb_load_balancing_loss(
+            policy_model_config,
+            model.transformer,  # type: ignore
+        )
 
     batch_size, concat_seq_len = batch['input_ids'].shape
     pad_token_id = tokenizer.pad_token_id
@@ -147,7 +150,10 @@ def dpo_forward(
     }
 
     if policy_model_config is not None and hasattr(model, 'transformer'):
-        lbl = get_mb_load_balancing_loss(policy_model_config, model.transformer) # type: ignore
+        lbl = get_mb_load_balancing_loss(
+            policy_model_config,
+            model.transformer,  # type: ignore
+        )
         if lbl is not None:
             outputs['lbl'] = lbl
 

@@ -106,8 +106,8 @@ def _get_objs(
         cfg=to_dict_container(test_cfg.model),
         tokenizer=tokenizer,
     )
-    model.model.lm_backbone = model.model.lm_backbone.to('cuda')
-    model.model.value_head = model.model.value_head.to('cuda')
+    model.model.lm_backbone = model.model.lm_backbone.to('cuda')  # type: ignore
+    model.model.value_head = model.model.value_head.to('cuda')  # type: ignore
 
     # Optimizer
     assert test_cfg.optimizer.name == 'decoupled_adamw'
@@ -357,10 +357,16 @@ def test_flashattention2(world_size: int):
         cfg=model_config_flash,
     ).to('cuda')
 
-    transformer_block = model_flash.model.lm_backbone.model.layers[0]
+    transformer_block = model_flash.model.lm_backbone.model.layers[  # type: ignore
+        0]
     # Checks that Flash Attention has been properly initialized
-    assert isinstance(transformer_block.self_attn, LlamaAttention)
-    assert model.model.config._attn_implementation == ('flash_attention_2')
+    assert isinstance(
+        transformer_block.self_attn,  # type: ignore
+        LlamaAttention,
+    )
+    assert model.model.config._attn_implementation == (  # type: ignore
+        'flash_attention_2'
+    )
 
     with get_precision_context('amp_bf16'):
         for batch in dataloader:
