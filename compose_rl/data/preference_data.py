@@ -108,8 +108,8 @@ def pairwise_preference_dataset_collate_fn(
         )
 
         cur_sequence_id = torch.tensor(([0] * chosen_len) +
-                                        ([1] * rejected_len) +
-                                        ([-1] * max(0, int(pad_len.item()))),)
+                                       ([1] * rejected_len) +
+                                       ([-1] * max(0, int(pad_len.item()))),)
         sequence_id.append(cur_sequence_id)
 
         input_ids.append(cat_batch)
