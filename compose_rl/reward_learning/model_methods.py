@@ -75,7 +75,7 @@ def pairwise_forward(
         model_output = model(
             batch['input_ids'],
             attention_mask=batch['text_attention_mask'],
-            sequence_id=batch['sequence_ids'],
+            sequence_id=batch['sequence_id'],
             return_lm_logits=return_lm_logits,
         )
 
