@@ -71,7 +71,7 @@ def dpo_forward(
         output_logits = model(
             batch['input_ids'],
             attention_mask=batch['text_attention_mask'],
-            sequence_id=batch['sequence_ids'],
+            sequence_id=batch['sequence_id'],
         ).logits
 
         chosen_logits, rejected_logits = extract_packed_chosen_rejected(

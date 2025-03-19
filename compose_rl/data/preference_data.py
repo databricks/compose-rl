@@ -52,7 +52,7 @@ def pairwise_preference_dataset_collate_fn(
     chosen_lens = []
     rejected_lens = []
     prompt_lens = []
-    sequence_ids = []
+    sequence_id = []
     chosen_rewards = []
     rejected_rewards = []
 
@@ -107,10 +107,10 @@ def pairwise_preference_dataset_collate_fn(
             torch.eq(cat_batch, tokenizer.pad_token_id),  # type: ignore
         )
 
-        cur_sequence_ids = torch.tensor(([0] * chosen_len) +
+        cur_sequence_id = torch.tensor(([0] * chosen_len) +
                                         ([1] * rejected_len) +
                                         ([-1] * max(0, int(pad_len.item()))),)
-        sequence_ids.append(cur_sequence_ids)
+        sequence_id.append(cur_sequence_id)
 
         input_ids.append(cat_batch)
         attention_masks.append(attention_mask)
@@ -123,7 +123,7 @@ def pairwise_preference_dataset_collate_fn(
 
     input_ids = ref_collate_fn(input_ids)['input_ids']
     attention_masks = torch.stack(attention_masks)
-    sequence_ids = torch.stack(sequence_ids)
+    sequence_id = torch.stack(sequence_id)
 
     chosen_lens = torch.cat(chosen_lens)
     rejected_lens = torch.cat(rejected_lens)
@@ -134,7 +134,7 @@ def pairwise_preference_dataset_collate_fn(
         'prompt_len': prompt_lens,
         'input_ids': input_ids,
         'text_attention_mask': attention_masks,
-        'sequence_ids': sequence_ids,
+        'sequence_id': sequence_id,
     }
     if len(chosen_rewards) > 0:
         chosen_rewards = torch.stack(chosen_rewards)
