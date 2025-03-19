@@ -139,7 +139,7 @@ def gen_random_batch(
         high=30000,
         size=(batch_size, test_cfg.max_seq_len * 2),
     ).to(device)
-    batch['text_attention_mask'] = torch.ones(
+    batch['attention_mask'] = torch.ones(
         size=(batch_size, test_cfg.max_seq_len * 2),
         dtype=torch.int64,
     ).to(device)

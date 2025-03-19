@@ -133,7 +133,7 @@ def pairwise_preference_dataset_collate_fn(
         'rejected_len': rejected_lens,
         'prompt_len': prompt_lens,
         'input_ids': input_ids,
-        'text_attention_mask': attention_masks,
+        'attention_mask': attention_masks,
         'sequence_id': sequence_id,
     }
     if len(chosen_rewards) > 0:
@@ -188,7 +188,7 @@ def finegrained_preference_dataset_collate_fn(
             continue
 
         batch[key] = ref_collate_fn(cur_values)['input_ids']
-    batch['text_attention_mask'] = torch.logical_not(
+    batch['attention_mask'] = torch.logical_not(
         torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
     )
 

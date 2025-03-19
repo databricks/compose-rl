@@ -74,7 +74,7 @@ def pairwise_forward(
     if use_attention_sequence_id:
         model_output = model(
             batch['input_ids'],
-            attention_mask=batch['text_attention_mask'],
+            attention_mask=batch['attention_mask'],
             sequence_id=batch['sequence_id'],
             return_lm_logits=return_lm_logits,
         )
@@ -100,7 +100,7 @@ def pairwise_forward(
         )
 
         chosen_attention_mask, rejected_attention_mask = extract_packed_chosen_rejected(
-            input_tensor=batch['text_attention_mask'],
+            input_tensor=batch['attention_mask'],
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
             max_seq_len=concat_seq_len // 2,
@@ -184,7 +184,7 @@ def classifier_forward(
 
     model_output = model(
         batch['text'],
-        attention_mask=batch['text_attention_mask'],
+        attention_mask=batch['attention_mask'],
         return_lm_logits=return_lm_logits,
     )
 

@@ -70,7 +70,7 @@ def dpo_forward(
     if use_attention_sequence_id:
         output_logits = model(
             batch['input_ids'],
-            attention_mask=batch['text_attention_mask'],
+            attention_mask=batch['attention_mask'],
             sequence_id=batch['sequence_id'],
         ).logits
 
@@ -95,7 +95,7 @@ def dpo_forward(
         )
 
         chosen_attention_mask, rejected_attention_mask = extract_packed_chosen_rejected(
-            batch['text_attention_mask'],
+            batch['attention_mask'],
             batch['chosen_len'],
             batch['rejected_len'],
             concat_seq_len // 2,
