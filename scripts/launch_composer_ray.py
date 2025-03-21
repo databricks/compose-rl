@@ -15,8 +15,10 @@ from llmfoundry.command_utils import train_from_yaml
 from omegaconf import OmegaConf as om
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
+# log = logging.getLogger(__name__)
 log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 
 def strip_ansi(text: str) -> str:
@@ -89,7 +91,6 @@ def recv_string(src: int) -> str:
 def start_ray_nodes():
     rank = int(os.getenv('NODE_RANK'))  # type: ignore
     world_size = int(os.getenv('NUM_NODES'))  # type: ignore
-    print('starting ray nodes on master port: ', os.getenv('MASTER_PORT'))
 
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
 
