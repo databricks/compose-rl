@@ -66,6 +66,24 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
         self.critic_head._fsdp_wrap = True  # pyright: ignore
         self.lm_backbone._fsdp_wrap = True
 
+        self.critic_head._is_critic_head = True  # pyright: ignore
+
+        for name, param in self.lm_backbone.named_parameters():
+            print('param name is: ', name, ' dtype is: ', param.dtype)
+
+    def _init_weights(self, module: nn.Module) -> None:
+        print('_in init weights for testing: ', module)
+
+        if hasattr(module, '_is_critic_head'):
+            print('in critic head initialization')
+            # Initialize weights with Xavier uniform
+            nn.init.xavier_uniform_(module.weight)
+            # Initialize bias to zero
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        else:
+            super()._init_weights(module)
+
     def generate(
         self,
         input_ids: torch.Tensor,
