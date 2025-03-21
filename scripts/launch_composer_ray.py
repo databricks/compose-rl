@@ -188,13 +188,6 @@ def start_ray_nodes():
     # dist.destroy_process_group()
     log.info('Finished initializing ray nodes.')
 
-    if node_rank == 0:
-        # print('after destroy process group')
-        for node in ray.nodes():
-            log.info(f"Node: {node['NodeManagerAddress']}")
-            log.info(f"Resources: {node['Resources']}")
-            log.info(f"Alive: {node['Alive']}\n")
-
 
 def reassign_train_and_inference_ranks(
     num_train_nodes: int,
@@ -290,7 +283,6 @@ if __name__ == '__main__':
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
 
     if train_num_nodes is not None:
-
         log.info('exiting on main training processes')
     else:
         # Have all inference nodes block until the training nodes are done

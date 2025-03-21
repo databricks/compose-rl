@@ -59,7 +59,6 @@ def init_process_group(
     rank: int = -1,
     store: Optional[Store] = None,
     group_name: Optional[str] = None,
-    pg_options: Optional[Any] = None,
 ) -> torch.distributed.ProcessGroup:
     assert (store is None) or (
         init_method is None
@@ -101,7 +100,6 @@ def init_process_group(
         backend,
         store,
         group_name=group_name,
-        pg_options=pg_options,
         timeout=timeout,
     )
 
