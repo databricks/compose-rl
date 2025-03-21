@@ -971,10 +971,11 @@ class PPOCallback(CallbackWithConfig):
     def _create_vllm_engines(self):
         """Creates the vLLM engines for inference."""
         print('in create vllm engines')
-        self.vllm_engines = []
         self.model_update_group = None
         if os.getenv('NODE_RANK',
                      None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+
+            self.vllm_engines = []
 
             os.environ['NCCL_CUMEM_ENABLE'] = '0'
             os.environ['RAY_BACKEND_LOG_LEVEL'] = 'DEBUG'
