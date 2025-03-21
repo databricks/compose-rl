@@ -14,9 +14,6 @@ import torch.distributed as dist
 from llmfoundry.command_utils import train_from_yaml
 from omegaconf import OmegaConf as om
 
-# Set up logging
-# logging.basicConfig(level=logging.DEBUG)
-# log = logging.getLogger(__name__)
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
@@ -25,6 +22,9 @@ def strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences from text.
 
     Handles both color codes and formatting like bold, underline, etc.
+
+    Args:
+        text (str): The input string potentially containing ANSI codes.
     """
     ansi_pattern = r'\x1b\[[0-9;]*[a-zA-Z]'
     return re.sub(ansi_pattern, '', text)
@@ -38,9 +38,6 @@ def parse_ray_local_ip(log_output: str) -> str:
 
     Returns:
         str: The extracted local node IP address
-
-    Raises:
-        ValueError: If no local node IP is found in the logs
     """
     # First clean the ANSI escape sequences
     cleaned_output = strip_ansi(log_output)
@@ -102,7 +99,9 @@ def start_ray_nodes():
 
     vars_to_check = ['MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'NODE_RANK']
     for var in vars_to_check:
-        print(f"{var}: {os.environ.get(var, 'Not set')}")
+        log.warning(f"{var}: {os.environ.get(var, 'Not set')}")
+
+    log.info('Starting gloo backend process.')
 
     dist.init_process_group(
         backend='gloo',
@@ -111,12 +110,12 @@ def start_ray_nodes():
         rank=rank,
     )
 
+    log.info('Finished setting up gloo backend process.')
+
     node_rank = os.getenv('NODE_RANK', None)
     if node_rank is None:
         raise ValueError('NODE_RANK must be set')
     node_rank = int(node_rank)
-
-    log.info('Finished waiting.')
 
     if node_rank == 0:
         result = subprocess.run(
@@ -149,22 +148,18 @@ def start_ray_nodes():
             log.info(f"Node: {node['NodeManagerAddress']}")
             log.info(f"Resources: {node['Resources']}")
             log.info(f"Alive: {node['Alive']}\n")
-            # print(f"Node: {node['NodeManagerAddress']}")
-            # print(f"Resources: {node['Resources']}")
-            # print(f"Alive: {node['Alive']}\n")
 
     elif node_rank > 0:
-
         # Ranks 1..(world_size-1) -> receive message from rank 0
-        print('In inference node trying to receive string')
         incoming_msg = broadcast_string('', src_rank=0)
         log.info(f'[Rank {rank}] Received message from rank 0: {incoming_msg}')
-        print('incoming message is: ', incoming_msg)
 
         start_ray_ip = f'{incoming_msg}:6379'
         log.info(
             f'trying to start ray on rank {node_rank} with ip: {start_ray_ip}',
         )
+
+        # We use worker node as a variable to consume later
         cmd = [
             'ray',
             'start',
@@ -194,14 +189,11 @@ def start_ray_nodes():
     log.info('Finished initializing ray nodes.')
 
     if node_rank == 0:
-        print('after destroy process group')
+        # print('after destroy process group')
         for node in ray.nodes():
             log.info(f"Node: {node['NodeManagerAddress']}")
             log.info(f"Resources: {node['Resources']}")
             log.info(f"Alive: {node['Alive']}\n")
-            # print(f"Node: {node['NodeManagerAddress']}")
-            # print(f"Resources: {node['Resources']}")
-            # print(f"Alive: {node['Alive']}\n")
 
 
 def reassign_train_and_inference_ranks(
@@ -214,7 +206,6 @@ def reassign_train_and_inference_ranks(
         num_train_nodes (int): The number of training nodes
         num_inference_nodes (int): The number of inference nodes
     """
-    print("Master port is: ', os.getenv('MASTER_PORT'))")
     node_rank = os.getenv('NODE_RANK', None)
     local_world_size = os.getenv('LOCAL_WORLD_SIZE', None)
     assert node_rank is not None
@@ -261,15 +252,6 @@ def reassign_train_and_inference_ranks(
         os.environ['WORLD_SIZE'] = str(inf_world_size)
         os.environ['MASTER_PORT'] = str(40977)
 
-        # TODO: could remove...
-        inf_node_rank = os.getenv('NODE_RANK')
-        inf_world_size = os.getenv('WORLD_SIZE')
-        inf_num_nodes = os.getenv('NUM_NODES')
-
-        log.info(f'Node rank is: {inf_node_rank}')
-        log.info(f'World size is: {inf_world_size}')
-        log.info(f'num nodes is: {inf_num_nodes}')
-
 
 if __name__ == '__main__':
 
@@ -303,19 +285,17 @@ if __name__ == '__main__':
         os.environ['NUM_NODES'] = train_num_nodes
         os.environ['MASTER_PORT'] = master_port
 
-    print('after start ray nodes')
-    # Force flush logs for some reason??
-    sys.stdout.flush()
+    log.info('after start ray nodes')
 
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
 
     if train_num_nodes is not None:
 
-        print('exiting on main training processes')
+        log.info('exiting on main training processes')
     else:
         # Have all inference nodes block until the training nodes are done
-        # time.sleep(100000000)
-        print('in inference node')
+        time.sleep(100000000)
+        log.info('in inference node')
 
     # print ("sleeping for 3 minutes to make sure everything completes")
-    time.sleep(10)
+    # time.sleep(10)

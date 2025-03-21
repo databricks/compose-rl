@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import gc
 import logging
+import os
+import socket
 import time
 from itertools import chain
-from typing import Any, Union
+from typing import Any, Optional, Union
 
+import ray
 import torch
 import wandb
 from composer.core import (
@@ -36,12 +39,15 @@ from compose_rl.ppo.reward_manager import (
 from compose_rl.registry_builders import build_kl_controller
 from compose_rl.utils import (
     add_right_padding,
+    broadcast_to_vllm,
     compute_advantages,
+    create_vllm_engines,
     dist_compute_masked_mean_and_var,
     flip_pad_token_usage_for_generate,
     flip_pad_token_usage_in_ffn,
     get_decoded_sequence,
     get_log_probs,
+    init_process_group,
     mask_eos,
     masked_mean,
     switch_left_to_right_padding,
@@ -55,8 +61,202 @@ __all__ = ['PPOCallback', 'env_generate']
 log = logging.getLogger(__name__)
 
 
+def generate(
+    actor_critic: torch.nn.Module,
+    vllm_engines: Optional[list],
+    max_gen_len: int,
+    batch: dict[str, torch.Tensor],
+    pad_token_id: int,
+    tokenizer: Tokenizer,
+    generation_kwargs: dict,
+) -> torch.Tensor:
+    """Runs generate over the batch of prompts.
+
+    Args:
+        actor_critic (torch.nn.Module): The actor critic model to run generate over.
+        vllm_engines (list): List of VLLM engines to use for generation.
+        max_gen_len (int): Maximum generation length.
+        batch (dict): The batch of data to run generate over.
+        pad_token_id (int): The pad token id.
+        tokenizer (Tokenizer): The tokenizer to use for decoding.
+        generation_kwargs (dict): Generation keyword arguments.
+    """
+    cur_device = batch['prompt'].device
+    prompt_tokens = batch['prompt']
+    batch_size = batch['prompt'].shape[0]
+    print('local batch size is: ', batch_size)
+
+    if vllm_engines is not None:
+        prompt_all_gather_start_time = time.time()
+        all_batched_prompts = dist.all_gather_object(prompt_tokens)
+        print(
+            'took : ',
+            time.time() - prompt_all_gather_start_time,
+            'to gather',
+        )
+        # print ("all prompts here is: ", all_batched_prompts)
+        all_prompts = [
+            prompt for batch in all_batched_prompts for prompt in batch
+        ]
+
+        # TODO: do we need this code again?
+        # for i, batch in enumerate(all_batched_prompts):
+        # if len(batch) != batch_size:
+        # print(
+        # f'mismatch at idx {i} batch size: ',
+        # len(batch),
+        # ' vs ',
+        # batch_size,
+        # )
+        # print ("all prompts flattened are: ", all_prompts)
+
+        batch_sizes = [len(batch) for batch in all_batched_prompts]
+
+        if dist.get_global_rank() == 0:
+            futs = []
+            sampling_params = {
+                'temperature': generation_kwargs.get('temperature', 1.0),
+                'top_p': generation_kwargs.get('top_p', 1.0),
+                'top_k': generation_kwargs.get('top_k', 50),
+                'max_tokens': max_gen_len,
+            }
+
+            # We have to remove all pad tokens here
+            all_prompts = [[
+                token
+                for token in prompt.detach().cpu().tolist()
+                if token != pad_token_id
+            ]
+                           for prompt in all_prompts]
+
+            # Calculate the base batch size
+            batch_size = len(all_prompts) // len(vllm_engines)
+            # Calculate the remainder (prompts that don't fit evenly)
+            remainder = len(all_prompts) % len(vllm_engines)
+
+            start_idx = 0
+            for i, engine in enumerate(vllm_engines):
+                # Assign one extra prompt to the first 'remainder' engines
+                if i < remainder:
+                    end_idx = start_idx + batch_size + 1
+                else:
+                    end_idx = start_idx + batch_size
+
+                cur_prompts = all_prompts[start_idx:end_idx]
+                cur_prompts = [
+                    tokenizer.decode(prompt) for prompt in cur_prompts
+                ]
+                futs.append(
+                    engine.generate.remote(
+                        cur_prompts,
+                        sampling_params=sampling_params,
+                    ),
+                )
+
+                # Update the start index for the next iteration
+                start_idx = end_idx
+
+            start_time = time.time()
+            results = ray.get(futs)
+            all_responses = []
+
+            # Get all of the ray futures
+            for i, result in enumerate(results):
+                if len(result) != batch_size:
+                    print(
+                        f'result at: {i} has length: {len(result)}, vs batch size: {batch_size}.',
+                    )
+
+                # Each result is a list of responses this assumes one output per input
+                all_responses.extend([
+                    resp.outputs[0].token_ids for resp in result
+                ])
+
+            print('took: ', time.time() - start_time)
+            split_responses = []
+            start = 0
+            for size in batch_sizes:
+                split_responses.append(all_responses[start:start + size])
+                start += size
+        else:
+            split_responses = None
+
+        dist.barrier()
+        # scatter the respective responses to all other ranks
+        local_responses = [None]
+        # print ("local responses is: ", local_responses)
+        start_time = time.time()
+        torch.distributed.scatter_object_list(
+            local_responses,
+            split_responses,
+            src=0,
+        )
+        print('local responses after scatter is: ', local_responses)
+        print(f'took: {time.time() - start_time} to scatter prompts')
+
+        local_responses = local_responses[0]
+
+        max_vllm_generated_len = max([
+            len(response) for response in local_responses  # type: ignore
+        ])
+        padded_responses = []
+        for sequence in local_responses:  # type: ignore
+            sequence = list(sequence)
+            if len(sequence) < max_vllm_generated_len:
+                sequence = sequence + [
+                    pad_token_id,
+                ] * (max_vllm_generated_len - len(sequence))
+
+            padded_responses.append(sequence)
+        padded_responses = torch.tensor(
+            padded_responses,
+            dtype=prompt_tokens.dtype,
+            device=cur_device,
+        )
+        sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
+
+    else:
+
+        policy = actor_critic.model
+        policy.eval()
+        # Adding a dummy forwards call.
+        # We need this otherwise FSDP throws an error during a standard forward pass.
+        policy(
+            torch.tensor([[0]], dtype=torch.long, device=cur_device),
+            attention_mask=torch.tensor([[1]],
+                                        dtype=torch.bool,
+                                        device=cur_device),
+        )
+        print('before generate')
+
+        # Generate doesn't work if we unpad the FFN. So we need to check if we
+        # need to flip the flag in the model.
+        flipped_usage = flip_pad_token_usage_for_generate(policy)
+
+        # We don't need to include EOS tokens since we mask out EOS tokens below
+        generated_dict = policy.generate(
+            prompt_tokens,
+            max_new_tokens=max_gen_len,
+            return_dict_in_generate=True,
+            synced_gpus=True,
+            attention_mask=batch['prompt_attention_mask'],
+            pad_token_id=pad_token_id,
+            **generation_kwargs,
+        )
+
+        # We should flip the flag back after generate as needed.
+        if flipped_usage:
+            flip_pad_token_usage_in_ffn(policy)
+
+        # Sequences are [batch, seq_len + generated_len], covering the initial prompt and generated values
+        sequences = generated_dict['sequences']  # type: ignore
+
+    return sequences
+
+
 def env_generate(
     actor_critic: Policy,
+    vllm_engines: Optional[list],
     reward_manager: RewardManager,
     batch: dict,
     max_gen_len: int,
@@ -105,9 +305,6 @@ def env_generate(
 
     batch_size, _ = prompt_tokens.shape
 
-    policy = actor_critic.model
-    policy.eval()
-
     eos_token_id = tokenizer.eos_token_id
     pad_token_id = tokenizer.pad_token_id
 
@@ -127,37 +324,17 @@ def env_generate(
             cur_device = prompt_tokens.device
             prompt_dtype = prompt_tokens.dtype
 
-            # Adding a dummy forwards call.
-            # We need this otherwise FSDP throws an error during a standard forward pass.
-            policy(
-                torch.tensor([[0]], dtype=torch.long, device=cur_device),
-                attention_mask=torch.tensor([[1]],
-                                            dtype=torch.bool,
-                                            device=cur_device),
-            )
-
-            # Generate doesn't work if we unpad the FFN. So we need to check if we
-            # need to flip the flag in the model.
-            flipped_usage = flip_pad_token_usage_for_generate(policy)
-
             start_gen_time = time.time()
-            # We don't need to include EOS tokens since we mask out EOS tokens below
-            generated_dict = policy.generate(
-                prompt_tokens,
-                max_new_tokens=max_gen_len,
-                return_dict_in_generate=True,
-                synced_gpus=True,
-                attention_mask=batch['prompt_attention_mask'],
-                pad_token_id=pad_token_id,
-                **generation_kwargs,
+
+            sequences = generate(
+                actor_critic,
+                vllm_engines,
+                max_gen_len,
+                batch,
+                pad_token_id,
+                tokenizer,
+                generation_kwargs,
             )
-
-            # We should flip the flag back after generate as needed.
-            if flipped_usage:
-                flip_pad_token_usage_in_ffn(policy)
-
-            # Sequences are [batch, seq_len + generated_len], covering the initial prompt and generated values
-            sequences = generated_dict['sequences']  # type: ignore
 
             num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
 
@@ -390,6 +567,21 @@ class PPOCallback(CallbackWithConfig):
                 train_config['python_log_level'].upper(),
             )
 
+        self.vllm_engines = None
+        if 'num_vllm_engines' in var_config:
+            self.num_vllm_engines = var_config['num_vllm_engines']
+            self.vllm_model_name = train_config['model'][
+                'pretrained_model_name_or_path']
+
+            self.vllm_tensor_parallel_size = var_config.get(
+                'vllm_tensor_parallel_size',
+                1,
+            )
+            self.vllm_sync_backend = var_config.get('vllm_sync_backend', 'nccl')
+            self.test_prompt = 'Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions.'
+
+            self._create_vllm_engines()
+
     def init(self, state: State, logger: Logger):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
@@ -412,11 +604,10 @@ class PPOCallback(CallbackWithConfig):
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
         kl_penalty_in_reward = True
-        if hasattr(
-            self.actor_critic.model.config,  # type: ignore
-            'compute_kl_loss',
-        ):
-            kl_penalty_in_reward = not self.actor_critic.model.config.compute_kl_loss  # type: ignore
+
+        if hasattr(self.actor_critic, 'compute_kl_loss'):
+            print('compute kl loss is: ', self.actor_critic.compute_kl_loss)
+            kl_penalty_in_reward = not self.actor_critic.compute_kl_loss
 
         self.reward_manager = RewardManager(
             config=self.reward_cfg,
@@ -458,6 +649,10 @@ class PPOCallback(CallbackWithConfig):
         del logger  # unused
 
         batch = self._get_next_iter_prompts()
+
+        if self.vllm_engines is not None:
+            self._update_inference_model(batch)
+
         # Update dataloader
         batch = state.device.batch_to_device(batch)
         self._interact_with_env(batch)
@@ -568,6 +763,7 @@ class PPOCallback(CallbackWithConfig):
 
             env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_generate(
                 actor_critic=self.actor_critic,  # pyright: ignore
+                vllm_engines=self.vllm_engines,
                 reward_manager=self.reward_manager,
                 batch=gen_batch,
                 max_gen_len=self.max_gen_len,
@@ -771,6 +967,116 @@ class PPOCallback(CallbackWithConfig):
 
     def _increment_rl_iter(self):
         self.iter_num += 1
+
+    def _create_vllm_engines(self):
+        """Creates the vLLM engines for inference."""
+        print('in create vllm engines')
+        self.vllm_engines = []
+        self.model_update_group = None
+        if os.getenv('NODE_RANK',
+                     None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+
+            os.environ['NCCL_CUMEM_ENABLE'] = '0'
+            os.environ['RAY_BACKEND_LOG_LEVEL'] = 'DEBUG'
+            os.environ['RAY_DEBUG_LOGS'] = '1'
+            print(
+                'NCCL CUM EM ENABLE is: ',
+                os.getenv('NCCL_CUMEM_ENABLE', None),
+            )
+            print(
+                'Ray debug log level is: ',
+                os.getenv('RAY_BACKEND_LOG_LEVEL', None),
+            )
+            print(
+                'cuda visible devices is: ',
+                os.getenv('CUDA_VISIBLE_DEVICES', None),
+            )
+
+            world_size = self.num_vllm_engines * self.vllm_tensor_parallel_size + 1
+
+            self.vllm_engines = create_vllm_engines(
+                num_engines=self.num_vllm_engines,
+                tensor_parallel_size=self.vllm_tensor_parallel_size,
+                enforce_eager=True,
+                pretrain=self.vllm_model_name,
+                revision=None,
+                seed=1,
+                enable_prefix_caching=False,
+                # TODO: make customizable
+                max_model_len=4096,
+            )
+
+            print('after create vllm engines')
+
+            master_address = ray._private.services.get_node_ip_address( # type: ignore
+            )
+            with socket.socket() as sock:
+                sock.bind(('', 0))
+                master_port = sock.getsockname()[1]
+
+            print('after master address, and address is: ', master_port)
+
+            refs = [
+                engine.init_process_group.remote(
+                    master_address,
+                    master_port,
+                    i * self.vllm_tensor_parallel_size + 1,
+                    world_size,
+                    'compose-rl',
+                    backend=self.vllm_sync_backend,
+                ) for i, engine in enumerate(self.vllm_engines)
+            ]
+
+            print('refs are: ', refs)
+
+            self.model_update_group = init_process_group(
+                backend=self.vllm_sync_backend,
+                init_method=f'tcp://{master_address}:{master_port}',
+                world_size=world_size,
+                rank=0,
+                group_name='compose-rl',
+            )
+
+            print('model update group is: ', self.model_update_group)
+            ray.get(refs)
+            print('after ray get refs')
+            print(
+                'model response to prompt after init is: ',
+                ray.get(
+                    self.vllm_engines[0].generate.remote(
+                        self.test_prompt,
+                        sampling_params={'max_tokens': 1280},
+                    ),
+                ),
+            )
+
+        dist.barrier()
+        print('after create vllm engines')
+
+    def _update_inference_model(self, batch: dict[str, torch.Tensor]):
+        start_time = time.time()
+        print('before broadcast to vllm')
+        assert self.vllm_engines is not None
+        assert self.model_update_group is not None
+        broadcast_to_vllm(
+            self.actor_critic,
+            self.vllm_engines,
+            self.model_update_group,
+            batch,
+        )
+        print('after broadcast to vllm')
+        print(f'Took: {time.time() - start_time} to broadcast to vllm.')
+        if self.vllm_engines:
+            print(
+                'model response after updating weights is: ',
+                ray.get(
+                    self.vllm_engines[0].generate.remote(
+                        self.test_prompt,
+                        sampling_params={'max_tokens': 1280},
+                    ),
+                ),
+            )
+        dist.barrier()
 
     def state_dict(self):
         return {
