@@ -649,12 +649,12 @@ class PPOCallback(CallbackWithConfig):
         del logger  # unused
 
         batch = self._get_next_iter_prompts()
+        batch = state.device.batch_to_device(batch)
 
         if self.vllm_engines is not None:
             self._update_inference_model(batch)
 
-        # Update dataloader
-        batch = state.device.batch_to_device(batch)
+
         self._interact_with_env(batch)
         # Reset and initialize state train dataloader
         log.warning(
