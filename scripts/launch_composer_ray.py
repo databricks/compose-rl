@@ -11,11 +11,8 @@ import time
 import ray
 import torch
 import torch.distributed as dist
-from kubernetes import client, config
 from llmfoundry.command_utils import train_from_yaml
 from omegaconf import OmegaConf as om
-
-from vllm_utils import create_vllm_engines, init_process_group
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -57,60 +54,42 @@ def parse_ray_local_ip(log_output: str) -> str:
 
 
 def broadcast_string(message: str, src_rank: int):
+    """Broadcast a string message from the source rank to all other ranks.
+
+    Args:
+        message (str): The message to broadcast
+        src_rank (int): The rank of the source process
+    """
     encoded = message.encode('utf-8')
     length_tensor = torch.LongTensor([len(encoded)])
     dist.broadcast(length_tensor, src=src_rank)
 
     data_tensor = torch.ByteTensor(list(encoded)) if dist.get_rank() == src_rank else \
-                  torch.ByteTensor([0] * length_tensor.item())
+                  torch.ByteTensor([0] * length_tensor.item()) # type: ignore
     dist.broadcast(data_tensor, src=src_rank)
 
     return data_tensor.cpu().numpy().tobytes().decode('utf-8')
 
 
 def recv_string(src: int) -> str:
-    """Receive the length of a string, then receive the actual bytes and decode
-    them."""
-    # 1) Receive length
+    """Receive the length of a string, then receive the actual bytes and decode.
+
+    Args:
+        src (int): The rank of the source process
+    """
     length_tensor = torch.LongTensor([0])
     dist.recv(length_tensor, src=src)
 
-    # 2) Receive the bytes
     data_tensor = torch.ByteTensor(length_tensor.item())
     dist.recv(data_tensor, src=src)
 
-    # 3) Decode
     return data_tensor.numpy().tobytes().decode('utf-8')
 
 
-def broadcast_to_vllm(model, vllm_engines):
-    # avoid OOM
-    torch.cuda.empty_cache()
-    count, num_params = 0, len(list(model.named_parameters()))
-    refss = []
-    for name, param in model.named_parameters():
-        count += 1
-        shape = param.shape
-        refs = [
-            engine.update_weight.remote(
-                name,
-                dtype=param.dtype,
-                shape=shape,
-                empty_cache=count == num_params,
-            ) for engine in vllm_engines
-        ]
-        refss.extend(refs)
-        torch.distributed.broadcast(
-            param.data,
-            0,
-            group=model_update_group,
-        )
-    ray.get(refss)
-
 def start_ray_nodes():
-    rank = int(os.getenv('NODE_RANK'))
-    world_size = int(os.getenv('NUM_NODES'))
-    print("starting ray nodes on master port: ", os.getenv('MASTER_PORT'))
+    rank = int(os.getenv('NODE_RANK'))  # type: ignore
+    world_size = int(os.getenv('NUM_NODES'))  # type: ignore
+    print('starting ray nodes on master port: ', os.getenv('MASTER_PORT'))
 
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
 
@@ -224,20 +203,37 @@ def start_ray_nodes():
             # print(f"Alive: {node['Alive']}\n")
 
 
-def reassign_train_and_inference_ranks(num_train_nodes, num_inference_nodes):
+def reassign_train_and_inference_ranks(
+    num_train_nodes: int,
+    num_inference_nodes: int,
+):
+    """Reassigns the ranks for training and inference nodes.
+
+    Args:
+        num_train_nodes (int): The number of training nodes
+        num_inference_nodes (int): The number of inference nodes
+    """
     print("Master port is: ', os.getenv('MASTER_PORT'))")
-    init_rank = int(os.getenv('NODE_RANK'))
-    local_world_size = int(os.getenv('LOCAL_WORLD_SIZE'))
+    node_rank = os.getenv('NODE_RANK', None)
+    local_world_size = os.getenv('LOCAL_WORLD_SIZE', None)
+    assert node_rank is not None
+    assert local_world_size is not None
+    init_rank = int(node_rank)
+    local_world_size = int(local_world_size)
 
     train_world_size = str(num_train_nodes * int(local_world_size))
     inf_world_size = str((num_inference_nodes) * int(local_world_size))
 
     if init_rank < num_train_nodes:
-        os.environ['ORIGINAL_WORLD_SIZE'] = os.getenv('WORLD_SIZE')
+        world_size = os.getenv('WORLD_SIZE', None)
+        master_port = os.getenv('MASTER_PORT', None)
+        assert world_size is not None
+        assert master_port is not None
 
         log.info('Reassinging env vars for training')
 
-        # Duplicating some stuff here so we can retain this for rank 0
+        os.environ['ORIGINAL_WORLD_SIZE'] = world_size
+
         os.environ['NUM_NODES'] = str(num_train_nodes)
         os.environ['TRAIN_NUM_NODES'] = str(num_train_nodes)
 
@@ -250,7 +246,7 @@ def reassign_train_and_inference_ranks(num_train_nodes, num_inference_nodes):
             )
             os.environ['NUM_NODES'] = str(num_inference_nodes)
             os.environ['WORLD_SIZE'] = str(inf_world_size)
-            os.environ['TRAIN_MASTER_PORT'] = os.getenv('MASTER_PORT')
+            os.environ['TRAIN_MASTER_PORT'] = master_port
             # TODO: find a more stable way to find these ports...
             # the open port was found by socket bind...
             os.environ['MASTER_PORT'] = str(40977)
@@ -264,6 +260,7 @@ def reassign_train_and_inference_ranks(num_train_nodes, num_inference_nodes):
         os.environ['WORLD_SIZE'] = str(inf_world_size)
         os.environ['MASTER_PORT'] = str(40977)
 
+        # TODO: could remove...
         inf_node_rank = os.getenv('NODE_RANK')
         inf_world_size = os.getenv('WORLD_SIZE')
         inf_num_nodes = os.getenv('NUM_NODES')
@@ -284,7 +281,7 @@ if __name__ == '__main__':
     assert num_nodes is not None, 'NUM_NODES must be set'
     num_nodes = int(num_nodes)
 
-    num_train_nodes = yaml_cfg['variables']['num_train_nodes']
+    num_train_nodes = yaml_cfg['variables']['num_train_nodes']  # type: ignore
     # This includes the master node
     num_inference_nodes = num_nodes - num_train_nodes + 1
 
@@ -293,9 +290,17 @@ if __name__ == '__main__':
     start_ray_nodes()
 
     if os.getenv('NODE_RANK', None) == '0':
-        os.environ['WORLD_SIZE'] = os.getenv('TRAIN_WORLD_SIZE')
-        os.environ['NUM_NODES'] = os.getenv('TRAIN_NUM_NODES')
-        os.environ['MASTER_PORT'] = os.getenv('TRAIN_MASTER_PORT')
+        train_world_size = os.getenv('TRAIN_WORLD_SIZE', None)
+        train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
+        master_port = os.getenv('TRAIN_MASTER_PORT', None)
+
+        assert train_world_size is not None
+        assert train_num_nodes is not None
+        assert master_port is not None
+
+        os.environ['WORLD_SIZE'] = train_world_size
+        os.environ['NUM_NODES'] = train_num_nodes
+        os.environ['MASTER_PORT'] = master_port
 
     print('after start ray nodes')
     # Force flush logs for some reason??
@@ -305,11 +310,11 @@ if __name__ == '__main__':
 
     if train_num_nodes is not None:
 
-        print("exiting on main training processes")
+        print('exiting on main training processes')
     else:
         # Have all inference nodes block until the training nodes are done
         # time.sleep(100000000)
-        print("in inference node")
+        print('in inference node')
 
     # print ("sleeping for 3 minutes to make sure everything completes")
     time.sleep(10)
