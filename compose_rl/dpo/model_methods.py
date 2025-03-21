@@ -78,7 +78,7 @@ def dpo_forward(
             output_logits,
             batch['chosen_len'],
             batch['rejected_len'],
-            concat_seq_len // 2,
+            concat_seq_len,
             pad_token_id=pad_token_id,  # type: ignore
         )
 
@@ -90,7 +90,7 @@ def dpo_forward(
             batch['input_ids'],
             batch['chosen_len'],
             batch['rejected_len'],
-            concat_seq_len // 2,
+            concat_seq_len,
             pad_token_id=pad_token_id,  # type: ignore
         )
 
@@ -98,7 +98,7 @@ def dpo_forward(
             batch['attention_mask'],
             batch['chosen_len'],
             batch['rejected_len'],
-            concat_seq_len // 2,
+            concat_seq_len,
             pad_token_id=0,
         )
 
@@ -124,7 +124,7 @@ def dpo_forward(
         batch['input_ids'],
         batch['chosen_len'],
         batch['rejected_len'],
-        concat_seq_len // 2,
+        concat_seq_len,
         pad_token_id=0,
     )
 

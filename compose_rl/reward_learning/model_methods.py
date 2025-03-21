@@ -83,7 +83,7 @@ def pairwise_forward(
             input_tensor=model_output.scores,
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
-            max_seq_len=concat_seq_len // 2,
+            max_seq_len=concat_seq_len,
             pad_token_id=pad_token_id,  # type: ignore
         )
 
@@ -95,7 +95,7 @@ def pairwise_forward(
             input_tensor=batch['input_ids'],
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
-            max_seq_len=concat_seq_len // 2,
+            max_seq_len=concat_seq_len,
             pad_token_id=pad_token_id,  # type: ignore
         )
 
@@ -103,7 +103,7 @@ def pairwise_forward(
             input_tensor=batch['attention_mask'],
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
-            max_seq_len=concat_seq_len // 2,
+            max_seq_len=concat_seq_len,
             pad_token_id=0,
         )
 
