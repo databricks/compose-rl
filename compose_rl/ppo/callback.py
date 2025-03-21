@@ -580,8 +580,6 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_sync_backend = var_config.get('vllm_sync_backend', 'nccl')
             self.test_prompt = 'Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions.'
 
-            self._create_vllm_engines()
-
     def init(self, state: State, logger: Logger):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
@@ -626,6 +624,8 @@ class PPOCallback(CallbackWithConfig):
             truncation=True,
             return_attention_mask=True,
         )
+
+        self._create_vllm_engines()
 
     def before_load(self, state: State, logger: Logger):
         del logger
