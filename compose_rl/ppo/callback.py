@@ -84,31 +84,16 @@ def generate(
     cur_device = batch['prompt'].device
     prompt_tokens = batch['prompt']
     batch_size = batch['prompt'].shape[0]
-    print('local batch size is: ', batch_size)
 
     if vllm_engines is not None:
         prompt_all_gather_start_time = time.time()
         all_batched_prompts = dist.all_gather_object(prompt_tokens)
-        print(
-            'took : ',
-            time.time() - prompt_all_gather_start_time,
-            'to gather',
+        log.info(
+            f'took : {time.time() - prompt_all_gather_start_time} to gather prompts',
         )
-        # print ("all prompts here is: ", all_batched_prompts)
         all_prompts = [
             prompt for batch in all_batched_prompts for prompt in batch
         ]
-
-        # TODO: do we need this code again?
-        # for i, batch in enumerate(all_batched_prompts):
-        # if len(batch) != batch_size:
-        # print(
-        # f'mismatch at idx {i} batch size: ',
-        # len(batch),
-        # ' vs ',
-        # batch_size,
-        # )
-        # print ("all prompts flattened are: ", all_prompts)
 
         batch_sizes = [len(batch) for batch in all_batched_prompts]
 
@@ -162,17 +147,12 @@ def generate(
 
             # Get all of the ray futures
             for i, result in enumerate(results):
-                if len(result) != batch_size:
-                    print(
-                        f'result at: {i} has length: {len(result)}, vs batch size: {batch_size}.',
-                    )
-
                 # Each result is a list of responses this assumes one output per input
                 all_responses.extend([
                     resp.outputs[0].token_ids for resp in result
                 ])
 
-            print('took: ', time.time() - start_time)
+            log.info(f'took: {time.time() - start_time} to gather futures')
             split_responses = []
             start = 0
             for size in batch_sizes:
@@ -184,15 +164,13 @@ def generate(
         dist.barrier()
         # scatter the respective responses to all other ranks
         local_responses = [None]
-        # print ("local responses is: ", local_responses)
         start_time = time.time()
         torch.distributed.scatter_object_list(
             local_responses,
             split_responses,
             src=0,
         )
-        print('local responses after scatter is: ', local_responses)
-        print(f'took: {time.time() - start_time} to scatter prompts')
+        log.info(f'took: {time.time() - start_time} to scatter prompts')
 
         local_responses = local_responses[0]
 
@@ -227,7 +205,6 @@ def generate(
                                         dtype=torch.bool,
                                         device=cur_device),
         )
-        print('before generate')
 
         # Generate doesn't work if we unpad the FFN. So we need to check if we
         # need to flip the flag in the model.
@@ -605,7 +582,6 @@ class PPOCallback(CallbackWithConfig):
         kl_penalty_in_reward = True
 
         if hasattr(self.actor_critic, 'compute_kl_loss'):
-            print('compute kl loss is: ', self.actor_critic.compute_kl_loss)
             kl_penalty_in_reward = not self.actor_critic.compute_kl_loss
 
         self.reward_manager = RewardManager(
@@ -972,28 +948,16 @@ class PPOCallback(CallbackWithConfig):
 
     def _create_vllm_engines(self):
         """Creates the vLLM engines for inference."""
-        print('in create vllm engines')
         self.model_update_group = None
         self.vllm_engines = []
 
         if os.getenv('NODE_RANK',
                      None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+            log.info("Creating vLLM engines.")
 
             os.environ['NCCL_CUMEM_ENABLE'] = '0'
             os.environ['RAY_BACKEND_LOG_LEVEL'] = 'DEBUG'
             os.environ['RAY_DEBUG_LOGS'] = '1'
-            print(
-                'NCCL CUM EM ENABLE is: ',
-                os.getenv('NCCL_CUMEM_ENABLE', None),
-            )
-            print(
-                'Ray debug log level is: ',
-                os.getenv('RAY_BACKEND_LOG_LEVEL', None),
-            )
-            print(
-                'cuda visible devices is: ',
-                os.getenv('CUDA_VISIBLE_DEVICES', None),
-            )
 
             world_size = self.num_vllm_engines * self.vllm_tensor_parallel_size + 1
 
@@ -1008,16 +972,13 @@ class PPOCallback(CallbackWithConfig):
                 # TODO: make customizable
                 max_model_len=4096,
             )
-
-            print('after create vllm engines')
+            log.info("After creating vLLM engines.")
 
             master_address = ray._private.services.get_node_ip_address( # type: ignore
             )
             with socket.socket() as sock:
                 sock.bind(('', 0))
                 master_port = sock.getsockname()[1]
-
-            print('after master address, and address is: ', master_port)
 
             refs = [
                 engine.init_process_group.remote(
@@ -1030,8 +991,6 @@ class PPOCallback(CallbackWithConfig):
                 ) for i, engine in enumerate(self.vllm_engines)
             ]
 
-            print('refs are: ', refs)
-
             self.model_update_group = init_process_group(
                 backend=self.vllm_sync_backend,
                 init_method=f'tcp://{master_address}:{master_port}',
@@ -1039,26 +998,14 @@ class PPOCallback(CallbackWithConfig):
                 rank=0,
                 group_name='compose-rl',
             )
-
-            print('model update group is: ', self.model_update_group)
             ray.get(refs)
-            print('after ray get refs')
-            print(
-                'model response to prompt after init is: ',
-                ray.get(
-                    self.vllm_engines[0].generate.remote(
-                        self.test_prompt,
-                        sampling_params={'max_tokens': 1280},
-                    ),
-                ),
-            )
 
         dist.barrier()
-        print('after create vllm engines')
+        log.info("All ranks have completed the vLLM engine create function.")
 
     def _update_inference_model(self, batch: dict[str, torch.Tensor]):
         start_time = time.time()
-        print('before broadcast to vllm')
+        log.info('Before broadcast to vllm')
         assert self.vllm_engines is not None
         broadcast_to_vllm(
             self.actor_critic,
@@ -1066,18 +1013,8 @@ class PPOCallback(CallbackWithConfig):
             self.model_update_group,
             batch,
         )
-        print('after broadcast to vllm')
-        print(f'Took: {time.time() - start_time} to broadcast to vllm.')
-        if self.vllm_engines:
-            print(
-                'model response after updating weights is: ',
-                ray.get(
-                    self.vllm_engines[0].generate.remote(
-                        self.test_prompt,
-                        sampling_params={'max_tokens': 1280},
-                    ),
-                ),
-            )
+        log.info('Finished broadcasting to vLLM')
+        log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
         dist.barrier()
 
     def state_dict(self):
