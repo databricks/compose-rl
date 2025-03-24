@@ -568,6 +568,7 @@ class PPOCallback(CallbackWithConfig):
             )
 
         self.vllm_engines = None
+        self.num_vllm_engines = 0
         if 'num_vllm_engines' in var_config:
             self.num_vllm_engines = var_config['num_vllm_engines']
             self.vllm_model_name = train_config['model'][
@@ -625,7 +626,8 @@ class PPOCallback(CallbackWithConfig):
             return_attention_mask=True,
         )
 
-        self._create_vllm_engines()
+        if self.num_vllm_engines > 0:
+            self._create_vllm_engines()
 
     def before_load(self, state: State, logger: Logger):
         del logger
@@ -972,10 +974,10 @@ class PPOCallback(CallbackWithConfig):
         """Creates the vLLM engines for inference."""
         print('in create vllm engines')
         self.model_update_group = None
+        self.vllm_engines = []
+        
         if os.getenv('NODE_RANK',
                      None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
-
-            self.vllm_engines = []
 
             os.environ['NCCL_CUMEM_ENABLE'] = '0'
             os.environ['RAY_BACKEND_LOG_LEVEL'] = 'DEBUG'
