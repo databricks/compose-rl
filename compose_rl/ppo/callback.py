@@ -975,7 +975,7 @@ class PPOCallback(CallbackWithConfig):
         print('in create vllm engines')
         self.model_update_group = None
         self.vllm_engines = []
-        
+
         if os.getenv('NODE_RANK',
                      None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
 
@@ -1060,7 +1060,6 @@ class PPOCallback(CallbackWithConfig):
         start_time = time.time()
         print('before broadcast to vllm')
         assert self.vllm_engines is not None
-        assert self.model_update_group is not None
         broadcast_to_vllm(
             self.actor_critic,
             self.vllm_engines,

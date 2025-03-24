@@ -314,7 +314,7 @@ def is_fsdp_leaf(module: nn.Module) -> bool:
 def broadcast_to_vllm(
     model: nn.Module,
     vllm_engines: list,
-    model_update_group: torch.distributed.ProcessGroup,
+    model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
 ):
     """Broadcast model weights to all vllm engines.
