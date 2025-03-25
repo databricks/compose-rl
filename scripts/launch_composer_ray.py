@@ -269,7 +269,7 @@ if __name__ == '__main__':
 
     start_ray_nodes()
 
-    if os.getenv('NODE_RANK', None) == '0':
+    if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
         train_world_size = os.getenv('TRAIN_WORLD_SIZE', None)
         train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
         master_port = os.getenv('TRAIN_MASTER_PORT', None)
