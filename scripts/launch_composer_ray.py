@@ -88,13 +88,20 @@ def recv_string(src: int) -> str:
 def start_ray_nodes():
     rank = int(os.getenv('NODE_RANK'))  # type: ignore
     world_size = int(os.getenv('NUM_NODES'))  # type: ignore
+    local_rank = os.getenv('LOCAL_RANK', None)
+    assert local_rank is not None, "LOCAL_RANK is usually set via composer"
+    local_rank = int(local_rank)
 
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
 
     if train_num_nodes is not None and rank != 0:
         log.info(
-            "On a training node that isn't the master node no need to start ray.",
+            "On a training node or rank that isn't the master node no need to start ray.",
         )
+        return
+    
+    if local_rank != 0:
+        log.info('Not starting ray on non-master local rank, exiting.')
         return
 
     vars_to_check = ['MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'NODE_RANK']
@@ -175,7 +182,6 @@ def start_ray_nodes():
                 text=True,
             )
         except subprocess.CalledProcessError as e:
-            # Note the errors here on MCLI are suppressed...
             log.error(f'error is: {e}')
             log.error(f'Command failed with exit code {e.returncode}')
 
@@ -205,19 +211,19 @@ def reassign_train_and_inference_ranks(
     assert local_world_size is not None
     init_rank = int(node_rank)
     local_world_size = int(local_world_size)
+    
+    local_rank = os.getenv('LOCAL_RANK', None)
+    assert local_rank is not None, "LOCAL_RANK is usually set via composer"
+    local_rank = int(local_rank)    
 
     train_world_size = str(num_train_nodes * int(local_world_size))
-    inf_world_size = str((num_inference_nodes) * int(local_world_size))
 
     if init_rank < num_train_nodes:
+        log.info('Reassinging env vars for training')
         world_size = os.getenv('WORLD_SIZE', None)
         master_port = os.getenv('MASTER_PORT', None)
         assert world_size is not None
         assert master_port is not None
-
-        log.info('Reassinging env vars for training')
-
-        os.environ['ORIGINAL_WORLD_SIZE'] = world_size
 
         os.environ['NUM_NODES'] = str(num_train_nodes)
         os.environ['TRAIN_NUM_NODES'] = str(num_train_nodes)
@@ -225,14 +231,14 @@ def reassign_train_and_inference_ranks(
         os.environ['WORLD_SIZE'] = train_world_size
         os.environ['TRAIN_WORLD_SIZE'] = train_world_size
 
-        if init_rank == 0:
+        if init_rank == 0 and local_rank == 0:
             log.info(
-                f'For node rank 0 setting world size to {num_inference_nodes} for ray.',
+                f'For node 0 and rank 0 setting world size to {num_inference_nodes} to set up ray.',
             )
             os.environ['NUM_NODES'] = str(num_inference_nodes)
-            os.environ['WORLD_SIZE'] = str(inf_world_size)
+            # Need to set this here to avoid duplication 
             os.environ['TRAIN_MASTER_PORT'] = master_port
-            # TODO: find a more stable way to find these ports...
+            # TODO: find a more stable way to find these ports.
             # the open port was found by socket bind...
             os.environ['MASTER_PORT'] = str(40977)
 
@@ -242,12 +248,10 @@ def reassign_train_and_inference_ranks(
 
         # We need to account for our master node here for communication
         os.environ['NUM_NODES'] = str(num_inference_nodes)
-        os.environ['WORLD_SIZE'] = str(inf_world_size)
         os.environ['MASTER_PORT'] = str(40977)
 
 
 if __name__ == '__main__':
-
     yaml_path, args_list = sys.argv[1], sys.argv[2:]
 
     with open(yaml_path) as f:
@@ -283,7 +287,8 @@ if __name__ == '__main__':
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
 
     if train_num_nodes is not None:
-        log.info('exiting on main training processes')
+        # log.info('exiting on main training processes')
+        train_from_yaml(yaml_path, args_list)
     else:
         # Have all inference nodes block until the training nodes are done
         time.sleep(100000000)
