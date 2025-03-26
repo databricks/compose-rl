@@ -314,5 +314,5 @@ if __name__ == '__main__':
         # Have all inference nodes block until the training nodes are done
         log.info('in inference node')
         log.info('setting up ray sync actor')
-        sync_actor = ray.util.get_actor('sync_actor')
+        sync_actor = ray.get_actor('sync_actor')
         result = ray.get(sync_actor.wait_for_training.remote())
