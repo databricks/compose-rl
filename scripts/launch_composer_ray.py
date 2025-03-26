@@ -191,7 +191,9 @@ def start_ray_nodes():
     else:
         raise ValueError('NODE_RANK must be 0 or greater than 0')
 
-    # dist.destroy_process_group()
+    log.info('Starting to destroy process group.')
+    dist.destroy_process_group()
+    log.info('Finished destroying process group.')
     log.info('Finished initializing ray nodes.')
 
 
