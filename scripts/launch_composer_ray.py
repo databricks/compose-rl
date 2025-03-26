@@ -30,11 +30,8 @@ class SyncActor:
         print("mark_done completed")
         return "Done"
 
-    def wait_for_training(self):
-        while not self.training_done:
-            log.info("waiting for training to be done")
-            time.sleep(10)
-        return "Training complete!"
+    def is_training_done(self):
+        return self.training_done
 
 
 def strip_ansi(text: str) -> str:
@@ -333,7 +330,11 @@ if __name__ == '__main__':
                     break
                 except ValueError:  # Actor not found
                     time.sleep(1)  # Retry after a short delay
-            result = ray.get(sync_actor.wait_for_training.remote())
+            while True:
+                is_training_done = ray.get(sync_actor.is_training_done.remote())
+                if is_training_done:
+                    break
+                time.sleep(10)
         log.info('After waiting for training.')
 
     log.info("Exiting launch_composer_ray.py")
