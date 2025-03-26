@@ -306,8 +306,8 @@ if __name__ == '__main__':
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
 
     if train_num_nodes is not None:
-        # log.info('exiting on main training processes')
         train_from_yaml(yaml_path, args_list)
+        log.info("After calling `train_from_yaml`")
         if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
             ray.get(sync_actor.mark_done.remote())
     else:
@@ -319,11 +319,13 @@ if __name__ == '__main__':
             # Wait until the actor is available
             while True:
                 try:
-                    log.info("Trying to get sync actor on inference node")
+                    log.info("Trying to get sync actor on inference node.")
                     sync_actor = ray.get_actor("sync_actor", namespace="default")
-                    log.info("Got sync actor on inference node")
+                    log.info("Got sync actor on inference node.")
                     break
                 except ValueError:  # Actor not found
                     time.sleep(1)  # Retry after a short delay
             result = ray.get(sync_actor.wait_for_training.remote())
         log.info('After waiting for training.')
+
+    log.info("Exiting launch_composer_ray.py")
