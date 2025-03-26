@@ -308,7 +308,8 @@ if __name__ == '__main__':
     if train_num_nodes is not None:
         # log.info('exiting on main training processes')
         train_from_yaml(yaml_path, args_list)
-        ray.get(sync_actor.mark_done.remote())
+        if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+            ray.get(sync_actor.mark_done.remote())
     else:
         # Have all inference nodes block until the training nodes are done
         log.info('in inference node')
