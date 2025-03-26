@@ -396,13 +396,12 @@ def broadcast_to_vllm(
                             # If we are at a leaf of a FSDP module we should always update it
                             if is_fsdp_leaf(module):
                                 update = True
-                            else:
-                                # Or if the the parsed name
-                                if parsed_name in valid_non_leaf_module_names and 'lm_backbone' in full_name:
-                                    update = True
+                            elif parsed_name in valid_non_leaf_module_names and 'lm_backbone' in full_name:
+                                update = True
 
+                            # We've already updated this module before, 
                             if parsed_name in seen_updated_parsed_names:
-                                update = False
+                                continue
 
                             if update:
                                 start_update_time = time.time()
