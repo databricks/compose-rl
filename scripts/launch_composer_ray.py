@@ -298,7 +298,7 @@ if __name__ == '__main__':
         os.environ['NUM_NODES'] = train_num_nodes
         os.environ['MASTER_PORT'] = master_port
 
-        # Adding a ray sync actor on global rank 0 to amek it work
+        # Adding a ray sync actor on global rank 0 to make it work
         sync_actor = SyncActor.options(name="sync_actor", namespace="default").remote()
 
     log.info('after start ray nodes')
@@ -314,12 +314,13 @@ if __name__ == '__main__':
         log.info('in inference node')
         log.info('setting up ray sync actor')
         if os.getenv('LOCAL_RANK', None) == '0':
-            # sync_actor = ray.get_actor('sync_actor')
+            sync_actor = None
             # Wait until the actor is available
             while True:
                 try:
-                    print ("Trying to get sync actor")
+                    log.info("Trying to get sync actor on inference node")
                     sync_actor = ray.get_actor("sync_actor", namespace="default")
+                    log.info("Got sync actor on inference node")
                     break
                 except ValueError:  # Actor not found
                     time.sleep(1)  # Retry after a short delay

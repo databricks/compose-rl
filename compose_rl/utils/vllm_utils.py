@@ -403,6 +403,7 @@ def broadcast_to_vllm(
                             if parsed_name in seen_updated_parsed_names:
                                 continue
 
+                            # Usually if we have to skip a module, it's because we cannot 
                             if update:
                                 start_update_time = time.time()
                                 seen_updated_parsed_names.add(parsed_name)
@@ -424,10 +425,7 @@ def broadcast_to_vllm(
                                     group=model_update_group,
                                 )
                                 update_time += time.time() - start_update_time
-                            else:
-                                log.info(
-                                    f'skipping update for {parsed_name} with full name {full_name}',
-                                )
+                                
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
     ray.get(refss)
