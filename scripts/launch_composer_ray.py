@@ -311,7 +311,8 @@ if __name__ == '__main__':
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
 
     if train_num_nodes is not None:
-        train_from_yaml(yaml_path, args_list)
+        # train_from_yaml(yaml_path, args_list)
+        time.sleep(30)
         log.info("After calling `train_from_yaml`")
         if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
             status = ray.get(sync_actor.mark_done.remote())
