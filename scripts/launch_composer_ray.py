@@ -21,15 +21,20 @@ log.setLevel(logging.DEBUG)
 @ray.remote
 class SyncActor:
     def __init__(self):
-         self.training_done = False
+        print("SyncActor initialized")
+        self.training_done = False
 
     def mark_done(self):
-         self.training_done = True
+        print("mark_done called")
+        self.training_done = True
+        print("mark_done completed")
+        return "Done"
 
     def wait_for_training(self):
-         while not self.training_done:
-             time.sleep(10)
-         return "Training complete!"
+        while not self.training_done:
+            log.info("waiting for training to be done")
+            time.sleep(10)
+        return "Training complete!"
 
 
 def strip_ansi(text: str) -> str:
@@ -306,10 +311,12 @@ if __name__ == '__main__':
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
 
     if train_num_nodes is not None:
-        train_from_yaml(yaml_path, args_list)
+        # train_from_yaml(yaml_path, args_list)
         log.info("After calling `train_from_yaml`")
         if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
-            ray.get(sync_actor.mark_done.remote())
+            status = ray.get(sync_actor.mark_done.remote())
+            print ("status is: ", status)
+
     else:
         # Have all inference nodes block until the training nodes are done
         log.info('in inference node')
