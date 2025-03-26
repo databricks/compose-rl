@@ -314,6 +314,14 @@ if __name__ == '__main__':
         log.info('in inference node')
         log.info('setting up ray sync actor')
         if os.getenv('LOCAL_RANK', None) == '0':
-            sync_actor = ray.get_actor('sync_actor')
+            # sync_actor = ray.get_actor('sync_actor')
+            # Wait until the actor is available
+            while True:
+                try:
+                    print ("Trying to get sync actor")
+                    sync_actor = ray.get_actor("sync_actor")
+                    break
+                except ValueError:  # Actor not found
+                    time.sleep(1)  # Retry after a short delay
             result = ray.get(sync_actor.wait_for_training.remote())
         log.info('After waiting for training.')
