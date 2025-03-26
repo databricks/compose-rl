@@ -299,7 +299,7 @@ if __name__ == '__main__':
         os.environ['MASTER_PORT'] = master_port
 
         # Adding a ray sync actor on global rank 0 to amek it work
-        sync_actor = SyncActor.options(name="sync_actor").remote()
+        sync_actor = SyncActor.options(name="sync_actor", namespace="default").remote()
 
     log.info('after start ray nodes')
 
@@ -319,7 +319,7 @@ if __name__ == '__main__':
             while True:
                 try:
                     print ("Trying to get sync actor")
-                    sync_actor = ray.get_actor("sync_actor")
+                    sync_actor = ray.get_actor("sync_actor", namespace="default")
                     break
                 except ValueError:  # Actor not found
                     time.sleep(1)  # Retry after a short delay
