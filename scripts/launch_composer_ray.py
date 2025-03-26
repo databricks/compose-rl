@@ -18,6 +18,20 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
 
+@ray.remote
+class SyncActor:
+    def __init__(self):
+         self.training_done = False
+
+    def mark_done(self):
+         self.training_done = True
+
+    def wait_for_training(self):
+         while not self.training_done:
+             time.sleep(10)
+         return "Training complete!"
+
+
 def strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences from text.
 
@@ -284,6 +298,10 @@ if __name__ == '__main__':
         os.environ['NUM_NODES'] = train_num_nodes
         os.environ['MASTER_PORT'] = master_port
 
+        # Adding a ray sync actor on global rank 0 to amek it work
+        sync_actor = SyncActor.remote()
+        ray.util.register_actor("sync_actor", sync_actor)
+
     log.info('after start ray nodes')
 
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
@@ -291,10 +309,10 @@ if __name__ == '__main__':
     if train_num_nodes is not None:
         # log.info('exiting on main training processes')
         train_from_yaml(yaml_path, args_list)
+        ray.get(sync_actor.mark_done.remote())
     else:
         # Have all inference nodes block until the training nodes are done
-        time.sleep(100000000)
         log.info('in inference node')
-
-    # print ("sleeping for 3 minutes to make sure everything completes")
-    # time.sleep(10)
+        log.info('setting up ray sync actor')
+        sync_actor = ray.util.get_actor('sync_actor')
+        result = ray.get(sync_actor.wait_for_training.remote())
