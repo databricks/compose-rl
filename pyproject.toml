@@ -13,7 +13,6 @@ dependencies = [
     'spacy==3.7.5',
     'spacy-alignments',
     'ray',
-    'vllm',
 ]
 
 [project.optional-dependencies]
@@ -24,14 +23,17 @@ cpu = [
 gpu = [
     'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
     'kubernetes==29.0.0',
+    'vllm>=0.8.2',
 ]
 dev = [
     'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
     'kubernetes==29.0.0',
+    'vllm>=0.8.2',
 ]
 released = [
     'llm-foundry[all]>=0.17.1',
     'kubernetes==29.0.0',
+    'vllm>=0.8.2',
 ]
 cpu_released = [
     'llm-foundry[all-cpu]>=0.17.1',
