@@ -30,7 +30,7 @@ from llmfoundry.interfaces import CallbackWithConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from compose_rl.ppo.buffer import MinibatchRolloutBuffer
-from compose_rl.ppo.generate_utils import generate
+from compose_rl.ppo.generation_utils import generate
 from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
 from compose_rl.ppo.reward_manager import (
     ReferenceOutput,
