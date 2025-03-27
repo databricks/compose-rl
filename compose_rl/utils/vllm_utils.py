@@ -41,7 +41,12 @@ from torch.distributed.distributed_c10d import (
     rendezvous,
 )
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from vllm.worker.worker import Worker
+
+try:
+    # In some cases e.g. CI/CD, vLLM is not installed
+    from vllm.worker.worker import Worker
+except:
+    pass
 
 from compose_rl.utils.vllm_actor import LLMRayActor
 
@@ -107,7 +112,7 @@ def init_process_group(
     return pg
 
 
-class WorkerWrap(Worker):
+class WorkerWrap(Worker):  # type: ignore
 
     def init_process_group(
         self,
