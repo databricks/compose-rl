@@ -43,7 +43,7 @@ from torch.distributed.distributed_c10d import (
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 try:
-    # In some cases e.g. CI/CD, vLLM is not installed
+    # In some cases e.g. CI/CD, vLLM is not installed on cpu
     from vllm.worker.worker import Worker
 except:
     pass

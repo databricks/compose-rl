@@ -22,7 +22,12 @@ from typing import Any, Union
 
 import ray
 import torch
-from vllm import SamplingParams
+
+try:
+    # In some cases e.g. CI/CD, vLLM is not installed on cpu
+    from vllm import SamplingParams
+except:
+    pass
 
 log = logging.getLogger(__name__)
 
