@@ -833,7 +833,7 @@ class PPOCallback(CallbackWithConfig):
 
     def _update_inference_model(self, batch: dict[str, torch.Tensor]):
         start_time = time.time()
-        log.info('Before broadcast to vllm')
+        log.info('Before broadcast to vLLM')
         assert self.vllm_engines is not None
         broadcast_to_vllm(
             self.actor_critic,
