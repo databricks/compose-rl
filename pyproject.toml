@@ -12,6 +12,8 @@ version = "0.2.0"
 dependencies = [
     'spacy==3.7.5',
     'spacy-alignments',
+    'ray',
+    'vllm',
 ]
 
 [project.optional-dependencies]
