@@ -31,81 +31,6 @@ except:
 
 log = logging.getLogger(__name__)
 
-try:
-    # In some cases e.g. CI/CD, vLLM is not installed on cpu
-    from vllm.worker.worker import Worker
-
-    class WorkerWrap(Worker):  # type: ignore
-
-        def init_process_group(
-            self,
-            master_address: str,
-            master_port: str,
-            rank_offset: int,
-            world_size: int,
-            group_name: str,
-            backend: str,
-        ):
-            """Init torch process group for model weights update."""
-            assert torch.distributed.is_initialized(
-            ), 'default torch process group must be initialized'
-            assert group_name != '', 'group name must not be empty'
-
-            rank = torch.distributed.get_rank() + rank_offset
-            self._model_update_group = init_process_group( # type: ignore
-                backend=backend,
-                init_method=f'tcp://{master_address}:{master_port}',
-                world_size=world_size,
-                rank=rank,
-                group_name=group_name,
-            )
-            self.rank = rank
-            log.info(f'init process group for: {torch.distributed.get_rank()}')
-            log.info(
-                f'init_process_group: master_address={master_address}, master_port={master_port}, ',
-                f'rank={rank}, world_size={world_size}, group_name={group_name}',
-            )
-
-        def update_weight(
-            self,
-            name: str,
-            dtype: torch.dtype,
-            shape: Union[tuple[int, ...], list[int], torch.Size],
-            empty_cache: bool = False,
-        ):
-            """Broadcast weights to vllm workers from source rank 0 actor model.
-
-            Args:
-                name (str): Name of the weight to be updated
-                dtype (torch.dtype): Data type of the weight
-                shape (Union[Tuple[int, ...], List[int], torch.Size]): Shape of the weight
-                empty_cache (bool): Whether to empty cache after updating weights
-            """
-            weight = torch.empty(shape, dtype=dtype, device='cuda')
-            torch.distributed.broadcast(
-                weight,
-                0,
-                group=self._model_update_group,
-            )
-
-            # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
-            # We will need to cast the weight type to the model_config type
-            if weight.dtype != self.model_config.dtype:
-                weight = weight.to(self.model_config.dtype)
-
-            self.model_runner.model.load_weights(
-                weights=[(name, weight)],
-            )  # type: ignore
-
-            del weight
-
-            if empty_cache:
-                torch.cuda.empty_cache()
-
-except:
-    log.error('vLLM is not installed. WorkerWrap is not available.')
-    pass
-
 
 @ray.remote
 class LLMRayActor:
@@ -135,7 +60,7 @@ class LLMRayActor:
 
             if vllm.__version__ > '0.6.4.post1':
                 # https://github.com/vllm-project/vllm/pull/10555
-                kwargs['worker_cls'] = 'compose_rl.utils.vllm_actor.WorkerWrap'
+                kwargs['worker_cls'] = 'compose_rl.utils.vllm_worker.WorkerWrap'
             else:
                 RayWorkerWrapperPath = vllm.engine.ray_utils  # type: ignore
 
@@ -143,9 +68,9 @@ class LLMRayActor:
 
                     def __init__(self, *args: Any, **kwargs: Any) -> None:
                         kwargs['worker_module_name'
-                              ] = 'compose_rl.utils.vllm_actor'
+                              ] = 'compose_rl.utils.vllm_worker'
                         kwargs['worker_class_name'
-                              ] = 'compose_rl.utils.vllm_actor.WorkerWrap'
+                              ] = 'compose_rl.utils.vllm_worker.WorkerWrap'
                         super().__init__(*args, **kwargs)
 
                 RayWorkerWrapperPath.RayWorkerWrapper = RayWorkerWrapper
