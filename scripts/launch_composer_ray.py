@@ -20,15 +20,16 @@ log.setLevel(logging.DEBUG)
 
 @ray.remote
 class SyncActor:
+
     def __init__(self):
-        print("SyncActor initialized")
+        print('SyncActor initialized')
         self.training_done = False
 
     def mark_done(self):
-        print("mark_done called")
+        print('mark_done called')
         self.training_done = True
-        print("mark_done completed")
-        return "Done"
+        print('mark_done completed')
+        return 'Done'
 
     def is_training_done(self):
         return self.training_done
@@ -105,7 +106,7 @@ def start_ray_nodes():
     rank = int(os.getenv('NODE_RANK'))  # type: ignore
     world_size = int(os.getenv('NUM_NODES'))  # type: ignore
     local_rank = os.getenv('LOCAL_RANK', None)
-    assert local_rank is not None, "LOCAL_RANK is usually set via composer"
+    assert local_rank is not None, 'LOCAL_RANK is usually set via composer'
     local_rank = int(local_rank)
 
     train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
@@ -115,7 +116,7 @@ def start_ray_nodes():
             "On a training node or rank that isn't the master node no need to start ray.",
         )
         return
-    
+
     if local_rank != 0:
         log.info('Not starting ray on non-master local rank, exiting.')
         return
@@ -229,10 +230,10 @@ def reassign_train_and_inference_ranks(
     assert local_world_size is not None
     init_rank = int(node_rank)
     local_world_size = int(local_world_size)
-    
+
     local_rank = os.getenv('LOCAL_RANK', None)
-    assert local_rank is not None, "LOCAL_RANK is usually set via composer"
-    local_rank = int(local_rank)    
+    assert local_rank is not None, 'LOCAL_RANK is usually set via composer'
+    local_rank = int(local_rank)
 
     train_world_size = str(num_train_nodes * int(local_world_size))
 
@@ -254,7 +255,7 @@ def reassign_train_and_inference_ranks(
                 f'For node 0 and rank 0 setting world size to {num_inference_nodes} to set up ray.',
             )
             os.environ['NUM_NODES'] = str(num_inference_nodes)
-            # Need to set this here to avoid duplication 
+            # Need to set this here to avoid duplication
             os.environ['TRAIN_MASTER_PORT'] = master_port
             # TODO: find a more stable way to find these ports.
             # the open port was found by socket bind...
@@ -287,7 +288,11 @@ if __name__ == '__main__':
 
     start_ray_nodes()
 
-    if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+    # This is just a worker to coordinate from global rank 0 on training
+    # to signal to inference nodes training is done
+    sync_actor = None
+    if os.getenv('NODE_RANK',
+                 None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
         train_world_size = os.getenv('TRAIN_WORLD_SIZE', None)
         train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
         master_port = os.getenv('TRAIN_MASTER_PORT', None)
@@ -301,7 +306,8 @@ if __name__ == '__main__':
         os.environ['MASTER_PORT'] = master_port
 
         # Adding a ray sync actor on global rank 0 to make it work
-        sync_actor = SyncActor.options(name="sync_actor", namespace="default").remote()
+        sync_actor = SyncActor.options(name='sync_actor',
+                                       namespace='default').remote()
 
     log.info('after start ray nodes')
 
@@ -310,10 +316,10 @@ if __name__ == '__main__':
     if train_num_nodes is not None:
         train_from_yaml(yaml_path, args_list)
         # time.sleep(30)
-        log.info("After calling `train_from_yaml`")
-        if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
-            status = ray.get(sync_actor.mark_done.remote())
-            print ("status is: ", status)
+        log.info('After calling `train_from_yaml`')
+        if os.getenv('NODE_RANK',
+                     None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+            status = ray.get(sync_actor.mark_done.remote())  # type: ignore
 
     else:
         # Have all inference nodes block until the training nodes are done
@@ -324,9 +330,12 @@ if __name__ == '__main__':
             # Wait until the actor is available
             while True:
                 try:
-                    log.info("Trying to get sync actor on inference node.")
-                    sync_actor = ray.get_actor("sync_actor", namespace="default")
-                    log.info("Got sync actor on inference node.")
+                    log.info('Trying to get sync actor on inference node.')
+                    sync_actor = ray.get_actor(
+                        'sync_actor',
+                        namespace='default',
+                    )
+                    log.info('Got sync actor on inference node.')
                     break
                 except ValueError:  # Actor not found
                     time.sleep(1)  # Retry after a short delay
@@ -337,4 +346,4 @@ if __name__ == '__main__':
                 time.sleep(10)
         log.info('After waiting for training.')
 
-    log.info("Exiting launch_composer_ray.py")
+    log.info('Exiting launch_composer_ray.py')

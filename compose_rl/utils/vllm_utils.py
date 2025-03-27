@@ -1,7 +1,6 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-# Taken and modified from https://github.com/huggingface/trl
 # Copyright 2024 The AllenAI Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +20,7 @@
 import logging
 import time
 from datetime import timedelta
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 import ray
 import torch
@@ -162,12 +161,14 @@ class WorkerWrap(Worker):
         if weight.dtype != self.model_config.dtype:
             weight = weight.to(self.model_config.dtype)
 
-        self.model_runner.model.load_weights(weights=[(name, weight)])
+        self.model_runner.model.load_weights(
+            weights=[(name, weight)],
+        )  # type: ignore
 
         del weight
-        # TODO: should we empty cache if all weights have updated?
-        # if empty_cache:
-        #     torch.cuda.empty_cache()
+
+        if empty_cache:
+            torch.cuda.empty_cache()
 
 
 def create_vllm_engines(
@@ -327,7 +328,9 @@ def broadcast_to_vllm(
     """
     # avoid OOM
     torch.cuda.empty_cache()
-    count, num_params = 0, len(list(model.model.lm_backbone.named_parameters()))
+    count, num_params = 0, len(
+        list(model.model.lm_backbone.named_parameters()),  # type: ignore
+    )
     refss = []
     # This is needed to get the correct model device
     cur_device = batch['prompt'].device
@@ -399,11 +402,11 @@ def broadcast_to_vllm(
                             elif parsed_name in valid_non_leaf_module_names and 'lm_backbone' in full_name:
                                 update = True
 
-                            # We've already updated this module before, 
+                            # We've already updated this module before,
                             if parsed_name in seen_updated_parsed_names:
                                 continue
 
-                            # Usually if we have to skip a module, it's because we cannot 
+                            # Usually if we have to skip a module, it's because we cannot
                             if update:
                                 start_update_time = time.time()
                                 seen_updated_parsed_names.add(parsed_name)
@@ -425,7 +428,7 @@ def broadcast_to_vllm(
                                     group=model_update_group,
                                 )
                                 update_time += time.time() - start_update_time
-                                
+
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
     ray.get(refss)

@@ -68,19 +68,13 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
 
         self.critic_head._is_critic_head = True  # pyright: ignore
 
-        for name, param in self.lm_backbone.named_parameters():
-            print('param name is: ', name, ' dtype is: ', param.dtype)
-
     def _init_weights(self, module: nn.Module) -> None:
-        print('_in init weights for testing: ', module)
-
         if hasattr(module, '_is_critic_head'):
-            print('in critic head initialization')
             # Initialize weights with Xavier uniform
-            nn.init.xavier_uniform_(module.weight)
+            nn.init.xavier_uniform_(module.weight)  # type: ignore
             # Initialize bias to zero
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
+            if hasattr(module, 'bias'):
+                nn.init.zeros_(module.bias)  # type: ignore
         else:
             super()._init_weights(module)
 

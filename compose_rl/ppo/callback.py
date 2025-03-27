@@ -196,10 +196,10 @@ def generate(
     else:
 
         policy = actor_critic.model
-        policy.eval()
+        policy.eval()  # type: ignore
         # Adding a dummy forwards call.
         # We need this otherwise FSDP throws an error during a standard forward pass.
-        policy(
+        policy( # type: ignore
             torch.tensor([[0]], dtype=torch.long, device=cur_device),
             attention_mask=torch.tensor([[1]],
                                         dtype=torch.bool,
@@ -208,10 +208,12 @@ def generate(
 
         # Generate doesn't work if we unpad the FFN. So we need to check if we
         # need to flip the flag in the model.
-        flipped_usage = flip_pad_token_usage_for_generate(policy)
+        flipped_usage = flip_pad_token_usage_for_generate(
+            policy,  # type: ignore
+        )
 
         # We don't need to include EOS tokens since we mask out EOS tokens below
-        generated_dict = policy.generate(
+        generated_dict = policy.generate( # type: ignore
             prompt_tokens,
             max_new_tokens=max_gen_len,
             return_dict_in_generate=True,
@@ -223,7 +225,7 @@ def generate(
 
         # We should flip the flag back after generate as needed.
         if flipped_usage:
-            flip_pad_token_usage_in_ffn(policy)
+            flip_pad_token_usage_in_ffn(policy)  # type: ignore
 
         # Sequences are [batch, seq_len + generated_len], covering the initial prompt and generated values
         sequences = generated_dict['sequences']  # type: ignore
@@ -632,7 +634,6 @@ class PPOCallback(CallbackWithConfig):
         if self.vllm_engines is not None:
             self._update_inference_model(batch)
 
-
         self._interact_with_env(batch)
         # Reset and initialize state train dataloader
         log.warning(
@@ -953,7 +954,7 @@ class PPOCallback(CallbackWithConfig):
 
         if os.getenv('NODE_RANK',
                      None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
-            log.info("Creating vLLM engines.")
+            log.info('Creating vLLM engines.')
 
             os.environ['NCCL_CUMEM_ENABLE'] = '0'
             os.environ['RAY_BACKEND_LOG_LEVEL'] = 'DEBUG'
@@ -972,7 +973,7 @@ class PPOCallback(CallbackWithConfig):
                 # TODO: make customizable
                 max_model_len=4096,
             )
-            log.info("After creating vLLM engines.")
+            log.info('After creating vLLM engines.')
 
             master_address = ray._private.services.get_node_ip_address( # type: ignore
             )
@@ -1001,7 +1002,7 @@ class PPOCallback(CallbackWithConfig):
             ray.get(refs)
 
         dist.barrier()
-        log.info("All ranks have completed the vLLM engine create function.")
+        log.info('All ranks have completed the vLLM engine create function.')
 
     def _update_inference_model(self, batch: dict[str, torch.Tensor]):
         start_time = time.time()

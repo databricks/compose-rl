@@ -142,14 +142,14 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         self.tokenizer = tokenizer
         self.policy_kl = []
 
-        self.compute_kl_loss = config_overrides.get(
+        self.compute_kl_loss = config_overrides.get( # pyright: ignore
             'compute_kl_loss',
             True,
-        )  # pyright: ignore
-        self.target_kl = config_overrides.get(
+        )
+        self.target_kl = config_overrides.get( # pyright: ignore
             'target_kl',
             0.1,
-        )  # pyright: ignore
+        )
 
         # Validating the input types
         assert isinstance(self.compute_kl_loss, bool)
@@ -223,7 +223,12 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
     def set_batch_stats(self, batch_stats: dict[str, Any]):
         self.batch_stats = batch_stats
 
-    def load_state_dict(self, state_dict: MutableMapping, assign: bool, strict: bool = True):
+    def load_state_dict(
+        self,
+        state_dict: MutableMapping,
+        assign: bool,
+        strict: bool = True,
+    ):
         state_dict_keys = list(state_dict.keys())
         state_dict_has_lm_backbone = False
         for key in state_dict_keys:
@@ -251,4 +256,8 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
                     )
                     new_state_dict[new_key] = value
 
-        return super().load_state_dict(new_state_dict, assign=assign, strict=strict)
+        return super().load_state_dict(
+            new_state_dict,
+            assign=assign,
+            strict=strict,
+        )
