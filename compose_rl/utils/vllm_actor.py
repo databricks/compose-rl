@@ -61,7 +61,7 @@ class LLMRayActor:
 
             if vllm.__version__ > '0.6.4.post1':
                 # https://github.com/vllm-project/vllm/pull/10555
-                kwargs['worker_cls'] = 'compose_rl.utils.vllm_worker.WorkerWrap'
+                kwargs['worker_cls'] = 'compose_rl.utils.vllm_utils.WorkerWrap'
             else:
                 RayWorkerWrapperPath = vllm.engine.ray_utils  # type: ignore
 
@@ -69,9 +69,9 @@ class LLMRayActor:
 
                     def __init__(self, *args: Any, **kwargs: Any) -> None:
                         kwargs['worker_module_name'
-                              ] = 'compose_rl.utils.vllm_worker'
+                              ] = 'compose_rl.utils.vllm_utils'
                         kwargs['worker_class_name'
-                              ] = 'compose_rl.utils.vllm_worker.WorkerWrap'
+                              ] = 'compose_rl.utils.vllm_utils.WorkerWrap'
                         super().__init__(*args, **kwargs)
 
                 RayWorkerWrapperPath.RayWorkerWrapper = RayWorkerWrapper
