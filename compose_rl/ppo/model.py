@@ -142,14 +142,12 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         self.tokenizer = tokenizer
         self.policy_kl = []
 
-        self.compute_kl_loss = config_overrides.get( # pyright: ignore
-            'compute_kl_loss',
-            True,
-        )
-        self.target_kl = config_overrides.get( # pyright: ignore
-            'target_kl',
-            0.1,
-        )
+        self.compute_kl_loss = False
+        self.target_kl = 0.1
+
+        if config_overrides is not None:
+            self.compute_kl_loss = config_overrides.get('compute_kl_loss')
+            self.target_kl = config_overrides.get('target_kl')
 
         # Validating the input types
         assert isinstance(self.compute_kl_loss, bool)
