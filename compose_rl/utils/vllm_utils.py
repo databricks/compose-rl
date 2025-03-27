@@ -15,7 +15,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Modified version from https://github.com/OpenRLHF/OpenRLHF and The AllenAI Team.
+# This file is a modifed version fom  from https://github.com/OpenRLHF/OpenRLHF
+# and The AllenAI Team.
 
 import logging
 import time
@@ -41,10 +42,10 @@ from torch.distributed.distributed_c10d import (
     rendezvous,
 )
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
 from compose_rl.utils.vllm_actor import LLMRayActor
 
 log = logging.getLogger(__name__)
-
 
 try:
     # In some cases e.g. CI/CD, vLLM is not installed on cpu
@@ -67,7 +68,7 @@ try:
             assert group_name != '', 'group name must not be empty'
 
             rank = torch.distributed.get_rank() + rank_offset
-            self._model_update_group = init_process_group(
+            self._model_update_group = init_process_group( # type: ignore
                 backend=backend,
                 init_method=f'tcp://{master_address}:{master_port}',
                 world_size=world_size,
@@ -97,7 +98,11 @@ try:
                 empty_cache (bool): Whether to empty cache after updating weights
             """
             weight = torch.empty(shape, dtype=dtype, device='cuda')
-            torch.distributed.broadcast(weight, 0, group=self._model_update_group)
+            torch.distributed.broadcast(
+                weight,
+                0,
+                group=self._model_update_group,
+            )
 
             # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
             # We will need to cast the weight type to the model_config type

@@ -137,7 +137,7 @@ def env_generate(
                 vllm_engines,
                 max_gen_len,
                 batch,
-                pad_token_id,
+                pad_token_id, # type: ignore
                 tokenizer,
                 generation_kwargs,
             )

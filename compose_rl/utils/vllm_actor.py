@@ -23,6 +23,8 @@ from typing import Any, Union
 import ray
 import torch
 
+from compose_rl.utils.vllm_utils import WorkerWrap
+
 try:
     # In some cases e.g. CI/CD, vLLM is not installed on cpu
     from vllm import SamplingParams
