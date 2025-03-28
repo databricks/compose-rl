@@ -797,8 +797,7 @@ class PPOCallback(CallbackWithConfig):
                 revision=None,
                 seed=1,
                 enable_prefix_caching=False,
-                # TODO: make customizable
-                max_model_len=4096,
+                max_model_len=self.max_seq_len,
             )
             log.info('After creating vLLM engines.')
 
