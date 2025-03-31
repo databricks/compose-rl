@@ -5,6 +5,7 @@ from compose_rl.ppo.callback import PPOCallback
 from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
 from compose_rl.ppo.modeling_utils import CausalLMOutputWithPastAndValues
 from compose_rl.ppo.policy_configuration import HFPolicyConfig, MPTPolicyConfig
+from compose_rl.ppo.load_planner import PPOModelLoadPlanner
 
 __all__ = [
     'PPOCallback',
@@ -13,4 +14,5 @@ __all__ = [
     'HFPolicyConfig',
     'MPTPolicyConfig',
     'CausalLMOutputWithPastAndValues',
+    'PPOModelLoadPlanner'
 ]
