@@ -41,6 +41,8 @@ class UnifiedTokenizedDataset(IterableDataset):
         self.dataset_type = dataset_type
 
         print(f'Dataset name: {dataset_name}')
+        if subset:
+            print(f'Processing subset: {subset}')
         print(f'Processing split: {split}')
         print(f'Processing dataset type: {dataset_type}')
 
@@ -135,8 +137,13 @@ class UnifiedTokenizedDataset(IterableDataset):
             'label': np.asarray(label).tobytes(),
         }
 
-    # Extract the substring from the answer column using regex
     def _extract_substring(self, answer: str):
+        """Extract the substring from the answer column using regex
+
+        This is hardcoded for gsm8k for now, probably need to make this an inheritable function
+        which can be over-ridden by new child classes.
+        """
+
         # Split by newline and get the last element
         lines = answer.split('\n')
         last_line = lines[-1]
@@ -147,7 +154,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         if match:
             str_answer = match.group(1)  # Return the captured group
 
-        # Remove commas from the string
+        # Remove commas from the string and return as np array for MDS encoding
         clean_string = str_answer.replace(',', '')
         return np.asarray([int(clean_string)])
 
@@ -261,4 +268,5 @@ if __name__ == '__main__':
         tokenizer_name=args.tokenizer_name,
         dataset_type=args.dataset_type,
         max_length=args.max_length,
+        subset=args.subset,
     )
