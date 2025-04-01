@@ -5,6 +5,7 @@
 
 import argparse
 import os
+import re
 from typing import Any, Iterator, Literal
 
 import datasets as hf_datasets
@@ -32,6 +33,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
         dataset_type: Literal['preference', 'single_prompt'],
+        subset: str | None = None,
     ):
         self.tokenizer = tokenizer
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
@@ -44,6 +46,7 @@ class UnifiedTokenizedDataset(IterableDataset):
 
         self.hf_dataset = hf_datasets.load_dataset(
             path=dataset_name,
+            name=subset if subset else None,
             split=split,
             streaming=True,
         )
@@ -88,13 +91,14 @@ class UnifiedTokenizedDataset(IterableDataset):
         Args:
             sample (Any): a sample from the dataset
         """
-        prompt = sample['prompt']
-        messages = [{
-            'role':
-                'user',
-            'content':
-                f'Can you summarize the following content in 50 words or less: {prompt}',
-        }]
+        prompt = sample['question']
+        messages = [
+            {
+                'role': 'user',
+                'content': prompt,
+            },
+        ]
+        verified_answer = self._extract_substring(sample['answer'])
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
@@ -104,7 +108,10 @@ class UnifiedTokenizedDataset(IterableDataset):
         if len(encoded_prompt) > self.max_length:
             return None
 
-        return {'prompt': np.asarray(encoded_prompt).tobytes()}
+        return {
+            'prompt': np.asarray(encoded_prompt).tobytes(),
+            'verified_answer': verified_answer.tobytes(),
+        }
 
     def _process_classifier_sample(self, sample: Any):
         """A dummy process a classifier sample.
@@ -128,6 +135,22 @@ class UnifiedTokenizedDataset(IterableDataset):
             'label': np.asarray(label).tobytes(),
         }
 
+    # Extract the substring from the answer column using regex
+    def _extract_substring(self, answer: str):
+        # Split by newline and get the last element
+        lines = answer.split('\n')
+        last_line = lines[-1]
+
+        # Use regex to match 4 #s followed by a space and capture everything after
+        match = re.match(r'^#{4}\s+(.*)', last_line)
+        str_answer = ""
+        if match:
+            str_answer = match.group(1)  # Return the captured group
+
+        # Remove commas from the string
+        clean_string = str_answer.replace(',', '')
+        return np.asarray([int(clean_string)])
+
 
 def main(
     dataset_name: str,
@@ -138,6 +161,7 @@ def main(
     tokenizer_name: str,
     dataset_type: Literal['preference', 'single_prompt'],
     max_length: int = 2048,
+    subset: str | None = None,
 ):
     columns = {
         'preference': {
@@ -175,6 +199,7 @@ def main(
                 max_length=max_length,
                 tokenizer=tokenizer,
                 dataset_type=dataset_type,
+                subset=subset,
             )
 
             print('Converting to MDS format')
@@ -204,11 +229,12 @@ if __name__ == '__main__':
         nargs='+',
         default=['sha1', 'xxh64'],
     )
+    parser.add_argument('--subset', type=str, default=None)
     parser.add_argument('--splits', type=str, nargs='+', default=['train'])
     parser.add_argument(
         '--tokenizer_name',
         type=str,
-        default='rajammanabrolu/gpt-4-chat',
+        default='meta-llama/Llama-3.1-8B-Instruct',
     )
     parser.add_argument(
         '--dataset_type',
