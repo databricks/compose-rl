@@ -155,7 +155,7 @@ class UnifiedTokenizedDataset(IterableDataset):
             str_answer = match.group(1)  # Return the captured group
 
         # Remove commas from the string and return as np array for MDS encoding
-        clean_string = str_answer.replace(',', '')
+        clean_string = str_answer.replace(',', '').replace('$', '')
         return np.asarray([int(clean_string)])
 
 
