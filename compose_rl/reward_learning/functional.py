@@ -6,6 +6,7 @@
 import logging
 from typing import Any, MutableMapping
 
+import re
 import torch
 
 log = logging.getLogger(__name__)
@@ -244,7 +245,7 @@ class OutputLengthReward(Reward):
         return rewards
 
 
-class Gsm8kVerificationReward(Reward):
+class Gsm8kAnswerVerificationReward(Reward):
 
     # This can be run async
     BLOCKING = False
@@ -282,15 +283,34 @@ class Gsm8kVerificationReward(Reward):
         batch_size = rewards.shape[0]
         all_generated_texts = [x[1] for x in raw_untokenized_texts]
         for i in range(batch_size):
-            _reward = self._score_generations(all_generated_texts[i], verified_answers[i])
+            _answer = self._extract_solution(all_generated_texts[i])
+            _reward = self._score_generations(_answer, verified_answers[i].item())
             rewards[i, generated_lens[i] - 1] += _reward
         return rewards
 
-    def _score_generations(self, prediction: str, label: int):
-        response = re.sub(r"(\d),(\d)", r"\1\2", prediction)
-        numbers = re.findall(r"[-+]?\d*\.\d+|\d+", response)
-        extracted = numbers[-1] if numbers else response
-        return float(str(extracted).lower() == str(label).lower())
+    def _extract_solution(self, text: str):
+        numbers = re.findall(r'-?[\d,]*\.?\d+', text)
+        final_answer = ''
+        if len(numbers) == 0:
+            # do nothing, ie, answer is None
+            pass
+        else:
+            if numbers:
+                final_answer = numbers[-1].replace(',', '')
+            else:
+                final_answer = ''
+
+        return final_answer
+
+    def _score_generations(self, answer: str, label: float):
+        if answer == '':
+            return 0.0
+        else:
+            try:
+                return float(answer) == float(label)
+            except ValueError:
+                return 0.0
+
 
 
 class Gsm8kFormatVerificationReward(Reward):
@@ -334,15 +354,7 @@ class Gsm8kFormatVerificationReward(Reward):
         return rewards
 
     def _score_generations(self, prediction: str):
-        try:
-            # Split by newline and get the last element
-            lines = answer.split('\n')
-            if not lines:
-                return 0.0
-
-            # Use regex to match 4 #s followed by a space and capture everything after
-            last_line = lines[-1]
-            match = re.match(r'^#{4}\s+(.*)', last_line)
-            return 1.0 if match else 0.0
-        except Exception as e:
-            return 0.0
+        solution = re.search("#### (\\-?[0-9\\.\\,]+)", prediction)
+        if solution is not None:
+            return 1.0
+        return 0.0
