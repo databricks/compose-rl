@@ -94,11 +94,11 @@ class UnifiedTokenizedDataset(IterableDataset):
             sample (Any): a sample from the dataset
         """
         prompt = sample['question'].strip()
-        _preamble = """As an expert problem solver solve step by step the following mathematical questions and output the final answer after \"####\" """
+        _instruction = "Let's think step by step and output the final answer after \"####\"."
         messages = [
             {
                 'role': 'user',
-                'content': _preamble.strip() + '\n\n' + f'Q: {prompt}',
+                'content': f'Question: {prompt} ' + _instruction,
             },
         ]
         verified_answer = self._extract_substring(sample['answer'])
