@@ -309,6 +309,9 @@ class PPOCallback(CallbackWithConfig):
         train_config: dict,
     ):
         var_config = train_config['variables']
+        print(train_config)
+        print(var_config['evals'])
+        exit()
 
         # The maximum generation length.
         self.max_gen_len: int = var_config.get('max_gen_len', 32)
