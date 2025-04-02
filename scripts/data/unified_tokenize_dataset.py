@@ -93,14 +93,20 @@ class UnifiedTokenizedDataset(IterableDataset):
         Args:
             sample (Any): a sample from the dataset
         """
-        prompt = sample['question']
+        prompt = sample['question'].strip()
+        _instruction = "Let's think step by step and output the final answer after \"####\"."
         messages = [
             {
                 'role': 'user',
-                'content': prompt,
+                'content': f'Question: {prompt}' + ' ' + _instruction,
             },
         ]
         verified_answer = self._extract_substring(sample['answer'])
+        try:
+            verified_answer = float(verified_answer)
+        except ValueError:
+            print (f'Conversion failed - not a valid number')
+
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
@@ -112,7 +118,7 @@ class UnifiedTokenizedDataset(IterableDataset):
 
         return {
             'prompt': np.asarray(encoded_prompt).tobytes(),
-            'verified_answer': verified_answer.tobytes(),
+            'verified_answer': verified_answer,
         }
 
     def _process_classifier_sample(self, sample: Any):
@@ -143,20 +149,11 @@ class UnifiedTokenizedDataset(IterableDataset):
         This is hardcoded for gsm8k for now, probably need to make this an inheritable function
         which can be over-ridden by new child classes.
         """
-
-        # Split by newline and get the last element
-        lines = answer.split('\n')
-        last_line = lines[-1]
-
-        # Use regex to match 4 #s followed by a space and capture everything after
-        match = re.match(r'^#{4}\s+(.*)', last_line)
-        str_answer = ""
-        if match:
-            str_answer = match.group(1)  # Return the captured group
-
-        # Remove commas from the string and return as np array for MDS encoding
-        clean_string = str_answer.replace(',', '').replace('$', '')
-        return np.asarray([int(clean_string)])
+        solution = re.search("#### (\\-?[0-9\\.\\,]+)", answer)
+        assert solution is not None
+        final_solution = solution.group(0)
+        final_solution = final_solution.split('#### ')[1].replace(',', '')
+        return final_solution
 
 
 def main(
@@ -177,6 +174,7 @@ def main(
         },
         'single_prompt': {
             'prompt': 'bytes',
+            'verified_answer': 'float64',
         },
         'classifier': {
             'input': 'bytes',
