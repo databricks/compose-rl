@@ -39,7 +39,7 @@ def prompt_dataset_collate_fn(
     collated_batch: dict[str, torch.Tensor] = {}
     for key in keys:
         cur_values = [item[key] for item in batch]
-        if key in ['prompt_len']:
+        if key in ['prompt_len', 'verified_answer']:
             collated_batch[key] = torch.stack(cur_values).squeeze(dim=1)
             continue
 
@@ -82,6 +82,7 @@ class PromptStreamingDataset(StreamingDataset):
         """
         sample = super().__getitem__(idx)
         prompt = self._read_binary_tokenized_sample(sample, 'prompt')
+        verified_answer = self._read_binary_tokenized_sample(sample, 'verified_answer')
 
         # TODO (bcui): Maybe add in an option to truncate a prompt by a given length?
         if len(prompt) + self.max_gen_len > self.max_seq_len:
@@ -90,5 +91,6 @@ class PromptStreamingDataset(StreamingDataset):
             prompt = prompt[:-truncate_len]
 
         prompt_len = torch.Tensor([len(prompt)]).to(dtype=torch.int64)
+        verified_answer = verified_answer.to(dtype=torch.int64)
 
-        return {'prompt': prompt, 'prompt_len': prompt_len}
+        return {'prompt': prompt, 'prompt_len': prompt_len, 'verified_answer': verified_answer}

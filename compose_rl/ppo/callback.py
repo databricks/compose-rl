@@ -125,6 +125,7 @@ def env_generate(
 
     with get_precision_context(precision):
         prompt_len = batch['prompt_len']
+        verified_answers = batch.get('verified_answer', None)
 
         with torch.no_grad():
             cur_device = prompt_tokens.device
@@ -286,6 +287,7 @@ def env_generate(
                 actions=actions,
                 action_log_probs=device_train_microbatch_log_probs,
                 device_train_microbatch_size=device_train_microbatch_size,
+                verified_answers=verified_answers,
             )
 
     return (
@@ -508,7 +510,7 @@ class PPOCallback(CallbackWithConfig):
             padding_key = None
             for batch in batches:
                 # Take care of the prompt length here, no need for extra processing
-                if key == 'prompt_len':
+                if key in ['prompt_len', 'verified_answer']:
                     curr_values.append(batch[key])
                     continue
 

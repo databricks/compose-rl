@@ -242,3 +242,107 @@ class OutputLengthReward(Reward):
         curr_rewards = generated_lens / self.max_gen_len
         rewards[torch.arange(batch_size), generated_lens - 1] += curr_rewards
         return rewards
+
+
+class Gsm8kVerificationReward(Reward):
+
+    # This can be run async
+    BLOCKING = False
+
+    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
+        super().__init__(cfg, tokenizer)
+
+    def validate_config(self):
+        # There are no config requirements for this reward
+        return
+
+    def __call__(
+        self,
+        batch: MutableMapping,
+    ) -> torch.Tensor:
+        """Apply the reward for verifying the correct response (answer) from the model.
+
+        Args:
+            batch (dict): The input batch containing all the information we need to compute
+                the verification reward.
+
+        Returns:
+            torch.tensor: rewards of shape <batch_size, seq_len>
+        """
+        assert 'zero_rewards' in batch.keys()
+        assert 'raw_untokenized_texts' in batch.keys()
+        assert 'verified_answers' in batch.keys()
+        assert 'generated_lens' in batch.keys()
+
+        rewards = batch['zero_rewards']
+        raw_untokenized_texts = batch['raw_untokenized_texts']
+        verified_answers = batch['verified_answers']
+        generated_lens = batch['generated_lens']
+
+        batch_size = rewards.shape[0]
+        all_generated_texts = [x[1] for x in raw_untokenized_texts]
+        for i in range(batch_size):
+            _reward = self._score_generations(all_generated_texts[i], verified_answers[i])
+            rewards[i, generated_lens[i] - 1] += _reward
+        return rewards
+
+    def _score_generations(self, prediction: str, label: int):
+        response = re.sub(r"(\d),(\d)", r"\1\2", prediction)
+        numbers = re.findall(r"[-+]?\d*\.\d+|\d+", response)
+        extracted = numbers[-1] if numbers else response
+        return float(str(extracted).lower() == str(label).lower())
+
+
+class Gsm8kFormatVerificationReward(Reward):
+
+    # This can be run async
+    BLOCKING = False
+
+    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
+        super().__init__(cfg, tokenizer)
+
+    def validate_config(self):
+        # There are no config requirements for this reward
+        return
+
+    def __call__(
+        self,
+        batch: MutableMapping,
+    ) -> torch.Tensor:
+        """Apply the reward for verifying the correct response format from the model.
+
+        Args:
+            batch (dict): The input batch containing all the information we need to compute
+                the verification reward.
+
+        Returns:
+            torch.tensor: rewards of shape <batch_size, seq_len>
+        """
+        assert 'zero_rewards' in batch.keys()
+        assert 'raw_untokenized_texts' in batch.keys()
+        assert 'generated_lens' in batch.keys()
+
+        rewards = batch['zero_rewards']
+        raw_untokenized_texts = batch['raw_untokenized_texts']
+        generated_lens = batch['generated_lens']
+
+        batch_size = rewards.shape[0]
+        all_generated_texts = [x[1] for x in raw_untokenized_texts]
+        for i in range(batch_size):
+            _reward = self._score_generations(all_generated_texts[i])
+            rewards[i, generated_lens[i] - 1] += _reward
+        return rewards
+
+    def _score_generations(self, prediction: str):
+        try:
+            # Split by newline and get the last element
+            lines = answer.split('\n')
+            if not lines:
+                return 0.0
+
+            # Use regex to match 4 #s followed by a space and capture everything after
+            last_line = lines[-1]
+            match = re.match(r'^#{4}\s+(.*)', last_line)
+            return 1.0 if match else 0.0
+        except Exception as e:
+            return 0.0

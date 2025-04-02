@@ -8,6 +8,8 @@ from compose_rl.reward_learning.base_reward import (
 )
 from compose_rl.reward_learning.functional import (
     BadGenerationEndReward,
+    Gsm8kFormatVerificationReward,
+    Gsm8kVerificationReward,
     IncreasingNumbersReward,
     OutputLengthReward,
     ShortResponseReward,
@@ -34,6 +36,8 @@ __all__ = [
     'ComposerMPTPairwiseRewardModel',
     'ComposerHFPairwiseRewardModel',
     'ComposerHFClassifierRewardModel',
+    'Gsm8kFormatVerificationReward',
+    'Gsm8kVerificationReward',
     'InferenceRewardModel',
     'BadGenerationEndReward',
     'IncreasingNumbersReward',

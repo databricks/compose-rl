@@ -299,6 +299,7 @@ class RewardManager:
         actions: torch.Tensor,
         action_log_probs: torch.Tensor,
         device_train_microbatch_size: int,
+        verified_answers: Optional[torch.Tensor] = None,
     ) -> tuple[ReferenceOutput, RewardOutput]:
         """Collect rewards for generations.
 
@@ -359,6 +360,8 @@ class RewardManager:
             'seq_lens': seq_lens,
             'action_log_probs': action_log_probs,
         }
+        if verified_answers is not None:
+            batch['verified_answers'] = verified_answers
 
         for reward_name in chain(
             self.functional_rewards,
