@@ -14,7 +14,6 @@ import torch
 
 from compose_rl.reward_learning.base_reward import RewardModel, Tokenizer
 from compose_rl.reward_learning.inference_model import InferenceRewardModel
-from compose_rl.registry import PGRM_FORMATTER_REGISTRY
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +22,8 @@ log = logging.getLogger(__name__)
 class PromptGuidedRewardModel(InferenceRewardModel):
 
     def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
+        # TODO: fix the circular import issue and move this import to the top of the file
+        from compose_rl.registry import PGRM_FORMATTER_REGISTRY
         super().__init__(cfg, tokenizer)
         # select the formatter class based on the cfg
         self.input_batch_to_prompt_strs_formatter = PGRM_FORMATTER_REGISTRY[cfg['pgrm_formatter']](cfg, tokenizer)
