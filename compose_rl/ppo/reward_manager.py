@@ -119,11 +119,17 @@ class RewardManager:
                     'granularity',
                 )
 
-                if reward_cls == InferenceRewardModel:
-                    model = InferenceRewardModel(
-                        reward_config.get('config'),
-                        self.tokenizer,
-                    )
+                if isinstance(model, InferenceRewardModel):
+                    if reward_cls == InferenceRewardModel:
+                        model = InferenceRewardModel(
+                            reward_config.get('config'),
+                            self.tokenizer,
+                        )
+                    elif issubclass(reward_cls, PromptGuidedRewardModel):
+                        model = RL_REWARD_REGISTRY[reward_config.get('PGRM_class')](
+                            reward_config.get('config'),
+                            self.tokenizer,
+                        )
                     self.inference_rewards.append(reward_name)
 
                 else:

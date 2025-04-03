@@ -16,6 +16,7 @@ from compose_rl.reward_learning import (
     IncreasingNumbersReward,
     InferenceRewardModel,
     OutputLengthReward,
+    PromptGuidedRewardModel,
     ShortResponseReward,
 )
 
@@ -27,6 +28,7 @@ RL_REWARD_REGISTRY = {
     'mpt_pairwise': ComposerMPTPairwiseRewardModel,
     'hf_pairwise': ComposerHFPairwiseRewardModel,
     'bad_generation_end': BadGenerationEndReward,
+    'prompt_guided_reward_model': PromptGuidedRewardModel,
 }
 
 KL_CONTROLLER_REGISTRY = {
