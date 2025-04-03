@@ -496,19 +496,6 @@ class PPOCallback(CallbackWithConfig):
             0,
         )
 
-    def fit_end(self, state: State, logger: Logger) -> None:
-        """Push final weights to vllm so we can use them to run evals
-
-        Args:
-            state: The composer state object
-            logger: The composer logger
-        """
-        batch = self._get_next_iter_prompts()
-        batch = state.device.batch_to_device(batch)
-
-        if self.vllm_engines is not None:
-            self._update_inference_model(batch)
-
     def _get_next_iter_prompts(self):
         """Gets the next iteration's batch of prompts."""
         batches = [
