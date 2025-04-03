@@ -63,6 +63,9 @@ ppo = "compose_rl.ppo:PPOCallback"
 pairwise_rm_accuracy = "compose_rl.metrics.reward_model_metrics:PairwiseRewardClassificationAccuracy"
 classifier_accuracy = "compose_rl.metrics.reward_model_metrics:BinaryRewardClassificationAccuracy"
 
+[project.entry-points."llmfoundry_load_planners"]
+ppo_load_planner = "compose_rl.ppo.load_planner:PPOModelLoadPlanner"
+
 # iSort
 [tool.isort]
 multi_line_output = 0
