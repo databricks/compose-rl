@@ -22,6 +22,7 @@ from compose_rl.reward_learning.model import (
     ComposerHFPairwiseRewardModel,
     ComposerMPTPairwiseRewardModel,
 )
+from compose_rl.reward_learning.prompt_guided_model import PromptGuidedRewardModel
 
 # Necessary to upload code when saving
 RewardModelConfig.register_for_auto_class()
@@ -39,4 +40,5 @@ __all__ = [
     'IncreasingNumbersReward',
     'OutputLengthReward',
     'ShortResponseReward',
+    'PromptGuidedRewardModel',
 ]

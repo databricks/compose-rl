@@ -25,6 +25,7 @@ from compose_rl.reward_learning import (
     BadGenerationEndReward,
     BaseReward,
     InferenceRewardModel,
+    PromptGuidedRewardModel,
     Reward,
     RewardModel,
 )
@@ -445,7 +446,7 @@ class RewardManager:
                 curr_inputs.attention_mask,
             ).type(base_batch['attention_mask'].dtype)
 
-            return {
+            output = {
                 'tok_formatted_reward_inputs':
                     tok_formatted_reward_inputs,
                 'tok_formatted_reward_attn_masks':
@@ -467,6 +468,9 @@ class RewardManager:
                 'seq_lens':
                     base_batch['seq_lens'],
             }
+            if isinstance(reward_model, PromptGuidedRewardModel):
+                output['raw_untokenized_texts'] = raw_untokenized_texts
+            return output
         else:
             raise TypeError(
                 f'Unknown reward model type {type(reward_model)}. Expected `Reward` or `RewardModel`.',
