@@ -14,29 +14,18 @@ import torch
 
 from compose_rl.reward_learning.base_reward import RewardModel, Tokenizer
 from compose_rl.reward_learning.inference_model import InferenceRewardModel
+from compose_rl.registry import PGRM_FORMATTER_REGISTRY
 
 log = logging.getLogger(__name__)
 
 # TODO: add assertion that PromptGuidedRewardModel is always in "document" mode
 
-class PromptGuidedRewardModel(InferenceRewardModel, ABC):
+class PromptGuidedRewardModel(InferenceRewardModel):
+
     def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
         super().__init__(cfg, tokenizer)
-
-    @abstractmethod
-    def format_inputs_to_prompt(self, batch: MutableMapping) -> list[str]:
-        """
-        Takes in the batch and returns a list of prompt-formatted strings which will be passed directly to the prompt-guided reward model.
-        Each prompt should have the chat template applied, but still be untokenized.
-
-        Args:
-            batch (MutableMapping): The input batch
-
-        Returns:
-            list[str]: The formatted inputs.
-        """
-        pass
-
+        # select the formatter class based on the cfg
+        self.input_batch_to_prompt_strs_formatter = PGRM_FORMATTER_REGISTRY[cfg['pgrm_formatter']](cfg, tokenizer)
     def __call__(self, batch: MutableMapping) -> torch.Tensor:
         if 'raw_untokenized_texts' not in batch:
             raise ValueError("PromptGuidedRewardModel requires raw_untokenized_texts in batch")
@@ -49,7 +38,7 @@ class PromptGuidedRewardModel(InferenceRewardModel, ABC):
             max_value=30,
         )
         def call_predict_with_backoff(batch: MutableMapping) -> list[float]:
-            input_strs: list[str] = self.format_inputs_to_prompt(batch)
+            input_strs: list[str] = self.input_batch_to_prompt_strs_formatter(batch)
             unprocessed_rewards = self._call_rm(input_strs)
             return unprocessed_rewards
         
@@ -93,14 +82,3 @@ class PromptGuidedRewardModel(InferenceRewardModel, ABC):
         response = response.json()
         # These are document-level rewards, so only 1 reward score per "document" (i.e. per input_str)
         return [r['score'][0] for r in response['data']]
-
-
-class WeebSenseiRewardModel(PromptGuidedRewardModel):
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
-
-    def format_inputs_to_prompt(self, batch: MutableMapping) -> list[str]:
-        return [
-            text for text in batch['raw_untokenized_texts']
-        ]
-    

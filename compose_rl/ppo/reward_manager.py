@@ -125,8 +125,8 @@ class RewardManager:
                             reward_config.get('config'),
                             self.tokenizer,
                         )
-                    elif issubclass(reward_cls, PromptGuidedRewardModel):
-                        model = RL_REWARD_REGISTRY[reward_config.get('PGRM_class')](
+                    elif reward_cls == PromptGuidedRewardModel:
+                        model = PromptGuidedRewardModel(
                             reward_config.get('config'),
                             self.tokenizer,
                         )

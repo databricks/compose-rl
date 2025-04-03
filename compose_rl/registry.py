@@ -20,6 +20,11 @@ from compose_rl.reward_learning import (
     ShortResponseReward,
 )
 
+from compose_rl.reward_learning.pgrm_methods import (
+    WeebSenseiPGRMFormatter,
+)
+
+
 RL_REWARD_REGISTRY = {
     'increasing_numbers': IncreasingNumbersReward,
     'output_length': OutputLengthReward,
@@ -36,4 +41,8 @@ KL_CONTROLLER_REGISTRY = {
     'fixed': FixedKLController,
     'pid': KLPIDController,
     'ball': BallKLController,
+}
+
+PGRM_FORMATTER_REGISTRY = {
+    'weeb_sensei': WeebSenseiPGRMFormatter,
 }
