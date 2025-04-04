@@ -82,7 +82,7 @@ The capital of France is Paris.<|eot_id|>
         # Zero-pad and batch the rewards from the outputs (this is the sequence reward)
         # TODO: check that this is equivalent to the more verbose version in inference_model (e.g., lines 193-onwards)
         padded_reward_seqs = torch.zeros(batch['input_ids'].shape)
-        padded_reward_seqs[torch.arange(batch_size), batch['seq_lens'].squeeze()] = torch.tensor(unprocessed_rewards)
+        padded_reward_seqs[torch.arange(batch_size), torch.tensor(batch['seq_lens']).squeeze()] = torch.tensor(unprocessed_rewards)
         return self.postprocess_reward(padded_reward_seqs)
     
             
