@@ -436,6 +436,8 @@ class PPOCallback(CallbackWithConfig):
         if self.num_vllm_engines > 0:
             self._create_vllm_engines()
 
+        state.vllm_engines = self.vllm_engines  # type: ignore[attr-defined]
+
     def before_load(self, state: State, logger: Logger):
         del logger
         self.train_prompt_loader = state.train_dataloader
