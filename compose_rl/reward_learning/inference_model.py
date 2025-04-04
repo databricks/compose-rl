@@ -79,6 +79,7 @@ class InferenceRewardModel(RewardModel):
             seq_lens = [[12, 15]]
             dummy_batch = {
                 'input_ids': right_padded_obses,
+                'raw_untokenized_texts': [['Hello World']],
                 'seq_lens': seq_lens,
                 'seq_reward': True,
                 'is_inference': True,

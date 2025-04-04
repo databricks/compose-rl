@@ -24,9 +24,10 @@ class PromptGuidedRewardModel(InferenceRewardModel):
     def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
         # TODO: fix the circular import issue and move this import to the top of the file
         from compose_rl.registry import PGRM_FORMATTER_REGISTRY
-        super().__init__(cfg, tokenizer)
         # select the formatter class based on the cfg
-        self.input_batch_to_prompt_strs_formatter = PGRM_FORMATTER_REGISTRY[cfg['pgrm_formatter']](cfg, tokenizer)
+        self.input_batch_to_prompt_strs_formatter = PGRM_FORMATTER_REGISTRY[cfg['pgrm_formatter']](cfg, tokenizer)  
+        super().__init__(cfg, tokenizer)
+        
     def __call__(self, batch: MutableMapping) -> torch.Tensor:
         if 'raw_untokenized_texts' not in batch:
             raise ValueError("PromptGuidedRewardModel requires raw_untokenized_texts in batch")
