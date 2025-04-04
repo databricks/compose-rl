@@ -32,15 +32,23 @@ class PromptGuidedRewardModel(InferenceRewardModel):
         """
         Performs a health check on the model by passing a dummy batch through it.
         """
+        right_padded_obses = torch.tensor([[0] * 16])
+        seq_lens = [[12, 15]]
         dummy_batch = {
-            'raw_untokenized_texts': ["""
+            'input_ids': right_padded_obses,
+            'seq_lens': seq_lens,
+            'seq_reward': True,
+            'is_inference': True,
+            'raw_untokenized_texts': [
+"""
 <|begin_of_text|><|start_header_id|>system<|end_header_id|>
 You are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>
 
 What is the capital of France?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 
 The capital of France is Paris.<|eot_id|>
-"""],
+""",
+            ],
         }
         self(dummy_batch)
 
