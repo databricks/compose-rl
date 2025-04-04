@@ -50,7 +50,8 @@ The capital of France is Paris.<|eot_id|>
 """,
             ],
         }
-        self(dummy_batch)
+        output = self(dummy_batch)
+        log.debug(f'PGRM perform_health_check_on_model output: {output}')
 
     def __call__(self, batch: MutableMapping) -> torch.Tensor:
         log.debug(f'PGRM __call__ received batch: {batch}')
@@ -98,14 +99,14 @@ The capital of France is Paris.<|eot_id|>
         Returns:
             list[float]: The rewards from the reward model.
         """
-        post_dict = {
-            'post_url': self._deployment_details['post_url'],
-            'headers': self._headers,
-            'json_input': {
-                'model': self._deployment_details['model'],
-                'input': input_str,
-            },
-        }
+        # post_dict = {
+        #     'post_url': self._deployment_details['post_url'],
+        #     'headers': self._headers,
+        #     'json_input': {
+        #         'model': self._deployment_details['model'],
+        #         'input': input_str,
+        #     },
+        # }
         # print('!!!!ABOUT TO POST TO RM!!!!\n'*10)
         # print(f'{post_dict=}')
         response = requests.post(
