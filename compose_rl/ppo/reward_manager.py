@@ -119,7 +119,7 @@ class RewardManager:
                     'granularity',
                 )
 
-                if isinstance(model, InferenceRewardModel):
+                if issubclass(reward_cls, InferenceRewardModel):
                     if reward_cls == InferenceRewardModel:
                         model = InferenceRewardModel(
                             reward_config.get('config'),
@@ -130,6 +130,8 @@ class RewardManager:
                             reward_config.get('config'),
                             self.tokenizer,
                         )
+                    else:
+                        raise ValueError(f'Unknown inference reward model class {reward_cls}')
                     self.inference_rewards.append(reward_name)
 
                 else:
