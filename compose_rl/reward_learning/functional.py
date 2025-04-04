@@ -290,28 +290,25 @@ class Gsm8kAnswerVerificationReward(Reward):
 
     def _extract_solution(self, text: str):
         numbers = re.findall(r'-?[\d,]*\.?\d+', text)
-        final_answer = ''
+        final_answer = float('-inf')
         if len(numbers) == 0:
             # do nothing, ie, answer is None
             pass
         else:
             if numbers:
-                final_answer = numbers[-1].replace(',', '')
+                try:
+                    final_answer = float(numbers[-1].strip().lower().replace(',', '').replace('$', ''))
+                except ValueError:
+                    log.info(f'Float casting failed for {numbers[-1]}')
+                    final_answer = float('-inf')
             else:
-                final_answer = ''
+                final_answer = float('-inf')
 
         return final_answer
 
-    def _score_generations(self, answer: str, label: float):
-        if answer == '':
-            return 0.0
-        else:
-            try:
-                return float(float(answer) == float(label))
-            except ValueError:
-                log.warning(f'Float casting failed for {answer} and {label}')
-                return 0.0
-
+    def _score_generations(self, answer: float, label: float):
+        log.info(f'{answer=} :: {label=}')
+        return float(answer == label)
 
 
 class Gsm8kFormatVerificationReward(Reward):
