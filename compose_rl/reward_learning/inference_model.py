@@ -75,16 +75,7 @@ class InferenceRewardModel(RewardModel):
         # If there is an issue reaching/using the deployment, we want to surface that error now.
         # To do so, we just call this RM with a dummy input.
         if dist.get_local_rank() == 0:
-            right_padded_obses = torch.tensor([[0] * 16])
-            seq_lens = [[12, 15]]
-            dummy_batch = {
-                'input_ids': right_padded_obses,
-                'raw_untokenized_texts': [['Hello World']],
-                'seq_lens': seq_lens,
-                'seq_reward': True,
-                'is_inference': True,
-            }
-            self(dummy_batch)  # Indices here are arbitrary.
+            self.perform_health_check_on_model()
         dist.barrier()
 
     def get_deployment_details(self) -> tuple[dict[str, str], dict[str, str]]:
@@ -96,6 +87,21 @@ class InferenceRewardModel(RewardModel):
         deployment_details = fetch_bpt_details(self.cfg)
         deployment_details['post_url'] = f"{deployment_details['base_url']}/rewards"
         return deployment_details
+    
+    def perform_health_check_on_model(self):
+        """
+        Performs a health check on the model by passing a dummy batch through it.
+        """
+        right_padded_obses = torch.tensor([[0] * 16])
+        seq_lens = [[12, 15]]
+        dummy_batch = {
+            'input_ids': right_padded_obses,
+            'raw_untokenized_texts': [['Hello World']],
+            'seq_lens': seq_lens,
+            'seq_reward': True,
+            'is_inference': True,
+        }
+        self(dummy_batch)  # Indices here are arbitrary.
 
     def validate_config(self):
         # Incorrect config settings will raise errors already in __init__ above

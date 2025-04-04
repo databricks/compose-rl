@@ -27,7 +27,23 @@ class PromptGuidedRewardModel(InferenceRewardModel):
         # select the formatter class based on the cfg
         self.input_batch_to_prompt_strs_formatter = PGRM_FORMATTER_REGISTRY[cfg['pgrm_formatter']](cfg, tokenizer)  
         super().__init__(cfg, tokenizer)
-        
+
+    def perform_health_check_on_model(self):
+        """
+        Performs a health check on the model by passing a dummy batch through it.
+        """
+        dummy_batch = {
+            'raw_untokenized_texts': ["""
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+You are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+What is the capital of France?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+The capital of France is Paris.<|eot_id|>
+"""],
+        }
+        self(dummy_batch)
+
     def __call__(self, batch: MutableMapping) -> torch.Tensor:
         if 'raw_untokenized_texts' not in batch:
             raise ValueError("PromptGuidedRewardModel requires raw_untokenized_texts in batch")
@@ -73,12 +89,12 @@ class PromptGuidedRewardModel(InferenceRewardModel):
         Returns:
             list[float]: The rewards from the reward model.
         """
-        requests.post(
+        response = requests.post(
             self._deployment_details['post_url'],
             headers=self._headers,
             json={
                 'model': self._deployment_details['model'],
-                'inputs': input_str,
+                'input': input_str,
             },
         )
         response = response.json()
