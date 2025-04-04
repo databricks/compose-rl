@@ -126,6 +126,9 @@ class RewardManager:
                             self.tokenizer,
                         )
                     elif reward_cls == PromptGuidedRewardModel:
+                        assert reward_config.get('granularity', 'document') == 'document', \
+                            'PromptGuidedRewardModel only currently supports document granularity'
+                        self.granularities[reward_name] = 'document'
                         model = PromptGuidedRewardModel(
                             reward_config.get('config'),
                             self.tokenizer,
