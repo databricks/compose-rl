@@ -39,15 +39,16 @@ class PromptGuidedRewardModel(InferenceRewardModel):
             'seq_lens': seq_lens,
             'seq_reward': True,
             'is_inference': True,
-            'raw_untokenized_texts': [
+            # raw_untokenized_texts is a list of tuples, where each tuple contains the prompt and generation
+            'raw_untokenized_texts': [(
 """
 <|begin_of_text|><|start_header_id|>system<|end_header_id|>
 You are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>
 
-What is the capital of France?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
-
-The capital of France is Paris.<|eot_id|>
-""",
+What is the capital of France?<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n
+                """.strip(),
+                "The capital of France is Paris.",
+            )
             ],
         }
         output = self(dummy_batch)

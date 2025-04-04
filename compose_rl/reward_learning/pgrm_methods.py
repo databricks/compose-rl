@@ -91,11 +91,13 @@ Response that you're evaluating the weebiness of:
 
     def __call__(self, batch: MutableMapping) -> list[str]:
         # TODO: add check to make sure the generator is a llama3 model
-        message_chains = [
-            undo_llama3_chat_template(text)
-            for text in batch['raw_untokenized_texts']
-        ]
-        return [
-            self.PGRM_PROMPT_TEMPLATE.format(request=message_chain[-2]['content'], response=message_chain[-1]['content'])
-            for message_chain in message_chains
-        ]
+        # raw_untokenized_texts is a list of tuples, where each tuple contains the prompt (with the chat template applied)
+        #  and the generation (*without* the chat template applied)
+        raw_untokenized_texts: list[tuple[str, str]] = batch['raw_untokenized_texts']
+        formatted_prompts = []
+        for prompt_and_generation_tuple in raw_untokenized_texts:
+            message_chain = undo_llama3_chat_template(prompt_and_generation_tuple[0])  # chat template --> list of messages
+            assert message_chain[-1]['role'] == 'user', "Chat template parsing error: last message is not a user message"
+            formatted_prompts.append(self.PGRM_PROMPT_TEMPLATE.format(request=message_chain[-1]['content'],
+                                                                       response=prompt_and_generation_tuple[1]))
+        return formatted_prompts
