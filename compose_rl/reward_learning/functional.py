@@ -6,6 +6,7 @@
 import logging
 from typing import Any, MutableMapping
 
+import re
 import torch
 
 log = logging.getLogger(__name__)
@@ -242,3 +243,118 @@ class OutputLengthReward(Reward):
         curr_rewards = generated_lens / self.max_gen_len
         rewards[torch.arange(batch_size), generated_lens - 1] += curr_rewards
         return rewards
+
+
+class Gsm8kAnswerVerificationReward(Reward):
+
+    # This can be run async
+    BLOCKING = False
+
+    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
+        super().__init__(cfg, tokenizer)
+
+    def validate_config(self):
+        # There are no config requirements for this reward
+        return
+
+    def __call__(
+        self,
+        batch: MutableMapping,
+    ) -> torch.Tensor:
+        """Apply the reward for verifying the correct response (answer) from the model.
+
+        Args:
+            batch (dict): The input batch containing all the information we need to compute
+                the verification reward.
+
+        Returns:
+            torch.tensor: rewards of shape <batch_size, seq_len>
+        """
+        assert 'zero_rewards' in batch.keys()
+        assert 'raw_untokenized_texts' in batch.keys()
+        assert 'verified_answers' in batch.keys()
+        assert 'generated_lens' in batch.keys()
+
+        rewards = batch['zero_rewards']
+        raw_untokenized_texts = batch['raw_untokenized_texts']
+        verified_answers = batch['verified_answers']
+        generated_lens = batch['generated_lens']
+
+        batch_size = rewards.shape[0]
+        all_generated_texts = [x[1] for x in raw_untokenized_texts]
+        for i in range(batch_size):
+            _answer = self._extract_solution(all_generated_texts[i])
+            _reward = self._score_generations(_answer, verified_answers[i].item())
+            rewards[i, generated_lens[i] - 1] += _reward
+        return rewards
+
+    def _extract_solution(self, text: str):
+        numbers = re.findall(r'-?[\d,]*\.?\d+', text)
+        final_answer = ''
+        if len(numbers) == 0:
+            # do nothing, ie, answer is None
+            pass
+        else:
+            if numbers:
+                final_answer = numbers[-1].replace(',', '')
+            else:
+                final_answer = ''
+
+        return final_answer
+
+    def _score_generations(self, answer: str, label: float):
+        if answer == '':
+            return 0.0
+        else:
+            try:
+                return float(answer) == float(label)
+            except ValueError:
+                return 0.0
+
+
+
+class Gsm8kFormatVerificationReward(Reward):
+
+    # This can be run async
+    BLOCKING = False
+
+    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
+        super().__init__(cfg, tokenizer)
+
+    def validate_config(self):
+        # There are no config requirements for this reward
+        return
+
+    def __call__(
+        self,
+        batch: MutableMapping,
+    ) -> torch.Tensor:
+        """Apply the reward for verifying the correct response format from the model.
+
+        Args:
+            batch (dict): The input batch containing all the information we need to compute
+                the verification reward.
+
+        Returns:
+            torch.tensor: rewards of shape <batch_size, seq_len>
+        """
+        assert 'zero_rewards' in batch.keys()
+        assert 'raw_untokenized_texts' in batch.keys()
+        assert 'generated_lens' in batch.keys()
+
+        rewards = batch['zero_rewards']
+        raw_untokenized_texts = batch['raw_untokenized_texts']
+        generated_lens = batch['generated_lens']
+
+        batch_size = rewards.shape[0]
+        all_generated_texts = [x[1] for x in raw_untokenized_texts]
+        for i in range(batch_size):
+            _reward = self._score_generations(all_generated_texts[i])
+            rewards[i, generated_lens[i] - 1] += _reward
+        return rewards
+
+    def _score_generations(self, prediction: str):
+        solution = re.search("#### (\\-?[0-9\\.\\,]+)", prediction)
+        if solution is not None:
+            return 1.0
+        return 0.0

@@ -5,6 +5,7 @@
 
 import argparse
 import os
+import re
 from typing import Any, Iterator, Literal
 
 import datasets as hf_datasets
@@ -32,6 +33,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
         dataset_type: Literal['preference', 'single_prompt'],
+        subset: str | None = None,
     ):
         self.tokenizer = tokenizer
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
@@ -39,11 +41,14 @@ class UnifiedTokenizedDataset(IterableDataset):
         self.dataset_type = dataset_type
 
         print(f'Dataset name: {dataset_name}')
+        if subset:
+            print(f'Processing subset: {subset}')
         print(f'Processing split: {split}')
         print(f'Processing dataset type: {dataset_type}')
 
         self.hf_dataset = hf_datasets.load_dataset(
             path=dataset_name,
+            name=subset if subset else None,
             split=split,
             streaming=True,
         )
@@ -88,13 +93,20 @@ class UnifiedTokenizedDataset(IterableDataset):
         Args:
             sample (Any): a sample from the dataset
         """
-        prompt = sample['prompt']
-        messages = [{
-            'role':
-                'user',
-            'content':
-                f'Can you summarize the following content in 50 words or less: {prompt}',
-        }]
+        prompt = sample['question'].strip()
+        _instruction = "Let's think step by step and output the final answer after \"####\"."
+        messages = [
+            {
+                'role': 'user',
+                'content': f'Question: {prompt} ' + _instruction,
+            },
+        ]
+        verified_answer = self._extract_substring(sample['answer'])
+        try:
+            verified_answer = float(verified_answer)
+        except ValueError:
+            print (f'Conversion failed - not a valid number')
+
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
@@ -104,7 +116,10 @@ class UnifiedTokenizedDataset(IterableDataset):
         if len(encoded_prompt) > self.max_length:
             return None
 
-        return {'prompt': np.asarray(encoded_prompt).tobytes()}
+        return {
+            'prompt': np.asarray(encoded_prompt).tobytes(),
+            'verified_answer': verified_answer,
+        }
 
     def _process_classifier_sample(self, sample: Any):
         """A dummy process a classifier sample.
@@ -128,6 +143,18 @@ class UnifiedTokenizedDataset(IterableDataset):
             'label': np.asarray(label).tobytes(),
         }
 
+    def _extract_substring(self, answer: str):
+        """Extract the substring from the answer column using regex
+
+        This is hardcoded for gsm8k for now, probably need to make this an inheritable function
+        which can be over-ridden by new child classes.
+        """
+        solution = re.search("#### (\\-?[0-9\\.\\,]+)", answer)
+        assert solution is not None
+        final_solution = solution.group(0)
+        final_solution = final_solution.split('#### ')[1].replace(',', '')
+        return final_solution
+
 
 def main(
     dataset_name: str,
@@ -138,6 +165,7 @@ def main(
     tokenizer_name: str,
     dataset_type: Literal['preference', 'single_prompt'],
     max_length: int = 2048,
+    subset: str | None = None,
 ):
     columns = {
         'preference': {
@@ -146,6 +174,7 @@ def main(
         },
         'single_prompt': {
             'prompt': 'bytes',
+            'verified_answer': 'float64',
         },
         'classifier': {
             'input': 'bytes',
@@ -175,6 +204,7 @@ def main(
                 max_length=max_length,
                 tokenizer=tokenizer,
                 dataset_type=dataset_type,
+                subset=subset,
             )
 
             print('Converting to MDS format')
@@ -204,11 +234,12 @@ if __name__ == '__main__':
         nargs='+',
         default=['sha1', 'xxh64'],
     )
+    parser.add_argument('--subset', type=str, default=None)
     parser.add_argument('--splits', type=str, nargs='+', default=['train'])
     parser.add_argument(
         '--tokenizer_name',
         type=str,
-        default='rajammanabrolu/gpt-4-chat',
+        default='meta-llama/Llama-3.1-8B-Instruct',
     )
     parser.add_argument(
         '--dataset_type',
@@ -235,4 +266,5 @@ if __name__ == '__main__':
         tokenizer_name=args.tokenizer_name,
         dataset_type=args.dataset_type,
         max_length=args.max_length,
+        subset=args.subset,
     )

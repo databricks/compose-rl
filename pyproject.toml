@@ -23,21 +23,21 @@ cpu = [
 gpu = [
     'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
     'kubernetes==29.0.0',
-    'vllm>=0.8.2',
+    'vllm>=0.8.2,<0.9.0',
 ]
 dev = [
     'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
     'kubernetes==29.0.0',
-    'vllm>=0.8.2',
+    'vllm>=0.8.2,<0.9.0',
 ]
 released = [
     'llm-foundry[all]>=0.17.1',
     'kubernetes==29.0.0',
-    'vllm>=0.8.2',
+    'vllm>=0.8.2,<0.9.0',
 ]
 cpu_released = [
     'llm-foundry[all-cpu]>=0.17.1',
-    'kubernetes==29.0.0',
+    'vllm>=0.8.2,<0.9.0',
 ]
 
 # Registry entry points
@@ -62,6 +62,9 @@ ppo = "compose_rl.ppo:PPOCallback"
 [project.entry-points."llmfoundry_metrics"]
 pairwise_rm_accuracy = "compose_rl.metrics.reward_model_metrics:PairwiseRewardClassificationAccuracy"
 classifier_accuracy = "compose_rl.metrics.reward_model_metrics:BinaryRewardClassificationAccuracy"
+
+[project.entry-points."llmfoundry_load_planners"]
+ppo_load_planner = "compose_rl.ppo.load_planner:PPOModelLoadPlanner"
 
 # iSort
 [tool.isort]

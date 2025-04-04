@@ -70,6 +70,7 @@ def env_generate(
     device_train_microbatch_size: int,
     generation_kwargs: dict,
     tokenizer: Tokenizer,
+    eos_token_ids: list[int],
 ) -> tuple[dict[str, torch.Tensor],
            list[tuple[str, str]],
            ReferenceOutput,
@@ -90,6 +91,7 @@ def env_generate(
             We need to do all log_prob computation with this in order to maintain numerics.
         generation_kwargs (dict): Generation keyword arguments.
         tokenizer (Tokenizer): The actor critic's tokenizer.
+        eos_token_ids (list[int]): A list of eos token ids.
 
     Returns:
         partial_env_output (dict[str, tensor]): Partially complete dictionary of return elements suitable
@@ -111,13 +113,8 @@ def env_generate(
 
     batch_size, _ = prompt_tokens.shape
 
-    eos_token_id = tokenizer.eos_token_id
     pad_token_id = tokenizer.pad_token_id
 
-    if eos_token_id is None:
-        raise ValueError(
-            'Tokenizer does not have an eos token id. Please use a different tokenizer or add an eos token id.',
-        )
     if pad_token_id is None:
         raise ValueError(
             'Tokenizer does not have a pad token id. Please use a different tokenizer or add a pad token id.',
@@ -125,6 +122,7 @@ def env_generate(
 
     with get_precision_context(precision):
         prompt_len = batch['prompt_len']
+        verified_answers = batch.get('verified_answer', None)
 
         with torch.no_grad():
             cur_device = prompt_tokens.device
@@ -159,6 +157,8 @@ def env_generate(
             ) * max_gen_len
 
             # If all the processes early exit generate, then we need to manually pad everything
+            # we can pad this with pad tokens, since we switch the padding between left and right
+            # padding based on the sequence length + max_sequence_length.
             if prompt_tokens.size(1) + max_gen_len > sequences.size(1):
                 len_to_pad = max_gen_len - (
                     sequences.size(1) - prompt_tokens.size(1)
@@ -168,7 +168,7 @@ def env_generate(
                     (batch_size, len_to_pad),
                     device=cur_device,
                     dtype=prompt_dtype,
-                ) * eos_token_id
+                ) * pad_token_id
                 sequences = torch.cat(
                     [sequences, extra_padding],  # type: ignore
                     dim=-1,  # type: ignore
@@ -202,7 +202,7 @@ def env_generate(
                 prompt_len=prompt_len,
                 generated_len=generated_len,
                 max_gen_len=max_gen_len,
-                eos_token=eos_token_id,  # type: ignore
+                eos_token_ids=eos_token_ids,  # type: ignore
                 pad_token=pad_token_id,  # type: ignore
             )
 
@@ -286,6 +286,7 @@ def env_generate(
                 actions=actions,
                 action_log_probs=device_train_microbatch_log_probs,
                 device_train_microbatch_size=device_train_microbatch_size,
+                verified_answers=verified_answers,
             )
 
     return (
@@ -365,6 +366,8 @@ class PPOCallback(CallbackWithConfig):
         self.train_prompt_loader_state_dict = None
         self.train_prompt_loader = None
 
+        self.input_eos_token_ids = var_config.get('eos_token_ids', None)
+
         if train_config.get('python_log_level', None) is not None:
             logging.getLogger('compose_rl').setLevel(
                 train_config['python_log_level'].upper(),
@@ -434,6 +437,8 @@ class PPOCallback(CallbackWithConfig):
         if self.num_vllm_engines > 0:
             self._create_vllm_engines()
 
+        state.vllm_engines = self.vllm_engines  # type: ignore[attr-defined]
+
     def before_load(self, state: State, logger: Logger):
         del logger
         self.train_prompt_loader = state.train_dataloader
@@ -443,6 +448,18 @@ class PPOCallback(CallbackWithConfig):
         # This needs to be done here becuase callbacks are init'd before we attach
         # the dataloader as a property to state
         self.tokenizer = state.model.tokenizer
+
+        self.eos_token_ids = [self.tokenizer.eos_token_id]  # type: ignore
+        if self.input_eos_token_ids is not None:
+            self.eos_token_ids = self.input_eos_token_ids
+            log.info(
+                f'The online RL loop will assume the following eos token ids {self.eos_token_ids}',
+            )
+            for eos_token_id in self.eos_token_ids:
+                log.info(
+                    f'Token {eos_token_id} is {self.tokenizer.decode([eos_token_id])}.',  # type: ignore
+                )
+
         self.train_prompt_loader_iter = iter(
             self.train_prompt_loader,  # pyright: ignore
         )
@@ -508,7 +525,7 @@ class PPOCallback(CallbackWithConfig):
             padding_key = None
             for batch in batches:
                 # Take care of the prompt length here, no need for extra processing
-                if key == 'prompt_len':
+                if key in ['prompt_len', 'verified_answer']:
                     curr_values.append(batch[key])
                     continue
 
@@ -577,6 +594,7 @@ class PPOCallback(CallbackWithConfig):
                 device_train_microbatch_size=self.device_train_microbatch_size,
                 generation_kwargs=self.generation_kwargs,
                 tokenizer=self.tokenizer,  # type: ignore
+                eos_token_ids=self.eos_token_ids,  # type: ignore
             )
 
             self.prompts_and_gens.extend(prompts_and_gens)
