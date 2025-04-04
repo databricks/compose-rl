@@ -32,8 +32,8 @@ class PromptGuidedRewardModel(InferenceRewardModel):
         """
         Performs a health check on the model by passing a dummy batch through it.
         """
-        right_padded_obses = torch.tensor([[0] * 16])
-        seq_lens = [[12, 15]]
+        right_padded_obses = torch.tensor([[0] * 56])
+        seq_lens = [[56]]
         dummy_batch = {
             'input_ids': right_padded_obses,
             'seq_lens': seq_lens,
@@ -82,7 +82,7 @@ The capital of France is Paris.<|eot_id|>
         # Zero-pad and batch the rewards from the outputs (this is the sequence reward)
         # TODO: check that this is equivalent to the more verbose version in inference_model (e.g., lines 193-onwards)
         padded_reward_seqs = torch.zeros(batch['input_ids'].shape)
-        padded_reward_seqs[batch['batch_indices'].squeeze(), batch['reward_indices'].squeeze()] = torch.tensor(unprocessed_rewards)
+        padded_reward_seqs[torch.arange(batch_size), batch['seq_lens'].squeeze()] = torch.tensor(unprocessed_rewards)
         return self.postprocess_reward(padded_reward_seqs)
     
             
