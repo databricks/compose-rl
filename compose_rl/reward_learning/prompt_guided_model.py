@@ -97,6 +97,16 @@ The capital of France is Paris.<|eot_id|>
         Returns:
             list[float]: The rewards from the reward model.
         """
+        post_dict = {
+            'post_url': self._deployment_details['post_url'],
+            'headers': self._headers,
+            'json_input': {
+                'model': self._deployment_details['model'],
+                'input': input_str,
+            },
+        }
+        print('!!!!ABOUT TO POST TO RM!!!!\n'*10)
+        print(f'{post_dict=}')
         response = requests.post(
             self._deployment_details['post_url'],
             headers=self._headers,
@@ -105,6 +115,8 @@ The capital of France is Paris.<|eot_id|>
                 'input': input_str,
             },
         )
+        print('!!!!POST TO RM COMPLETE!!!!\n'*10)
         response = response.json()
+        print(f'{response=}')
         # These are document-level rewards, so only 1 reward score per "document" (i.e. per input_str)
         return [r['score'][0] for r in response['data']]
