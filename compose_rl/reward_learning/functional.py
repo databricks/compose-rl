@@ -307,8 +307,9 @@ class Gsm8kAnswerVerificationReward(Reward):
             return 0.0
         else:
             try:
-                return float(answer) == float(label)
+                return float(float(answer) == float(label))
             except ValueError:
+                log.warning(f'Float casting failed for {answer} and {label}')
                 return 0.0
 
 
