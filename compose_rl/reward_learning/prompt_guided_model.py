@@ -117,6 +117,7 @@ The capital of France is Paris.<|eot_id|>
                 'input': input_str,
             },
         )
+        response.raise_for_status()  # checking that the response is successful
         # print('!!!!POST TO RM COMPLETE!!!!\n'*10)
         response = response.json()
         # print(f'{response=}')
