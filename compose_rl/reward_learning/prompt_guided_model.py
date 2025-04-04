@@ -33,7 +33,7 @@ class PromptGuidedRewardModel(InferenceRewardModel):
         Performs a health check on the model by passing a dummy batch through it.
         """
         right_padded_obses = torch.tensor([[0] * 56])
-        seq_lens = [[56]]
+        seq_lens = [[55]]
         dummy_batch = {
             'input_ids': right_padded_obses,
             'seq_lens': seq_lens,
