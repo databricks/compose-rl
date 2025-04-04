@@ -53,6 +53,7 @@ The capital of France is Paris.<|eot_id|>
         self(dummy_batch)
 
     def __call__(self, batch: MutableMapping) -> torch.Tensor:
+        log.debug(f'PGRM __call__ received batch: {batch}')
         if 'raw_untokenized_texts' not in batch:
             raise ValueError("PromptGuidedRewardModel requires raw_untokenized_texts in batch")
         batch_size = batch['input_ids'].shape[0]
