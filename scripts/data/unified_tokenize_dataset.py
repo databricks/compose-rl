@@ -149,11 +149,10 @@ class UnifiedTokenizedDataset(IterableDataset):
         This is hardcoded for gsm8k for now, probably need to make this an inheritable function
         which can be over-ridden by new child classes.
         """
-        solution = re.search("#### (\\-?[0-9\\.\\,]+)", answer)
-        assert solution is not None
-        final_solution = solution.group(0)
-        final_solution = final_solution.split('#### ')[1].replace(',', '')
-        return final_solution
+        numbers = re.findall(r'-?[\d,]*\.?\d+', answer)
+        assert len(numbers) > 0, f'No numbers found in answer: {answer}'
+        final_answer = numbers[-1].strip().lower().replace(',', '').replace('$', '')
+        return final_answer
 
 
 def main(
