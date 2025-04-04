@@ -276,6 +276,10 @@ class RewardManager:
             'seq_reward': True,
         }
 
+        if isinstance(reward_model, PromptGuidedRewardModel):
+            # PromptGuidedRewardModel requires raw_untokenized_texts in batch
+            reward_batch['raw_untokenized_texts'] = batch['raw_untokenized_texts']
+
         # Note this uses separate seq lengths to account for potential
         # changes made during reward string formatting
         curr_rewards = reward_model(
