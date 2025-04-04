@@ -64,7 +64,7 @@ What is the capital of France?<|eot_id|><|start_header_id|>assistant<|end_header
             backoff.expo,
             exception=Exception,
             max_tries=self.max_retries + 1,
-            max_value=30,
+            max_value=60,
         )
         def call_predict_with_backoff(batch: MutableMapping) -> list[float]:
             input_strs: list[str] = self.input_batch_to_prompt_strs_formatter(batch)
@@ -77,8 +77,8 @@ What is the capital of France?<|eot_id|><|start_header_id|>assistant<|end_header
             # Retry limit has been reached. Raise the error :(
             error_msg = (
                 'PROMPT GUIDED REWARD MODEL BACKOFF LIMIT EXCEEDED. ' +
-                'Printing batch prompt+generations then raising last error...' +
-                f'\nraw_untokenized_texts:\n{batch["raw_untokenized_texts"]}'
+                'Printing batch then raising last error...' +
+                f'\n\n{batch=}'
             )
             raise RuntimeError(error_msg) from e
         
