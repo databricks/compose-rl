@@ -608,9 +608,9 @@ class RewardManager:
                 )
             env_rewards += subreward.detach() * self.reward_coefficients[name]
 
-            # In the output, make sure each key has 'reward' in it to engage
+            # In the output, make sure each key ends in 'reward' to engage
             # proper logging (see .loss of policy class)
-            out_name = name + '_reward' if 'reward' not in name else ''
+            out_name = name + '_reward' if not name.endswith('_reward') else name
             rews_dict_out[out_name] = subreward.detach() * action_mask
 
         # Masking out all rewards if the generation ends with a bad token
