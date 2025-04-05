@@ -216,7 +216,7 @@ def ppo_loss(
         batch['action_mask'],
     )
 
-    online_ift_kl = unclamped_online_ift_kl.clamp(min=-40.0, max=40.0)
+    online_ift_kl = unclamped_online_ift_kl.clamp(min=-5.0, max=40.0)
     online_ift_kl = utils.masked_mean(online_ift_kl, batch['action_mask'])
 
     ratio = torch.exp(online_log_probs - old_log_probs)
