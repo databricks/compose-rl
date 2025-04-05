@@ -307,8 +307,9 @@ class Gsm8kAnswerVerificationReward(Reward):
         return final_answer
 
     def _score_generations(self, answer: float, label: float):
-        log.info(f'{answer=} :: {label=}')
-        return float(answer == label)
+        if abs(float(answer)-float(label)) < 1.0e-03:
+            return 1.0
+        return 0.0
 
 
 class Gsm8kFormatVerificationReward(Reward):
