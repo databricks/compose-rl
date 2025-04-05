@@ -204,10 +204,11 @@ def ppo_loss(
         utils.approx_kl(online_log_probs, old_log_probs),
         batch['action_mask'],
     )
-    online_ift_kl = utils.masked_mean(
+    unclamped_online_ift_kl = utils.masked_mean(
         outputs['online_log_probs'] - batch['ift_log_probs'],
         batch['action_mask'],
     )
+    online_ift_kl = unclamped_online_ift_kl.clamp(min=-40.0, max=40.0)
 
     ratio = torch.exp(online_log_probs - old_log_probs)
 
@@ -235,6 +236,9 @@ def ppo_loss(
         'kl/ift_kl_scalar': batch['ift_kl_scalar'],
         'value_loss/clip_frac': value_clip_frac,
         'policy_loss/clip_frac': policy_clip_frac,
+        'kl/unclamped_online_ift_kl': unclamped_online_ift_kl,
+        'kl/min_unclamped_online_ift_kl': unclamped_online_ift_kl.min(),
+        'kl/max_unclamped_online_ift_kl': unclamped_online_ift_kl.max(),
         'kl/online_ift_kl': online_ift_kl,
         'value_loss/returns_mean': returns_mean,
         'value_loss/returns_var': returns_var,

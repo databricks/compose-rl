@@ -508,6 +508,7 @@ class RewardManager:
             ref_model_log_probs.append(curr_ref_log_probs)
 
         kl = torch.cat(kl)
+
         ref_model_log_probs = torch.cat(ref_model_log_probs)
         ref_output = (kl, ref_model_log_probs)
 
