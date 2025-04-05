@@ -596,6 +596,7 @@ class PPOCallback(CallbackWithConfig):
                 tokenizer=self.tokenizer,  # type: ignore
                 eos_token_ids=self.eos_token_ids,  # type: ignore
             )
+            log.debug(f'Rewards dict from env_generate: {all_rewards_dict=}')
 
             self.prompts_and_gens.extend(prompts_and_gens)
 
@@ -671,6 +672,7 @@ class PPOCallback(CallbackWithConfig):
                 objects resolved and outputs processed for PPO training.
         """
         outputs = []
+        log.debug(f'Partial outputs in callback._resolve_outputs: {partial_outputs=}')
         for env_outs, ref_outs, rew_dict in partial_outputs:
             rew_outs = self.reward_manager.resolve_outputs(
                 ref_output=ref_outs,

@@ -566,6 +566,7 @@ class RewardManager:
                 reward model.
         """
         device = action_mask.device
+        log.debug(f'`reward_output` to `reward_manager.resolve_outputs`: {reward_output=}')
 
         # Resolve any output elements that are being computed async,
         # waiting for them to finish where necessary.
@@ -639,7 +640,5 @@ class RewardManager:
             'ift_kl': ref_kl.detach(),
         }
         outputs.update(rews_dict_out)
-
-        log.debug(f'Reward outputs: {outputs=}')
 
         return outputs
