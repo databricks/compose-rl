@@ -640,4 +640,6 @@ class RewardManager:
         }
         outputs.update(rews_dict_out)
 
+        log.debug(f'Reward outputs: {outputs=}')
+
         return outputs
