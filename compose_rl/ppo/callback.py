@@ -472,6 +472,8 @@ class PPOCallback(CallbackWithConfig):
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
+        print ("in iteration start")
+
         batch = self._get_next_iter_prompts()
         batch = state.device.batch_to_device(batch)
 
