@@ -5,6 +5,7 @@
 
 import argparse
 import os
+import re
 from typing import Any, Iterator, Literal
 
 import datasets as hf_datasets
@@ -93,13 +94,20 @@ class UnifiedTokenizedDataset(IterableDataset):
         Args:
             sample (Any): a sample from the dataset
         """
-        prompt = sample['prompt']
-        messages = [{
-            'role':
-                'user',
-            'content':
-                f'Can you summarize the following content in 50 words or less: {prompt}',
-        }]
+        prompt = sample['question'].strip()
+        _instruction = "Let's think step by step and output the final answer after \"####\"."
+        messages = [
+            {
+                'role': 'user',
+                'content': f'Question: {prompt} ' + _instruction,
+            },
+        ]
+        verified_answer = self._extract_gsm8k_answer(sample['answer'])
+        try:
+            verified_answer = float(verified_answer)
+        except ValueError:
+            print (f'Conversion failed - not a valid number')
+
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
@@ -109,7 +117,10 @@ class UnifiedTokenizedDataset(IterableDataset):
         if len(encoded_prompt) > self.max_length:
             return None
 
-        return {'prompt': np.asarray(encoded_prompt).tobytes()}
+        return {
+            'prompt': np.asarray(encoded_prompt).tobytes(),
+            'verified_answer': verified_answer,
+        }
 
     def _process_classifier_sample(self, sample: Any):
         """A dummy process a classifier sample.
@@ -133,6 +144,17 @@ class UnifiedTokenizedDataset(IterableDataset):
             'label': np.asarray(label).tobytes(),
         }
 
+    def _extract_gsm8k_answer(self, answer: str):
+        """Extract the substring from the answer column using regex
+
+        This is hardcoded for gsm8k for now, probably need to make this an inheritable function
+        which can be over-ridden by new child classes.
+        """
+        numbers = re.findall(r'-?[\d,]*\.?\d+', answer)
+        assert len(numbers) > 0, f'No numbers found in answer: {answer}'
+        final_answer = numbers[-1].strip().lower().replace(',', '').replace('$', '')
+        return final_answer
+
 
 def main(
     dataset_name: str,
@@ -152,6 +174,7 @@ def main(
         },
         'single_prompt': {
             'prompt': 'bytes',
+            'verified_answer': 'float64',
         },
         'classifier': {
             'input': 'bytes',
