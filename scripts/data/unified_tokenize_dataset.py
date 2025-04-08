@@ -5,6 +5,7 @@
 
 import argparse
 import os
+import re
 from typing import Any, Iterator, Literal
 
 import datasets as hf_datasets
@@ -32,7 +33,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         split: str,
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
-        dataset_type: Literal['preference', 'single_prompt'],
+        dataset_type: Literal['preference', 'single_prompt', 'verifible_answers'],
         subset: str | None = None,
     ):
         self.tokenizer = tokenizer
@@ -59,6 +60,10 @@ class UnifiedTokenizedDataset(IterableDataset):
                 yield self._process_preference_sample(sample)
             elif self.dataset_type == 'single_prompt':
                 result = self._process_single_prompt_sample(sample)
+                if result is not None:
+                    yield result
+            elif self.dataset_type == 'verifible_answers':
+                result = self._process_verifiable_answer_sample(sample)
                 if result is not None:
                     yield result
             elif self.dataset_type == 'classifier':
@@ -133,6 +138,53 @@ class UnifiedTokenizedDataset(IterableDataset):
             'label': np.asarray(label).tobytes(),
         }
 
+    def _process_verifiable_answer_sample(self, sample: Any):
+        """Process a prompt sample and extract the answer.
+
+        This function is currently hard-coded for the GSM8K dataset.
+
+        Args:
+            sample (Any): a sample from the dataset
+        """
+        prompt = sample['question'].strip()
+        _instruction = "Let's think step by step and output the final answer after \"####\"."
+        messages = [
+            {
+                'role': 'user',
+                'content': f'Question: {prompt} ' + _instruction,
+            },
+        ]
+        verified_answer = self._extract_gsm8k_answer(sample['answer'])
+        try:
+            verified_answer = float(verified_answer)
+        except ValueError:
+            print (f'Conversion failed - not a valid number')
+
+        encoded_prompt = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+        )
+
+        if len(encoded_prompt) > self.max_length:
+            return None
+
+        return {
+            'prompt': np.asarray(encoded_prompt).tobytes(),
+            'verified_answer': verified_answer,
+        }
+
+    def _extract_gsm8k_answer(self, answer: str):
+        """Extract the substring from the answer column using regex
+
+        This is hardcoded for gsm8k for now, probably need to make this an inheritable function
+        which can be over-ridden by new child classes.
+        """
+        numbers = re.findall(r'-?[\d,]*\.?\d+', answer)
+        assert len(numbers) > 0, f'No numbers found in answer: {answer}'
+        final_answer = numbers[-1].strip().lower().replace(',', '').replace('$', '')
+        return final_answer
+
 
 def main(
     dataset_name: str,
@@ -141,7 +193,7 @@ def main(
     hashes: list[str],
     splits: list[str],
     tokenizer_name: str,
-    dataset_type: Literal['preference', 'single_prompt'],
+    dataset_type: Literal['preference', 'single_prompt', 'verifible_answers'],
     max_length: int = 2048,
     subset: str | None = None,
 ):
@@ -152,6 +204,10 @@ def main(
         },
         'single_prompt': {
             'prompt': 'bytes',
+        },
+        'verifible_answers': {
+            'prompt': 'bytes',
+            'verified_answer': 'float64',
         },
         'classifier': {
             'input': 'bytes',
@@ -221,7 +277,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataset_type',
         type=str,
-        choices=['preference', 'single_prompt', 'classifier'],
+        choices=['preference', 'single_prompt', 'classifier', 'verifible_answers'],
         required=True,
         help='Type of dataset to process',
     )
