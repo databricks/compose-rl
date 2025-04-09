@@ -12,32 +12,26 @@ version = "0.2.0"
 dependencies = [
     'spacy==3.7.5',
     'spacy-alignments',
-    'ray',
+    'ray<3',
+    'kubernetes==29.0.0',
+    'vllm>=0.8.2,<0.9.0',
 ]
 
 [project.optional-dependencies]
 cpu = [
     'llm-foundry[all-cpu]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
-    'kubernetes==29.0.0',
 ]
 gpu = [
     'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
-    'kubernetes==29.0.0',
-    'vllm>=0.8.2,<0.9.0',
 ]
 dev = [
     'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
-    'kubernetes==29.0.0',
-    'vllm>=0.8.2,<0.9.0',
 ]
 released = [
     'llm-foundry[all]>=0.17.1',
-    'kubernetes==29.0.0',
-    'vllm>=0.8.2,<0.9.0',
 ]
 cpu_released = [
     'llm-foundry[all-cpu]>=0.17.1',
-    'vllm>=0.8.2,<0.9.0',
 ]
 
 # Registry entry points
