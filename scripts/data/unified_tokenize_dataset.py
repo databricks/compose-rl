@@ -5,7 +5,6 @@
 
 import argparse
 import os
-import re
 from typing import Any, Iterator, Literal
 
 import datasets as hf_datasets
@@ -13,6 +12,11 @@ import numpy as np
 from streaming import MDSWriter
 from torch.utils.data import IterableDataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
+from compose_rl.data.rlvr_utils import (
+    extract_gsm8k_answer,
+    prepare_gsm8k_prompt,
+)
 
 
 class UnifiedTokenizedDataset(IterableDataset):
@@ -182,23 +186,6 @@ class UnifiedTokenizedDataset(IterableDataset):
             'prompt': np.asarray(encoded_prompt).tobytes(),
             'verified_answer': verified_answer,
         }
-
-
-def extract_gsm8k_answer(sample: Any) -> str:
-    """Extract the ground truth from the answer column using regex."""
-    answer = sample['answer']
-    numbers = re.findall(r'-?[\d,]*\.?\d+', answer)
-    assert len(numbers) > 0, f'No numbers found in answer: {answer}'
-    final_answer = numbers[-1].strip().lower().replace(',', '').replace('$', '')
-    return final_answer
-
-
-def prepare_gsm8k_prompt(sample: Any) -> str:
-    """Prepare the prompt for GSM8k."""
-    prompt = sample['question'].strip()
-    _instruction = "Let's think step by step and output the final answer after \"####\"."
-    final_prompt = f'Question: {prompt} ' + _instruction
-    return final_prompt
 
 
 def main(
