@@ -111,29 +111,3 @@ build_prompt_dataloader = generate_dataloader_builder(
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
 )
-
-
-if __name__ == "__main__":
-    from llmfoundry.utils.builders import build_tokenizer
-    from llmfoundry.data.dataloader import build_dataloader
-    from omegaconf import OmegaConf as om
-
-    from llmfoundry.utils.config_utils import (
-        TRAIN_CONFIG_KEYS,
-        TrainConfig,
-        make_dataclass_and_log_config,
-    )
-
-    yaml_path = "/compose-rl/yamls/local_ppo.yaml"
-    om.clear_resolver('oc.env')
-    with open(yaml_path) as f:
-        yaml_cfg = om.load(f)
-
-    print (yaml_cfg)
-
-    # logged_cfg, train_cfg = make_dataclass_and_log_config(
-    #     cfg,
-    #     TrainConfig,
-    #     TRAIN_CONFIG_KEYS,
-    #     transforms='all',
-    # )

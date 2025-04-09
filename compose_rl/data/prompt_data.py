@@ -3,11 +3,10 @@
 
 """Build a prompt dataset and dataloader for training."""
 
-import logging
-from typing import Any
-
 import functools
+import logging
 import operator
+from typing import Any
 
 import numpy as np
 import torch
@@ -47,7 +46,11 @@ def prompt_dataset_collate_fn(
             continue
 
         if key in ['verified_answer']:
-            collated_batch[key] = functools.reduce(operator.iconcat, cur_values, [])
+            collated_batch[key] = functools.reduce(
+                operator.iconcat,
+                cur_values,
+                [],
+            )
             continue
 
         collated_batch[key] = ref_collate_fn(cur_values)['input_ids']
@@ -102,8 +105,11 @@ class PromptStreamingDataset(StreamingDataset):
         verified_answer = sample.get('verified_answer', None)
         if verified_answer:
             if isinstance(verified_answer, bytes):
-                verified_answer = verified_answer.decode('utf-8', errors='replace')
+                verified_answer = verified_answer.decode(
+                    'utf-8',
+                    errors='replace',
+                )
 
-            item_dict['verified_answer'] = verified_answer
+            item_dict['verified_answer'] = verified_answer  # type: ignore
 
         return item_dict

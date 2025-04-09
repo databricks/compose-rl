@@ -33,7 +33,8 @@ class UnifiedTokenizedDataset(IterableDataset):
         split: str,
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
-        dataset_type: Literal['preference', 'single_prompt', 'verifible_answers'],
+        dataset_type: Literal['preference', 'single_prompt',
+                              'verifible_answers'],
         subset: str | None = None,
     ):
         self.tokenizer = tokenizer
@@ -141,8 +142,9 @@ class UnifiedTokenizedDataset(IterableDataset):
 
     def _get_processing_fn_from_dataset(self):
         """Get the processing function based on the dataset name.
-        This function is currently hard-coded for the GSM8K dataset."""
 
+        This function is currently hard-coded for the GSM8K dataset.
+        """
         prompt_fn = prepare_gsm8k_prompt
         answer_fn = extract_gsm8k_answer
 
@@ -290,7 +292,12 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataset_type',
         type=str,
-        choices=['preference', 'single_prompt', 'classifier', 'verifible_answers'],
+        choices=[
+            'preference',
+            'single_prompt',
+            'classifier',
+            'verifible_answers',
+        ],
         required=True,
         help='Type of dataset to process',
     )

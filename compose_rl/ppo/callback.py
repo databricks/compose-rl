@@ -5,16 +5,14 @@
 
 from __future__ import annotations
 
+import functools
 import gc
 import logging
+import operator
 import os
 import socket
 import time
 from itertools import chain
-
-import functools
-import operator
-
 from typing import Any, Optional, Union
 
 import ray
@@ -533,7 +531,10 @@ class PPOCallback(CallbackWithConfig):
                     padding_key = False
 
                 # Compute the required padding and concatenate with the batch tensor
-                pad = torch.ones((bs, max_len - seq_len), dtype=batch[key].dtype) * padding_key  # type: ignore
+                pad = torch.ones(
+                    (bs, max_len - seq_len),
+                    dtype=batch[key].dtype,
+                ) * padding_key  # type: ignore
                 curr_values.append(torch.cat([pad, batch[key]], dim=-1))
 
             # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
@@ -541,7 +542,11 @@ class PPOCallback(CallbackWithConfig):
                 ret_batch[key] = torch.cat(curr_values)
             else:
                 if key == 'verified_answer':
-                    ret_batch[key] = functools.reduce(operator.iconcat, curr_values, [])
+                    ret_batch[key] = functools.reduce(
+                        operator.iconcat,
+                        curr_values,
+                        [],
+                    )
                 else:
                     # this is an edge case that we will not hit currently, but just handling it as needed
                     ret_batch[key] = curr_values

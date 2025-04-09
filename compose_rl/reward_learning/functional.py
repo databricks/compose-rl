@@ -4,12 +4,10 @@
 """Functional reward implementations."""
 
 import logging
+import re
 from typing import Any, MutableMapping
 
-import math
-import re
 import torch
-
 
 log = logging.getLogger(__name__)
 
@@ -263,7 +261,7 @@ class Gsm8kAnswerVerificationReward(Reward):
         self,
         batch: MutableMapping,
     ) -> torch.Tensor:
-        """Apply the reward for verifying the correct response (answer) from the model.
+        """Apply the reward for verifying the correct answer from the model.
 
         Args:
             batch (dict): The input batch containing all the information we need to compute
@@ -298,7 +296,11 @@ class Gsm8kAnswerVerificationReward(Reward):
             pass
         else:
             if numbers:
-                final_answer = numbers[-1].strip().lower().replace(',', '').replace('$', '')
+                final_answer = numbers[-1].strip().lower().replace(',',
+                                                                   '').replace(
+                                                                       '$',
+                                                                       '',
+                                                                   )
             else:
                 final_answer = ''
 
@@ -324,7 +326,7 @@ class Gsm8kFormatVerificationReward(Reward):
         self,
         batch: MutableMapping,
     ) -> torch.Tensor:
-        """Apply the reward for verifying the correct response format from the model.
+        """Apply the reward for verifying the correct format from the model.
 
         Args:
             batch (dict): The input batch containing all the information we need to compute
