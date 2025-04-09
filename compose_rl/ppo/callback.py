@@ -508,6 +508,8 @@ class PPOCallback(CallbackWithConfig):
         ret_batch = {}
         for key in batches[0].keys():
             curr_values = []
+
+            max_len = 0
             if isinstance(batches[0][key], torch.Tensor):
                 max_len = max([batch[key].shape[-1] for batch in batches])
 
