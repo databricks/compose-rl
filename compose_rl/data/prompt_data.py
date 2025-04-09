@@ -6,6 +6,9 @@
 import logging
 from typing import Any
 
+import functools
+import operator
+
 import numpy as np
 import torch
 from streaming import StreamingDataset
@@ -39,8 +42,12 @@ def prompt_dataset_collate_fn(
     collated_batch: dict[str, torch.Tensor] = {}
     for key in keys:
         cur_values = [item[key] for item in batch]
-        if key in ['prompt_len', 'verified_answer']:
+        if key in ['prompt_len']:
             collated_batch[key] = torch.stack(cur_values).squeeze(dim=1)
+            continue
+
+        if key in ['verified_answer']:
+            collated_batch[key] = functools.reduce(operator.iconcat, cur_values, [])
             continue
 
         collated_batch[key] = ref_collate_fn(cur_values)['input_ids']
@@ -94,7 +101,9 @@ class PromptStreamingDataset(StreamingDataset):
 
         verified_answer = sample.get('verified_answer', None)
         if verified_answer:
-            verified_answer = torch.Tensor([verified_answer]).to(dtype=torch.float64)
+            if isinstance(verified_answer, bytes):
+                verified_answer = verified_answer.decode('utf-8', errors='replace')
+
             item_dict['verified_answer'] = verified_answer
 
         return item_dict

@@ -6,8 +6,10 @@
 import logging
 from typing import Any, MutableMapping
 
+import math
 import re
 import torch
+
 
 log = logging.getLogger(__name__)
 
@@ -284,32 +286,26 @@ class Gsm8kAnswerVerificationReward(Reward):
         all_generated_texts = [x[1] for x in raw_untokenized_texts]
         for i in range(batch_size):
             _answer = self._extract_solution(all_generated_texts[i])
-            _reward = self._score_generations(_answer, verified_answers[i].item())
+            _reward = self._score_generations(_answer, verified_answers[i])
             rewards[i, generated_lens[i] - 1] += _reward
         return rewards
 
-    def _extract_solution(self, text: str):
+    def _extract_solution(self, text: str) -> str:
         numbers = re.findall(r'-?[\d,]*\.?\d+', text)
-        final_answer = float('-inf')
+        final_answer = ''
         if len(numbers) == 0:
             # do nothing, ie, answer is None
             pass
         else:
             if numbers:
-                try:
-                    final_answer = float(numbers[-1].strip().lower().replace(',', '').replace('$', ''))
-                except ValueError:
-                    log.info(f'Float casting failed for {numbers[-1]}')
-                    final_answer = float('-inf')
+                final_answer = numbers[-1].strip().lower().replace(',', '').replace('$', '')
             else:
-                final_answer = float('-inf')
+                final_answer = ''
 
         return final_answer
 
-    def _score_generations(self, answer: float, label: float):
-        if abs(float(answer)-float(label)) < 1.0e-03:
-            return 1.0
-        return 0.0
+    def _score_generations(self, answer: str, label: str) -> float:
+        return float(answer == label)
 
 
 class Gsm8kFormatVerificationReward(Reward):
@@ -352,8 +348,6 @@ class Gsm8kFormatVerificationReward(Reward):
             rewards[i, generated_lens[i] - 1] += _reward
         return rewards
 
-    def _score_generations(self, prediction: str):
-        solution = re.search(r'####.*?([\d,]+(?:\.\d+)?)', prediction)
-        if solution is not None:
-            return 1.0
-        return 0.0
+    def _score_generations(self, answer: str) -> float:
+        solution = re.search(r'####.*?([\d,]+(?:\.\d+)?)', answer)
+        return 1.0 if solution is not None else 0.0

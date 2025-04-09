@@ -40,6 +40,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         self.max_length = max_length
         self.dataset_type = dataset_type
+        self.dataset_name = dataset_name
 
         print(f'Dataset name: {dataset_name}')
         if subset:
@@ -138,6 +139,15 @@ class UnifiedTokenizedDataset(IterableDataset):
             'label': np.asarray(label).tobytes(),
         }
 
+    def _get_processing_fn_from_dataset(self):
+        """Get the processing function based on the dataset name.
+        This function is currently hard-coded for the GSM8K dataset."""
+
+        prompt_fn = prepare_gsm8k_prompt
+        answer_fn = extract_gsm8k_answer
+
+        return prompt_fn, answer_fn
+
     def _process_verifiable_answer_sample(self, sample: Any):
         """Process a prompt sample and extract the answer.
 
@@ -146,19 +156,16 @@ class UnifiedTokenizedDataset(IterableDataset):
         Args:
             sample (Any): a sample from the dataset
         """
-        prompt = sample['question'].strip()
-        _instruction = "Let's think step by step and output the final answer after \"####\"."
+        prompt_fn, answer_fn = self._get_processing_fn_from_dataset()
+
+        prompt = prompt_fn(sample)
         messages = [
             {
                 'role': 'user',
-                'content': f'Question: {prompt} ' + _instruction,
+                'content': prompt,
             },
         ]
-        verified_answer = self._extract_gsm8k_answer(sample['answer'])
-        try:
-            verified_answer = float(verified_answer)
-        except ValueError:
-            print (f'Conversion failed - not a valid number')
+        verified_answer = answer_fn(sample)
 
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,
@@ -174,16 +181,22 @@ class UnifiedTokenizedDataset(IterableDataset):
             'verified_answer': verified_answer,
         }
 
-    def _extract_gsm8k_answer(self, answer: str):
-        """Extract the substring from the answer column using regex
 
-        This is hardcoded for gsm8k for now, probably need to make this an inheritable function
-        which can be over-ridden by new child classes.
-        """
-        numbers = re.findall(r'-?[\d,]*\.?\d+', answer)
-        assert len(numbers) > 0, f'No numbers found in answer: {answer}'
-        final_answer = numbers[-1].strip().lower().replace(',', '').replace('$', '')
-        return final_answer
+def extract_gsm8k_answer(sample: Any) -> str:
+    """Extract the ground truth from the answer column using regex."""
+    answer = sample['answer']
+    numbers = re.findall(r'-?[\d,]*\.?\d+', answer)
+    assert len(numbers) > 0, f'No numbers found in answer: {answer}'
+    final_answer = numbers[-1].strip().lower().replace(',', '').replace('$', '')
+    return final_answer
+
+
+def prepare_gsm8k_prompt(sample: Any) -> str:
+    """Prepare the prompt for GSM8k."""
+    prompt = sample['question'].strip()
+    _instruction = "Let's think step by step and output the final answer after \"####\"."
+    final_prompt = f'Question: {prompt} ' + _instruction
+    return final_prompt
 
 
 def main(
@@ -207,7 +220,7 @@ def main(
         },
         'verifible_answers': {
             'prompt': 'bytes',
-            'verified_answer': 'float64',
+            'verified_answer': 'str',
         },
         'classifier': {
             'input': 'bytes',
