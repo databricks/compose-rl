@@ -426,6 +426,9 @@ class MATHVeriferReward(BaseVerifierReward):
         Returns:
             float: 1.0 for match, 0.0 otherwise.
         """
+        if answer == '':
+            return 0.0
+
         if answer.strip() == label.strip() or is_equiv(answer, label):
             return 1.0
         return 0.0
