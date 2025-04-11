@@ -3,15 +3,15 @@
 
 """Build a prompt dataset and dataloader for training."""
 
-import functools
 import logging
-import operator
 from typing import Any
 
 import numpy as np
 import torch
 from streaming import StreamingDataset
 from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
+
+import compose_rl.utils as utils
 
 log = logging.getLogger(__name__)
 
@@ -46,10 +46,8 @@ def prompt_dataset_collate_fn(
             continue
 
         if key in ['verified_answer']:
-            collated_batch[key] = functools.reduce(
-                operator.iconcat,
-                cur_values,
-                [],
+            collated_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
+                utils.flatten(cur_values),
             )
             continue
 
@@ -104,12 +102,15 @@ class PromptStreamingDataset(StreamingDataset):
 
         verified_answer = sample.get('verified_answer', None)
         if verified_answer:
-            if isinstance(verified_answer, bytes):
-                verified_answer = verified_answer.decode(
-                    'utf-8',
-                    errors='replace',
-                )
+            if isinstance(verified_answer, str):
+                _answer = verified_answer
+            else:
+                try:
+                    _answer = verified_answer.decode('utf-8', errors='strict')
+                except UnicodeDecodeError:
+                    print(f'Failed to decode verifed_answer')
+                    _answer = ''
 
-            item_dict['verified_answer'] = verified_answer  # type: ignore
+            item_dict['verified_answer'] = _answer  # type: ignore
 
         return item_dict

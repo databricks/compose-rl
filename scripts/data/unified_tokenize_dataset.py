@@ -47,7 +47,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         self.max_length = max_length
         self.dataset_type = dataset_type
-        self.dataset_name = dataset_name
+        self.dataset_name = dataset_name.lower()
 
         print(f'Dataset name: {dataset_name}')
         if subset:
@@ -151,10 +151,10 @@ class UnifiedTokenizedDataset(IterableDataset):
 
         This function is currently hard-coded for the GSM8K dataset.
         """
-        if 'gsm8k' in self.dataset_name.lower():
+        if 'gsm8k' in self.dataset_name:
             prompt_fn = prepare_gsm8k_prompt
             answer_fn = extract_gsm8k_answer
-        elif 'math' in self.dataset_name.lower():
+        elif 'math' in self.dataset_name:
             prompt_fn = prepare_math_prompt
             answer_fn = extract_math_answer
         else:
@@ -196,10 +196,39 @@ class UnifiedTokenizedDataset(IterableDataset):
             print(f'No answer found for sample: {sample}')
             return None
 
+        if not self._check_for_encoding(verified_answer):
+            print(f'Encoding error for verified answer, cannot save: {sample}')
+            return None
+
         return {
             'prompt': np.asarray(encoded_prompt).tobytes(),
             'verified_answer': verified_answer,
         }
+
+    def _check_for_encoding(self, sample: str) -> bool:
+        """Check if a sample is encodable by streaming.
+
+        Args:
+            sample (str): a string to check for encoding
+
+        Returns:
+            bool: True if the sample is encodable, False otherwise
+        """
+        try:
+            _sample = sample.encode(
+                'utf-8',
+                errors='strict',
+            ).decode('utf-8', errors='strict')
+        except UnicodeEncodeError:
+            return False
+
+        if _sample != sample:
+            print(f'Encoding error for sample: {sample}')
+            return False
+        elif _sample == '':
+            return False
+
+        return True
 
 
 def main(
