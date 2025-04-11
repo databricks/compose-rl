@@ -5,6 +5,7 @@
 
 import logging
 import re
+from abc import abstractmethod
 from typing import Any, MutableMapping
 
 import torch
@@ -311,6 +312,7 @@ class BaseVerifierReward(Reward):
         """
         return True
 
+    @abstractmethod
     def extract_solution(self, text: str) -> str:
         """Extract the solution from text. Override in child classes.
 
@@ -320,9 +322,9 @@ class BaseVerifierReward(Reward):
         Returns:
             str: The extracted solution.
         """
-        # Default implementation returns empty string
-        return ''
+        pass
 
+    @abstractmethod
     def score_generations(self, answer: str, label: str) -> float:
         """Score the generated answer against the label.
 
@@ -333,8 +335,7 @@ class BaseVerifierReward(Reward):
         Returns:
             float: The reward score.
         """
-        # Default implementation returns 0.0
-        return 0.0
+        pass
 
 
 class GSM8KAnswerVeriferReward(BaseVerifierReward):
