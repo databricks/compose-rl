@@ -1,7 +1,6 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-import dataclasses
 import logging
 from typing import Any
 
