@@ -11,6 +11,12 @@ import torch
 
 log = logging.getLogger(__name__)
 
+from compose_rl.data.rlvr_utils import (
+    is_equiv,
+    last_boxed_only_string,
+    normalize_final_answer,
+    remove_boxed,
+)
 from compose_rl.reward_learning.base_reward import Reward, Tokenizer
 
 
@@ -245,8 +251,7 @@ class OutputLengthReward(Reward):
         return rewards
 
 
-class Gsm8kAnswerVerificationReward(Reward):
-
+class BaseVerifierReward(Reward):
     # This can be run async
     BLOCKING = False
 
@@ -254,7 +259,7 @@ class Gsm8kAnswerVerificationReward(Reward):
         super().__init__(cfg, tokenizer)
 
     def validate_config(self):
-        # There are no config requirements for this reward
+        # Base validation, can be overridden
         return
 
     def __call__(
@@ -264,8 +269,7 @@ class Gsm8kAnswerVerificationReward(Reward):
         """Apply the reward for verifying the correct answer from the model.
 
         Args:
-            batch (dict): The input batch containing all the information we need to compute
-                the verification reward.
+            batch (dict): The input batch containing all information needed.
 
         Returns:
             torch.tensor: rewards of shape <batch_size, seq_len>
@@ -283,73 +287,145 @@ class Gsm8kAnswerVerificationReward(Reward):
         batch_size = rewards.shape[0]
         all_generated_texts = [x[1] for x in raw_untokenized_texts]
         for i in range(batch_size):
-            _answer = self._extract_solution(all_generated_texts[i])
-            _reward = self._score_generations(_answer, verified_answers[i])
+            # Process based on verifier type
+            if self.needs_extraction():
+                _answer = self.extract_solution(all_generated_texts[i])
+                _reward = self.score_generations(_answer, verified_answers[i])
+            else:
+                # Score directly without extraction
+                _reward = self.score_generations(
+                    all_generated_texts[i],
+                    verified_answers[i],
+                )
+
             rewards[i, generated_lens[i] - 1] += _reward
         return rewards
 
-    def _extract_solution(self, text: str) -> str:
-        numbers = re.findall(r'-?[\d,]*\.?\d+', text)
-        final_answer = ''
-        if len(numbers) == 0:
-            # do nothing, ie, answer is None
-            pass
-        else:
-            if numbers:
-                final_answer = numbers[-1].strip().lower().replace(',',
-                                                                   '').replace(
-                                                                       '$',
-                                                                       '',
-                                                                   )
-            else:
-                final_answer = ''
+    def needs_extraction(self) -> bool:
+        """Determine if this verifier needs to extract solutions before scoring.
 
-        return final_answer
+        Override in child classes if needed.
 
-    def _score_generations(self, answer: str, label: str) -> float:
-        return float(answer == label)
+        Returns:
+            bool: True if extraction is needed, False otherwise.
+        """
+        return True
+
+    def extract_solution(self, text: str) -> str:
+        """Extract the solution from text. Override in child classes.
+
+        Args:
+            text (str): The generated text.
+
+        Returns:
+            str: The extracted solution.
+        """
+        # Default implementation returns empty string
+        return ''
+
+    def score_generations(self, answer: str, label: str) -> float:
+        """Score the generated answer against the label.
+
+        Args:
+            answer (str): The extracted answer.
+            label (str): The verified answer.
+
+        Returns:
+            float: The reward score.
+        """
+        # Default implementation returns 0.0
+        return 0.0
 
 
-class Gsm8kFormatVerificationReward(Reward):
-
-    # This can be run async
-    BLOCKING = False
+class GSM8KAnswerVeriferReward(BaseVerifierReward):
 
     def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
         super().__init__(cfg, tokenizer)
 
-    def validate_config(self):
-        # There are no config requirements for this reward
-        return
-
-    def __call__(
-        self,
-        batch: MutableMapping,
-    ) -> torch.Tensor:
-        """Apply the reward for verifying the correct format from the model.
+    def extract_solution(self, text: str) -> str:
+        """Extract numerical solution from GSM8K-style responses.
 
         Args:
-            batch (dict): The input batch containing all the information we need to compute
-                the verification reward.
+            text (str): The generated text.
 
         Returns:
-            torch.tensor: rewards of shape <batch_size, seq_len>
+            str: The extracted numerical answer.
         """
-        assert 'zero_rewards' in batch.keys()
-        assert 'raw_untokenized_texts' in batch.keys()
-        assert 'generated_lens' in batch.keys()
+        numbers = re.findall(r'-?[\d,]*\.?\d+', text)
+        final_answer = ''
+        if len(numbers) > 0:
+            final_answer = numbers[-1].strip().lower().replace(',', '').replace(
+                '$',
+                '',
+            )
 
-        rewards = batch['zero_rewards']
-        raw_untokenized_texts = batch['raw_untokenized_texts']
-        generated_lens = batch['generated_lens']
+        return final_answer
 
-        batch_size = rewards.shape[0]
-        all_generated_texts = [x[1] for x in raw_untokenized_texts]
-        for i in range(batch_size):
-            _reward = self._score_generations(all_generated_texts[i])
-            rewards[i, generated_lens[i] - 1] += _reward
-        return rewards
+    def score_generations(self, answer: str, label: str) -> float:
+        """Score based on exact match.
 
-    def _score_generations(self, answer: str) -> float:
+        Args:
+            answer (str): The extracted answer.
+            label (str): The verified answer.
+
+        Returns:
+            float: 1.0 for match, 0.0 otherwise.
+        """
+        return float(answer == label)
+
+
+class GSM8KFormatVeriferReward(BaseVerifierReward):
+
+    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
+        super().__init__(cfg, tokenizer)
+
+    def needs_extraction(self) -> bool:
+        """Indicate that this verifier doesn't need extraction."""
+        return False
+
+    def score_generations(self, answer: str, label: str) -> float:
+        """Check if the answer follows the expected format with '####' marker.
+
+        Note: The label parameter is not used in this implementation but is required
+        by the interface.
+        """
         solution = re.search(r'####.*?([\d,]+(?:\.\d+)?)', answer)
         return 1.0 if solution is not None else 0.0
+
+
+class MATHVeriferReward(BaseVerifierReward):
+
+    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
+        super().__init__(cfg, tokenizer)
+
+    def extract_solution(self, text: str) -> str:
+        """Extract numerical solution from GSM8K-style responses.
+
+        Args:
+            text (str): The generated text.
+
+        Returns:
+            str: The extracted numerical answer.
+        """
+        last_boxed_string = last_boxed_only_string(text)
+        if not last_boxed_string:
+            # No boxed string found, so we can't evaluate
+            return ''
+
+        unnormalized_answer = remove_boxed(last_boxed_string)
+        final_answer = normalize_final_answer(unnormalized_answer)
+        return final_answer
+
+    def score_generations(self, answer: str, label: str) -> float:
+        """Score based on exact match.
+
+        Args:
+            answer (str): The extracted answer.
+            label (str): The verified answer.
+
+        Returns:
+            float: 1.0 for match, 0.0 otherwise.
+        """
+        if answer.strip() == label.strip() or is_equiv(answer, label):
+            return 1.0
+        return 0.0

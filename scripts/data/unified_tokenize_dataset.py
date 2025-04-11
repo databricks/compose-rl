@@ -15,7 +15,9 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from compose_rl.data.rlvr_utils import (
     extract_gsm8k_answer,
+    extract_math_answer,
     prepare_gsm8k_prompt,
+    prepare_math_prompt,
 )
 
 
@@ -38,7 +40,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
         dataset_type: Literal['preference', 'single_prompt',
-                              'verifible_answers'],
+                              'verifiable_answers'],
         subset: str | None = None,
     ):
         self.tokenizer = tokenizer
@@ -68,7 +70,7 @@ class UnifiedTokenizedDataset(IterableDataset):
                 result = self._process_single_prompt_sample(sample)
                 if result is not None:
                     yield result
-            elif self.dataset_type == 'verifible_answers':
+            elif self.dataset_type == 'verifiable_answers':
                 result = self._process_verifiable_answer_sample(sample)
                 if result is not None:
                     yield result
@@ -149,8 +151,16 @@ class UnifiedTokenizedDataset(IterableDataset):
 
         This function is currently hard-coded for the GSM8K dataset.
         """
-        prompt_fn = prepare_gsm8k_prompt
-        answer_fn = extract_gsm8k_answer
+        if 'gsm8k' in self.dataset_name.lower():
+            prompt_fn = prepare_gsm8k_prompt
+            answer_fn = extract_gsm8k_answer
+        elif 'math' in self.dataset_name.lower():
+            prompt_fn = prepare_math_prompt
+            answer_fn = extract_math_answer
+        else:
+            raise ValueError(
+                f'Unknown dataset name: {self.dataset_name}. Please provide a valid name.',
+            )
 
         return prompt_fn, answer_fn
 
@@ -171,15 +181,19 @@ class UnifiedTokenizedDataset(IterableDataset):
                 'content': prompt,
             },
         ]
-        verified_answer = answer_fn(sample)
 
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
             add_generation_prompt=True,
         )
-
         if len(encoded_prompt) > self.max_length:
+            print(f'Prompt too long: {len(encoded_prompt)}')
+            return None
+
+        verified_answer = answer_fn(sample)
+        if verified_answer is None:
+            print(f'No answer found for sample: {sample}')
             return None
 
         return {
@@ -195,7 +209,7 @@ def main(
     hashes: list[str],
     splits: list[str],
     tokenizer_name: str,
-    dataset_type: Literal['preference', 'single_prompt', 'verifible_answers'],
+    dataset_type: Literal['preference', 'single_prompt', 'verifiable_answers'],
     max_length: int = 2048,
     subset: str | None = None,
 ):
@@ -207,7 +221,7 @@ def main(
         'single_prompt': {
             'prompt': 'bytes',
         },
-        'verifible_answers': {
+        'verifiable_answers': {
             'prompt': 'bytes',
             'verified_answer': 'str',
         },
@@ -283,7 +297,7 @@ if __name__ == '__main__':
             'preference',
             'single_prompt',
             'classifier',
-            'verifible_answers',
+            'verifiable_answers',
         ],
         required=True,
         help='Type of dataset to process',
