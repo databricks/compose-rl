@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 
 class PPOModelLoadPlanner(DefaultLoadPlanner):
+
     def create_local_plan(self):
         self.metadata_has_critic_key = False  # type: ignore
         for key in self.metadata.state_dict_metadata.keys():  # type: ignore
