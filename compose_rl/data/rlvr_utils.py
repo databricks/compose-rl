@@ -109,8 +109,7 @@ def is_equiv(x1: str, x2: str) -> bool:
                 parsed_x2 = parse_latex(x2)
             except (
                 sympy.parsing.latex.  # pyright: ignore[reportGeneralTypeIssues]
-                errors.
-                LaTeXParsingError,  # pyright: ignore[reportGeneralTypeIssues]
+                errors.LaTeXParsingError,
                 sympy.SympifyError,
                 TypeError,
             ):

@@ -5,10 +5,8 @@
 
 from __future__ import annotations
 
-import functools
 import gc
 import logging
-import operator
 import os
 import socket
 import time
@@ -31,6 +29,7 @@ from composer.utils import dist, ensure_tuple
 from llmfoundry.interfaces import CallbackWithConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
+import compose_rl.utils as utils
 from compose_rl.ppo.buffer import MinibatchRolloutBuffer
 from compose_rl.ppo.generation_utils import generate
 from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
@@ -546,11 +545,7 @@ class PPOCallback(CallbackWithConfig):
                 ret_batch[key] = torch.cat(curr_values)
             else:
                 if key == 'verified_answer':
-                    ret_batch[key] = functools.reduce(
-                        operator.iconcat,
-                        curr_values,
-                        [],
-                    )
+                    ret_batch[key] = list(utils.flatten(curr_values))
                 else:
                     # this is an edge case that we will not hit currently, but just handling it as needed
                     ret_batch[key] = curr_values
