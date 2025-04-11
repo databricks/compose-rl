@@ -15,7 +15,6 @@ dependencies = [
     'ray<3',
     'kubernetes==29.0.0',
     'vllm>=0.8.2,<0.9.0',
-    'sympy==1.13.1',
 ]
 
 [project.optional-dependencies]
@@ -33,6 +32,11 @@ released = [
 ]
 cpu_released = [
     'llm-foundry[all-cpu]>=0.17.1',
+]
+math = [
+    'omegaconf==2.4.0.dev2',
+    'sympy==1.13.1',
+    'antlr4-python3-runtime==4.11',
 ]
 
 # Registry entry points
