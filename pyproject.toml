@@ -33,6 +33,11 @@ released = [
 cpu_released = [
     'llm-foundry[all-cpu]>=0.17.1',
 ]
+math = [
+    'omegaconf==2.4.0.dev2',
+    'sympy==1.13.1',
+    'antlr4-python3-runtime==4.11',
+]
 
 # Registry entry points
 [project.entry-points."llmfoundry_models"]
