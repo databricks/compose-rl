@@ -11,6 +11,8 @@ import torch
 from streaming import StreamingDataset
 from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
 
+import compose_rl.utils as utils
+
 log = logging.getLogger(__name__)
 
 
@@ -39,8 +41,14 @@ def prompt_dataset_collate_fn(
     collated_batch: dict[str, torch.Tensor] = {}
     for key in keys:
         cur_values = [item[key] for item in batch]
-        if key in ['prompt_len', 'verified_answer']:
+        if key in ['prompt_len']:
             collated_batch[key] = torch.stack(cur_values).squeeze(dim=1)
+            continue
+
+        if key in ['verified_answer']:
+            collated_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
+                utils.flatten(cur_values),
+            )
             continue
 
         collated_batch[key] = ref_collate_fn(cur_values)['input_ids']
@@ -82,7 +90,6 @@ class PromptStreamingDataset(StreamingDataset):
         """
         sample = super().__getitem__(idx)
         prompt = self._read_binary_tokenized_sample(sample, 'prompt')
-        verified_answer = sample['verified_answer']
 
         # TODO (bcui): Maybe add in an option to truncate a prompt by a given length?
         if len(prompt) + self.max_gen_len > self.max_seq_len:
@@ -91,6 +98,19 @@ class PromptStreamingDataset(StreamingDataset):
             prompt = prompt[:-truncate_len]
 
         prompt_len = torch.Tensor([len(prompt)]).to(dtype=torch.int64)
-        verified_answer = torch.Tensor([verified_answer]).to(dtype=torch.float64)
+        item_dict = {'prompt': prompt, 'prompt_len': prompt_len}
 
-        return {'prompt': prompt, 'prompt_len': prompt_len, 'verified_answer': verified_answer}
+        verified_answer = sample.get('verified_answer', None)
+        if verified_answer:
+            if isinstance(verified_answer, str):
+                _answer = verified_answer
+            else:
+                try:
+                    _answer = verified_answer.decode('utf-8', errors='strict')
+                except UnicodeDecodeError:
+                    print(f'Failed to decode verifed_answer')
+                    _answer = ''
+
+            item_dict['verified_answer'] = _answer  # type: ignore
+
+        return item_dict

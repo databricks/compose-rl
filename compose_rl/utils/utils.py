@@ -4,7 +4,8 @@
 import logging
 import re
 import warnings
-from typing import Optional, Union
+from collections.abc import Generator, Iterable
+from typing import Any, Optional, Union
 
 import spacy
 import spacy_alignments as tokenizations
@@ -1084,3 +1085,12 @@ def make_action_mask(
         mask[i, :prompt_len[i] - 1] = 0
 
     return mask
+
+
+def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
+    for i in coll:
+        if isinstance(i, Iterable) and not isinstance(i, str):
+            for subc in flatten(i):
+                yield subc
+        else:
+            yield i

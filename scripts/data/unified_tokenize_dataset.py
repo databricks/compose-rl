@@ -5,7 +5,6 @@
 
 import argparse
 import os
-import re
 from typing import Any, Iterator, Literal
 
 import datasets as hf_datasets
@@ -13,6 +12,13 @@ import numpy as np
 from streaming import MDSWriter
 from torch.utils.data import IterableDataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
+from compose_rl.data.rlvr_utils import (
+    extract_gsm8k_answer,
+    extract_math_answer,
+    prepare_gsm8k_prompt,
+    prepare_math_prompt,
+)
 
 
 class UnifiedTokenizedDataset(IterableDataset):
@@ -24,6 +30,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         tokenizer (PreTrainedTokenizerBase): the tokenizer used to process the dataset
         max_length (int): the maximum length of each sample
         dataset_type (str): type of dataset ('preference' or 'single_prompt')
+        subset (str | None): the subset of the dataset to process
     """
 
     def __init__(
@@ -32,13 +39,15 @@ class UnifiedTokenizedDataset(IterableDataset):
         split: str,
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
-        dataset_type: Literal['preference', 'single_prompt'],
+        dataset_type: Literal['preference', 'single_prompt',
+                              'verifiable_answers'],
         subset: str | None = None,
     ):
         self.tokenizer = tokenizer
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         self.max_length = max_length
         self.dataset_type = dataset_type
+        self.dataset_name = dataset_name.lower()
 
         print(f'Dataset name: {dataset_name}')
         if subset:
@@ -48,7 +57,7 @@ class UnifiedTokenizedDataset(IterableDataset):
 
         self.hf_dataset = hf_datasets.load_dataset(
             path=dataset_name,
-            name=subset if subset else None,
+            name=subset,
             split=split,
             streaming=True,
         )
@@ -59,6 +68,10 @@ class UnifiedTokenizedDataset(IterableDataset):
                 yield self._process_preference_sample(sample)
             elif self.dataset_type == 'single_prompt':
                 result = self._process_single_prompt_sample(sample)
+                if result is not None:
+                    yield result
+            elif self.dataset_type == 'verifiable_answers':
+                result = self._process_verifiable_answer_sample(sample)
                 if result is not None:
                     yield result
             elif self.dataset_type == 'classifier':
@@ -93,20 +106,13 @@ class UnifiedTokenizedDataset(IterableDataset):
         Args:
             sample (Any): a sample from the dataset
         """
-        prompt = sample['question'].strip()
-        _instruction = "Let's think step by step and output the final answer after \"####\"."
-        messages = [
-            {
-                'role': 'user',
-                'content': f'Question: {prompt} ' + _instruction,
-            },
-        ]
-        verified_answer = self._extract_substring(sample['answer'])
-        try:
-            verified_answer = float(verified_answer)
-        except ValueError:
-            print (f'Conversion failed - not a valid number')
-
+        prompt = sample['prompt']
+        messages = [{
+            'role':
+                'user',
+            'content':
+                f'Can you summarize the following content in 50 words or less: {prompt}',
+        }]
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
@@ -116,10 +122,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         if len(encoded_prompt) > self.max_length:
             return None
 
-        return {
-            'prompt': np.asarray(encoded_prompt).tobytes(),
-            'verified_answer': verified_answer,
-        }
+        return {'prompt': np.asarray(encoded_prompt).tobytes()}
 
     def _process_classifier_sample(self, sample: Any):
         """A dummy process a classifier sample.
@@ -143,16 +146,89 @@ class UnifiedTokenizedDataset(IterableDataset):
             'label': np.asarray(label).tobytes(),
         }
 
-    def _extract_substring(self, answer: str):
-        """Extract the substring from the answer column using regex
+    def _get_processing_fn_from_dataset(self):
+        """Get the processing function based on the dataset name.
 
-        This is hardcoded for gsm8k for now, probably need to make this an inheritable function
-        which can be over-ridden by new child classes.
+        This function is currently hard-coded for the GSM8K dataset.
         """
-        numbers = re.findall(r'-?[\d,]*\.?\d+', answer)
-        assert len(numbers) > 0, f'No numbers found in answer: {answer}'
-        final_answer = numbers[-1].strip().lower().replace(',', '').replace('$', '')
-        return final_answer
+        if 'gsm8k' in self.dataset_name:
+            prompt_fn = prepare_gsm8k_prompt
+            answer_fn = extract_gsm8k_answer
+        elif 'math' in self.dataset_name:
+            prompt_fn = prepare_math_prompt
+            answer_fn = extract_math_answer
+        else:
+            raise ValueError(
+                f'Unknown dataset name: {self.dataset_name}. Please provide a valid name.',
+            )
+
+        return prompt_fn, answer_fn
+
+    def _process_verifiable_answer_sample(self, sample: Any):
+        """Process a prompt sample and extract the answer.
+
+        This function is currently hard-coded for the GSM8K dataset.
+
+        Args:
+            sample (Any): a sample from the dataset
+        """
+        prompt_fn, answer_fn = self._get_processing_fn_from_dataset()
+
+        prompt = prompt_fn(sample)
+        messages = [
+            {
+                'role': 'user',
+                'content': prompt,
+            },
+        ]
+
+        encoded_prompt = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+        )
+        if len(encoded_prompt) > self.max_length:
+            print(f'Prompt too long: {len(encoded_prompt)}')
+            return None
+
+        verified_answer = answer_fn(sample)
+        if verified_answer is None:
+            print(f'No answer found for sample: {sample}')
+            return None
+
+        if not self._check_for_encoding(verified_answer):
+            print(f'Encoding error for verified answer, cannot save: {sample}')
+            return None
+
+        return {
+            'prompt': np.asarray(encoded_prompt).tobytes(),
+            'verified_answer': verified_answer,
+        }
+
+    def _check_for_encoding(self, sample: str) -> bool:
+        """Check if a sample is encodable by streaming.
+
+        Args:
+            sample (str): a string to check for encoding
+
+        Returns:
+            bool: True if the sample is encodable, False otherwise
+        """
+        try:
+            _sample = sample.encode(
+                'utf-8',
+                errors='strict',
+            ).decode('utf-8', errors='strict')
+        except UnicodeEncodeError:
+            return False
+
+        if _sample != sample:
+            print(f'Encoding error for sample: {sample}')
+            return False
+        elif _sample == '':
+            return False
+
+        return True
 
 
 def main(
@@ -162,7 +238,7 @@ def main(
     hashes: list[str],
     splits: list[str],
     tokenizer_name: str,
-    dataset_type: Literal['preference', 'single_prompt'],
+    dataset_type: Literal['preference', 'single_prompt', 'verifiable_answers'],
     max_length: int = 2048,
     subset: str | None = None,
 ):
@@ -173,7 +249,10 @@ def main(
         },
         'single_prompt': {
             'prompt': 'bytes',
-            'verified_answer': 'float64',
+        },
+        'verifiable_answers': {
+            'prompt': 'bytes',
+            'verified_answer': 'str',
         },
         'classifier': {
             'input': 'bytes',
@@ -243,7 +322,12 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataset_type',
         type=str,
-        choices=['preference', 'single_prompt', 'classifier'],
+        choices=[
+            'preference',
+            'single_prompt',
+            'classifier',
+            'verifiable_answers',
+        ],
         required=True,
         help='Type of dataset to process',
     )

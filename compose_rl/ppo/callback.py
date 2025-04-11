@@ -29,6 +29,7 @@ from composer.utils import dist, ensure_tuple
 from llmfoundry.interfaces import CallbackWithConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
+import compose_rl.utils as utils
 from compose_rl.ppo.buffer import MinibatchRolloutBuffer
 from compose_rl.ppo.generation_utils import generate
 from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
@@ -521,10 +522,14 @@ class PPOCallback(CallbackWithConfig):
         ret_batch = {}
         for key in batches[0].keys():
             curr_values = []
-            max_len = max([batch[key].shape[-1] for batch in batches])
+
+            max_len = 0
+            if isinstance(batches[0][key], torch.Tensor):
+                max_len = max([batch[key].shape[-1] for batch in batches])
+
             padding_key = None
             for batch in batches:
-                # Take care of the prompt length here, no need for extra processing
+                # For keys that do not require additional processing
                 if key in ['prompt_len', 'verified_answer']:
                     curr_values.append(batch[key])
                     continue
@@ -541,13 +546,22 @@ class PPOCallback(CallbackWithConfig):
                 elif key == 'prompt_attention_mask':
                     padding_key = False
 
+                # Compute the required padding and concatenate with the batch tensor
                 pad = torch.ones(
                     (bs, max_len - seq_len),
                     dtype=batch[key].dtype,
                 ) * padding_key  # type: ignore
                 curr_values.append(torch.cat([pad, batch[key]], dim=-1))
 
-            ret_batch[key] = torch.cat(curr_values)
+            # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
+            if isinstance(curr_values[0], torch.Tensor):
+                ret_batch[key] = torch.cat(curr_values)
+            else:
+                if key == 'verified_answer':
+                    ret_batch[key] = list(utils.flatten(curr_values))
+                else:
+                    # this is an edge case that we will not hit currently, but just handling it as needed
+                    ret_batch[key] = curr_values
 
         return ret_batch
 
