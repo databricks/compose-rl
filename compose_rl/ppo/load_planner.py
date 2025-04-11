@@ -4,10 +4,7 @@
 import logging
 from typing import Any
 
-from torch.distributed.checkpoint.default_planner import (
-    DefaultLoadPlanner,
-    create_default_local_load_plan,
-)
+from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 
 log = logging.getLogger(__name__)
 
