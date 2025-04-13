@@ -225,7 +225,9 @@ class UnifiedTokenizedDataset(IterableDataset):
         if _sample != sample:
             print(f'Encoding error for sample: {sample}')
             return False
-        elif _sample == '':
+
+        if _sample == '':
+            print(f'Encoding error for sample: {sample}')
             return False
 
         return True
