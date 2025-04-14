@@ -19,7 +19,7 @@
 
 import logging
 import os
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import ray
 import torch
@@ -38,7 +38,6 @@ class LLMRayActor:
 
     def __init__(
         self,
-        bundle_indices: list,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -85,6 +84,7 @@ class LLMRayActor:
                 RayWorkerWrapperPath.RayWorkerWrapper = RayWorkerWrapper
 
         num_gpus = kwargs.pop('num_gpus')
+        bundle_indices = kwargs.pop('bundle_indices', None)
         if bundle_indices is not None:
             os.environ['VLLM_RAY_PER_WORKER_GPUS'] = str(num_gpus)
             os.environ['VLLM_RAY_BUNDLE_INDICES'] = ','.join(
