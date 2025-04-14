@@ -312,9 +312,10 @@ class BaseVerifierReward(Reward):
         """
         return True
 
-    @abstractmethod
     def extract_solution(self, text: str) -> str:
-        """Extract the solution from text. Override in child classes.
+        """Extract the solution from text.
+
+        Default implementation raises error; override in child classes if needed.
 
         Args:
             text (str): The generated text.
@@ -322,7 +323,9 @@ class BaseVerifierReward(Reward):
         Returns:
             str: The extracted solution.
         """
-        pass
+        raise NotImplementedError(
+            'Subclasses must implement `extract_solution` if `needs_extraction` returns True.',
+        )
 
     @abstractmethod
     def score_generations(self, answer: str, label: str) -> float:
