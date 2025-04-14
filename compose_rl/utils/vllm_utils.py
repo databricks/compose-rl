@@ -254,6 +254,7 @@ def create_vllm_engines(
                 bundle_indices=bundle_indices,
                 enable_prefix_caching=enable_prefix_caching,
                 max_model_len=max_model_len,
+                num_gpus=1,
             ),
         )
 
