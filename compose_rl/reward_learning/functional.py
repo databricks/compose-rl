@@ -259,7 +259,9 @@ class BaseVerifierReward(Reward):
     def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
         super().__init__(cfg, tokenizer)
         self.reward = cfg.get('reward', 1.0)
-        log.info(f'Using reward value of {self.reward} for verifier rewards')
+        log.info(
+            f'Using reward value of {self.reward} for {self.__class__.__name__} verifier',
+        )
 
     def validate_config(self):
         # Base validation, can be overridden
