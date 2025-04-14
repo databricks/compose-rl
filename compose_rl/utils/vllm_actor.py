@@ -38,7 +38,7 @@ class LLMRayActor:
 
     def __init__(
         self,
-        bundle_indices: Optional[list] = None,
+        bundle_indices: list,
         *args: Any,
         **kwargs: Any,
     ) -> None:
