@@ -79,6 +79,12 @@ def pairwise_preference_dataset_collate_fn(
             # We should truncate chosen and rejected by the same amount
             truncate_len = abs(pad_len // 2) + 1
 
+            log.warning((
+                f'Chosen length: {len(chosen)} Rejected length: {len(rejected)}'
+                f' are too long for max_seq_len: {max_seq_len}'
+                f' truncating each sequence by {truncate_len[0]} tokens.'
+            ))
+
             # Truncate each value by truncate length, and make the last token EOS
             chosen = chosen[:-truncate_len]
             chosen[-1] = tokenizer.eos_token_id  # type: ignore
