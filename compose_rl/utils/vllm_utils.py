@@ -205,33 +205,37 @@ def create_vllm_engines(
         enable_prefix_caching (bool): Whether to enable prefix caching
         max_model_len (int): Maximum model length
     """
+    bundles = [{
+        'GPU': 1,
+        'CPU': 1,
+        'worker_node': 1,
+    }] * tensor_parallel_size * num_engines
+    pg = placement_group(bundles)  # type: ignore
+
+    try:
+        ray.get(pg.ready(), timeout=300)
+    except GetTimeoutError as e:
+        log.error('Placement group failed')
+        log.error(f'error is: {e}')
+        raise e
+
     vllm_engines = []
     for i in range(num_engines):
         # When tensor_parallel_size=1, vLLM init model in LLMEngine directly, assign 1 GPU for it.
         num_gpus = int(tensor_parallel_size == 1)
-        scheduling_strategy = None
+        bundle_indices = None
 
         if tensor_parallel_size > 1:
-            # This code will only allocate resources on worker nodes
-            bundles = [{
-                'GPU': 1,
-                'CPU': 1,
-                'worker_node': 1,
-            }] * tensor_parallel_size
-            pg = placement_group(bundles)  # type: ignore
-
-            try:
-                ray.get(pg.ready(), timeout=300)
-            except GetTimeoutError as e:
-                log.error('Placement group failed')
-                log.error(f'error is: {e}')
-                raise e
-
-            scheduling_strategy = PlacementGroupSchedulingStrategy(
-                placement_group=pg,
-                placement_group_capture_child_tasks=True,
-                placement_group_bundle_index=0,
+            bundle_indices = list(
+                range(i * tensor_parallel_size, (i + 1) * tensor_parallel_size),
             )
+
+        scheduling_strategy = PlacementGroupSchedulingStrategy(
+            placement_group=pg,
+            placement_group_capture_child_tasks=True,
+            placement_group_bundle_index=i * tensor_parallel_size,
+        )
+
         log.info(f'vllm: {num_gpus=}, {num_engines=}')
         vllm_engines.append(
             LLMRayActor.options(
@@ -247,6 +251,7 @@ def create_vllm_engines(
                 enforce_eager=enforce_eager,
                 dtype='bfloat16',
                 seed=seed + i,
+                bundle_indices=bundle_indices,
                 enable_prefix_caching=enable_prefix_caching,
                 max_model_len=max_model_len,
             ),

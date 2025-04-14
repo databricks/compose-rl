@@ -19,7 +19,7 @@
 
 import logging
 import os
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import ray
 import torch
@@ -36,7 +36,12 @@ log = logging.getLogger(__name__)
 @ray.remote
 class LLMRayActor:
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        bundle_indices: Optional[list] = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         import vllm
 
         from compose_rl.utils.vllm_utils import WorkerWrap
@@ -78,6 +83,14 @@ class LLMRayActor:
                         super().__init__(*args, **kwargs)
 
                 RayWorkerWrapperPath.RayWorkerWrapper = RayWorkerWrapper
+
+        num_gpus = kwargs.pop('num_gpus')
+        if bundle_indices is not None:
+            os.environ['VLLM_RAY_PER_WORKER_GPUS'] = str(num_gpus)
+            os.environ['VLLM_RAY_BUNDLE_INDICES'] = ','.join(
+                map(str, bundle_indices),
+            )
+            log.info(f'creating LLM with bundle_indices={bundle_indices}')
 
         print(
             f'cuda visible devices is: ',
