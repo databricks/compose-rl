@@ -1,14 +1,10 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-import dataclasses
 import logging
 from typing import Any
 
-from torch.distributed.checkpoint.default_planner import (
-    DefaultLoadPlanner,
-    create_default_local_load_plan,
-)
+from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 
 log = logging.getLogger(__name__)
 
@@ -22,16 +18,8 @@ class PPOModelLoadPlanner(DefaultLoadPlanner):
                 self.metadata_has_critic_key = True
 
         self.state_dict = self.convert_state_dict(self.state_dict)
-        plan = create_default_local_load_plan(
-            self.state_dict,
-            self.metadata,  # type: ignore
-        )
 
-        if self.flatten_state_dict:
-            plan = dataclasses.replace(plan, planner_data=self.mappings)
-
-        self.plan = plan  # type: ignore
-        return self.plan
+        return super().create_local_plan()
 
     def convert_state_dict(self, state_dict: dict[str, Any]):
         new_state_dict = {}
