@@ -18,6 +18,7 @@
 # Modified version from https://github.com/OpenRLHF/OpenRLHF and The AllenAI Team.
 
 import logging
+import os
 from typing import Any, Union
 
 import ray
@@ -37,6 +38,8 @@ class LLMRayActor:
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         import vllm
+
+        from compose_rl.utils.vllm_utils import WorkerWrap
 
         self.__version__ = vllm.__version__
         assert self.__version__ >= '0.4.1', 'Compose RL only supports vLLM >= 0.4.1'
@@ -76,6 +79,10 @@ class LLMRayActor:
 
                 RayWorkerWrapperPath.RayWorkerWrapper = RayWorkerWrapper
 
+        print(
+            f'cuda visible devices is: ',
+            os.environ.get('CUDA_VISIBLE_DEVICES'),
+        )
         self.llm = vllm.LLM(*args, **kwargs)
 
     def generate(self, *args: Any, **kwargs: Any):
