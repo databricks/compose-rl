@@ -258,6 +258,8 @@ class BaseVerifierReward(Reward):
 
     def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
         super().__init__(cfg, tokenizer)
+        self.reward = cfg.get('reward', 1.0)
+        log.info(f'Using reward value of {self.reward} for verifier rewards')
 
     def validate_config(self):
         # Base validation, can be overridden
@@ -373,9 +375,9 @@ class GSM8KAnswerVeriferReward(BaseVerifierReward):
             label (str): The verified answer.
 
         Returns:
-            float: 1.0 for match, 0.0 otherwise.
+            float: self.reward for match, 0.0 otherwise.
         """
-        return float(answer == label)
+        return self.reward if answer == label else 0.0
 
 
 class GSM8KFormatVeriferReward(BaseVerifierReward):
@@ -394,7 +396,7 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
         by the interface.
         """
         solution = re.search(r'####.*?([\d,]+(?:\.\d+)?)', answer)
-        return 1.0 if solution is not None else 0.0
+        return self.reward if solution is not None else 0.0
 
 
 class MATHVeriferReward(BaseVerifierReward):
@@ -428,11 +430,8 @@ class MATHVeriferReward(BaseVerifierReward):
             label (str): The verified answer.
 
         Returns:
-            float: 1.0 for match, 0.0 otherwise.
+            float: self.reward for match, 0.0 otherwise.
         """
-        if answer == '':
-            return 0.0
-
         if answer.strip() == label.strip() or is_equiv(answer, label):
-            return 1.0
+            return self.reward
         return 0.0
