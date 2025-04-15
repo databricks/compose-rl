@@ -379,11 +379,14 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
             self.num_vllm_engines = var_config['num_vllm_engines']
-            
+
             # set vllm tensor parallel size
             total_num_nodes = os.getenv('TOTAL_NUM_NODES', None)
             num_train_nodes = os.getenv('TRAIN_NUM_NODES', None)
-            lws = os.getenv('LOCAL_WORLD_SIZE', None) # The number of GPUs available to the run on each node
+            lws = os.getenv(
+                'LOCAL_WORLD_SIZE',
+                None,
+            )  # The number of GPUs available to the run on each node
             assert total_num_nodes is not None, 'TOTAL_NUM_NODES must be set.'
             assert num_train_nodes is not None, 'TRAIN_NUM_NODES must be set.'
             assert lws is not None, 'LOCAL_WORLD_SIZE must be set.'
