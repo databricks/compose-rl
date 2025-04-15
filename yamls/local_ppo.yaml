@@ -114,7 +114,7 @@ train_loader:
   dataset:
     # local: # local path
     split: train
-    remote: dbfs:/Volumes/datasets/abhaygupta/rlvr/train/math_orl_8k/
+    # remote: #
     shuffle: true
     max_gen_len: ${variables.max_gen_len}
     max_seq_len: ${max_seq_len}

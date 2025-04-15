@@ -222,7 +222,8 @@ def env_generate(
             # We need to recompute the logits here. Otherwise there are numerical differences
             # We also need to do it on the size of `device_train_microbatch_size` otherwise
             # there are numerical differences at training time.
-            logits = []
+            # log probs will be [batch_size, generated_len]
+            # logits = []
             log_probs = []
             values = []
 
@@ -234,9 +235,6 @@ def env_generate(
                 'action_mask': action_mask,
                 'actions': actions,
             }
-            # print(f"{actions.shape=}") # torch.Size([32, 32])
-            # print(f"{batch_size=}") # 32
-            # print(f"{device_train_microbatch_size=}") # 1
             # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
             for i in range(batch_size // device_train_microbatch_size):
                 start_index = i * device_train_microbatch_size
@@ -249,41 +247,21 @@ def env_generate(
                 cur_output = actor_critic(curr_kwargs)
                 cur_logits = cur_output['logits']
                 cur_values = cur_output['values']
-                # print(f"{i=} {cur_logits.shape=}") # torch.Size([1, 199, 128256])
-                # print(f"{i=} {cur_values.shape=}") # torch.Size([1, 33])
-                # print(f"{i=} {actions.shape=}") # torch.Size([32, 32])
-                # print(f"{i=} {prompt_len.shape=} {max_gen_len=}") # 
-                # need to pull out current actions before computing log probs
-                cur_actions = actions[start_index:end_index]
-                cur_prompt_len = prompt_len[start_index:end_index]
-                # print(f"{i=} {cur_actions.shape=}")
-                # print(f"{i=} {cur_prompt_len.shape=}")
-                # print(f"{i=} {curr_kwargs['actions'].shape=}")
-                # print(f"{i=} {curr_kwargs['prompt_len'].shape=}")
-                # assert (cur_actions == curr_kwargs['actions']).all()
-                # assert (cur_prompt_len == curr_kwargs['prompt_len']).all()
-                
+                # need to pull out current actions and prompt len
+                cur_actions = curr_kwargs['actions']
+                cur_prompt_len = curr_kwargs['prompt_len']
+
                 cur_log_probs = get_log_probs(
                     logits=cur_logits,
                     actions=cur_actions,
                     prompt_len=cur_prompt_len,
                     max_gen_len=max_gen_len,
                 )
-                # print(f"{i=} {cur_log_probs.shape=}") # 
-                logits.append(cur_logits)
                 log_probs.append(cur_log_probs)
                 values.append(cur_values)
 
-            device_train_microbatch_logits = torch.cat(logits)
             device_train_microbatch_log_probs = torch.cat(log_probs)
             device_train_microbatch_values = torch.cat(values)
-            # print(f"{device_train_microbatch_log_probs.shape=}")
-
-            # old_device_train_microbatch_log_probs = get_log_probs(logits=device_train_microbatch_logits, actions=actions, prompt_len=prompt_len,max_gen_len=max_gen_len)
-            # assert (device_train_microbatch_log_probs == old_device_train_microbatch_log_probs).all()
-            # breakpoint()
-            # print(f"{device_train_microbatch_logits.shape=}") # torch.Size([32, 199, 128256])
-            # print(f"{device_train_microbatch_log_probs.shape=}") # torch.Size([32, 32])
 
             # Need to add in the padding for the value function
             value_action_mask = torch.cat([
