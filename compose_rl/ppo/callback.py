@@ -223,7 +223,6 @@ def env_generate(
             # We also need to do it on the size of `device_train_microbatch_size` otherwise
             # there are numerical differences at training time.
             # log probs will be [batch_size, generated_len]
-            # logits = []
             log_probs = []
             values = []
 
