@@ -254,6 +254,8 @@ def env_generate(
                 prompt_len=prompt_len,
                 max_gen_len=max_gen_len,
             )
+            # TODO: Debug the shapes here and move this in the for loop above
+            # breakpoint()
 
             # Need to add in the padding for the value function
             value_action_mask = torch.cat([
