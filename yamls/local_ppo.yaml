@@ -1,5 +1,5 @@
 run_name:  # TODO: fill in
-max_seq_len: 2048
+max_seq_len: 8192
 
 variables:
   tokenizer_name: meta-llama/Llama-3.1-8B-Instruct
@@ -49,13 +49,19 @@ variables:
   epoch_per_iteration: 1
   num_batches_per_update: 8
 
-  max_gen_len: 32
+  max_gen_len: 1024
 
   rewards:
-    short_response_reward:
+    bad_generation_end:
+      reward: -3
+      eos_penalty: true
+      reward_type: bad_generation_end
+    math_verifier:
+      reward_type: math_verifier
+    penalize_extra_short_responses:
+      reward: -3
       reward_type: short_response_reward
-      reward: -1.0
-      len_threshold: 5
+      len_threshold: 10
 
   buffer:
     name: MinibatchRolloutBuffer
