@@ -375,10 +375,13 @@ class PPOCallback(CallbackWithConfig):
 
         self.vllm_engines = None
         self.num_vllm_engines = 0
-        if 'num_vllm_engines' in var_config:
+        self.vllm_tensor_parallel_size = var_config.get(
+            'vllm_tensor_parallel_size',
+            None,
+        )
+        if self.vllm_tensor_parallel_size is not None:
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
-            self.num_vllm_engines = var_config['num_vllm_engines']
 
             # set vllm tensor parallel size
             total_num_nodes = os.getenv('TOTAL_NUM_NODES', None)
@@ -396,8 +399,8 @@ class PPOCallback(CallbackWithConfig):
 
             inference_nodes = total_num_nodes - num_train_nodes
             inference_gpus = inference_nodes * lws
-            assert inference_gpus % self.num_vllm_engines == 0, f' {inference_gpus=} must be divisible by {self.num_vllm_engines=}.'
-            self.vllm_tensor_parallel_size = inference_gpus // self.num_vllm_engines
+            assert inference_gpus % self.vllm_tensor_parallel_size == 0, f' {inference_gpus=} must be divisible by {self.vllm_tensor_parallel_size=}.'
+            self.num_vllm_engines = inference_gpus // self.vllm_tensor_parallel_size
 
             log.info(
                 f'Using {self.num_vllm_engines} vllm engines with {self.vllm_tensor_parallel_size=} per engine.',
