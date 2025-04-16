@@ -71,6 +71,7 @@ def env_generate(
     device_train_microbatch_size: int,
     generation_kwargs: dict,
     tokenizer: Tokenizer,
+    eos_token_ids: list[int],
 ) -> tuple[dict[str, torch.Tensor],
            list[tuple[str, str]],
            ReferenceOutput,
@@ -91,6 +92,7 @@ def env_generate(
             We need to do all log_prob computation with this in order to maintain numerics.
         generation_kwargs (dict): Generation keyword arguments.
         tokenizer (Tokenizer): The actor critic's tokenizer.
+        eos_token_ids (list[int]): A list of eos token ids.
 
     Returns:
         partial_env_output (dict[str, tensor]): Partially complete dictionary of return elements suitable
@@ -112,13 +114,8 @@ def env_generate(
 
     batch_size, _ = prompt_tokens.shape
 
-    eos_token_id = tokenizer.eos_token_id
     pad_token_id = tokenizer.pad_token_id
 
-    if eos_token_id is None:
-        raise ValueError(
-            'Tokenizer does not have an eos token id. Please use a different tokenizer or add an eos token id.',
-        )
     if pad_token_id is None:
         raise ValueError(
             'Tokenizer does not have a pad token id. Please use a different tokenizer or add a pad token id.',
@@ -161,6 +158,8 @@ def env_generate(
             ) * max_gen_len
 
             # If all the processes early exit generate, then we need to manually pad everything
+            # we can pad this with pad tokens, since we switch the padding between left and right
+            # padding based on the sequence length + max_sequence_length.
             if prompt_tokens.size(1) + max_gen_len > sequences.size(1):
                 len_to_pad = max_gen_len - (
                     sequences.size(1) - prompt_tokens.size(1)
@@ -170,7 +169,7 @@ def env_generate(
                     (batch_size, len_to_pad),
                     device=cur_device,
                     dtype=prompt_dtype,
-                ) * eos_token_id
+                ) * pad_token_id
                 sequences = torch.cat(
                     [sequences, extra_padding],  # type: ignore
                     dim=-1,  # type: ignore
@@ -204,7 +203,7 @@ def env_generate(
                 prompt_len=prompt_len,
                 generated_len=generated_len,
                 max_gen_len=max_gen_len,
-                eos_token=eos_token_id,  # type: ignore
+                eos_token_ids=eos_token_ids,  # type: ignore
                 pad_token=pad_token_id,  # type: ignore
             )
 
@@ -368,6 +367,8 @@ class PPOCallback(CallbackWithConfig):
         self.train_prompt_loader_state_dict = None
         self.train_prompt_loader = None
 
+        self.input_eos_token_ids = var_config.get('eos_token_ids', None)
+
         if train_config.get('python_log_level', None) is not None:
             logging.getLogger('compose_rl').setLevel(
                 train_config['python_log_level'].upper(),
@@ -378,15 +379,37 @@ class PPOCallback(CallbackWithConfig):
 
         self.vllm_engines = None
         self.num_vllm_engines = 0
-        if 'num_vllm_engines' in var_config:
-            self.num_vllm_engines = var_config['num_vllm_engines']
+        self.vllm_tensor_parallel_size = var_config.get(
+            'vllm_tensor_parallel_size',
+            None,
+        )
+        if self.vllm_tensor_parallel_size is not None:
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
 
-            self.vllm_tensor_parallel_size = var_config.get(
-                'vllm_tensor_parallel_size',
-                1,
+            # set vllm tensor parallel size
+            total_num_nodes = os.getenv('TOTAL_NUM_NODES', None)
+            num_train_nodes = os.getenv('TRAIN_NUM_NODES', None)
+            lws = os.getenv(
+                'LOCAL_WORLD_SIZE',
+                None,
+            )  # The number of GPUs available to the run on each node
+            assert total_num_nodes is not None, 'TOTAL_NUM_NODES must be set.'
+            assert num_train_nodes is not None, 'TRAIN_NUM_NODES must be set.'
+            assert lws is not None, 'LOCAL_WORLD_SIZE must be set.'
+            total_num_nodes = int(total_num_nodes)
+            num_train_nodes = int(num_train_nodes)
+            lws = int(lws)
+
+            inference_nodes = total_num_nodes - num_train_nodes
+            inference_gpus = inference_nodes * lws
+            assert inference_gpus % self.vllm_tensor_parallel_size == 0, f' {inference_gpus=} must be divisible by {self.vllm_tensor_parallel_size=}.'
+            self.num_vllm_engines = inference_gpus // self.vllm_tensor_parallel_size
+
+            log.info(
+                f'Using {self.num_vllm_engines} vllm engines with {self.vllm_tensor_parallel_size=} per engine.',
             )
+
             self.vllm_sync_backend = var_config.get('vllm_sync_backend', 'nccl')
             self.test_prompt = 'Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions.'
 
@@ -448,6 +471,18 @@ class PPOCallback(CallbackWithConfig):
         # This needs to be done here becuase callbacks are init'd before we attach
         # the dataloader as a property to state
         self.tokenizer = state.model.tokenizer
+
+        self.eos_token_ids = [self.tokenizer.eos_token_id]  # type: ignore
+        if self.input_eos_token_ids is not None:
+            self.eos_token_ids = self.input_eos_token_ids
+            log.info(
+                f'The online RL loop will assume the following eos token ids {self.eos_token_ids}',
+            )
+            for eos_token_id in self.eos_token_ids:
+                log.info(
+                    f'Token {eos_token_id} is {self.tokenizer.decode([eos_token_id])}.',  # type: ignore
+                )
+
         self.train_prompt_loader_iter = iter(
             self.train_prompt_loader,  # pyright: ignore
         )
@@ -595,6 +630,7 @@ class PPOCallback(CallbackWithConfig):
                 device_train_microbatch_size=self.device_train_microbatch_size,
                 generation_kwargs=self.generation_kwargs,
                 tokenizer=self.tokenizer,  # type: ignore
+                eos_token_ids=self.eos_token_ids,  # type: ignore
             )
 
             self.prompts_and_gens.extend(prompts_and_gens)

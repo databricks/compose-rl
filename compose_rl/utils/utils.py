@@ -359,7 +359,7 @@ def mask_eos(
     prompt_len: torch.Tensor,
     generated_len: torch.Tensor,
     max_gen_len: int,
-    eos_token: int,
+    eos_token_ids: list[int],
     pad_token: int,
 ):
     """Mask EOS tokens in a given sequence and returns appropriate values.
@@ -371,13 +371,19 @@ def mask_eos(
         - prompt_len (torch.Tensor): the prompt length.
         - generated_len (torch.Tensor): the generated length for each prompt.
         - max_gen_len (int): the maximum generated length.
-        - eos_token (int): the token representing end of sequence token.
+        - eos_token (list[int]): the token representing end of sequence token.
         - pad_token (int): the token representing pad token.
     """
     # Creating appropriate masks based upon EOS appearing in sequences
-    eos_actions = actions == eos_token
+    eos_tokens_tensor = torch.tensor(
+        eos_token_ids,
+        dtype=actions.dtype,
+        device=actions.device,
+    )
+    eos_actions = torch.isin(actions, eos_tokens_tensor)
     action_mask = torch.ones_like(actions)
     seen_eos_batches = set()
+
     for eos_idx in eos_actions.nonzero(as_tuple=False):
         batch_idx = int(eos_idx[0])
         if eos_idx[1] < max_gen_len and batch_idx not in seen_eos_batches:
