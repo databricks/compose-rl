@@ -19,13 +19,13 @@ dependencies = [
 
 [project.optional-dependencies]
 cpu = [
-    'llm-foundry[all-cpu]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
+    'llm-foundry[all-cpu]@git+https://github.com/dakinggg/llm-foundry.git@tight-bump-transformers#egg=llmfoundry',
 ]
 gpu = [
-    'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
+    'llm-foundry[all]@git+https://github.com/dakinggg/llm-foundry.git@tight-bump-transformers#egg=llmfoundry',
 ]
 dev = [
-    'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
+    'llm-foundry[dev]@git+https://github.com/dakinggg/llm-foundry.git@tight-bump-transformers#egg=llmfoundry',
 ]
 released = [
     'llm-foundry[all]>=0.17.1',
