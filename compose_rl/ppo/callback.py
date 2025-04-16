@@ -386,15 +386,37 @@ class PPOCallback(CallbackWithConfig):
 
         self.vllm_engines = None
         self.num_vllm_engines = 0
-        if 'num_vllm_engines' in var_config:
-            self.num_vllm_engines = var_config['num_vllm_engines']
+        self.vllm_tensor_parallel_size = var_config.get(
+            'vllm_tensor_parallel_size',
+            None,
+        )
+        if self.vllm_tensor_parallel_size is not None:
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
 
-            self.vllm_tensor_parallel_size = var_config.get(
-                'vllm_tensor_parallel_size',
-                1,
+            # set vllm tensor parallel size
+            total_num_nodes = os.getenv('TOTAL_NUM_NODES', None)
+            num_train_nodes = os.getenv('TRAIN_NUM_NODES', None)
+            lws = os.getenv(
+                'LOCAL_WORLD_SIZE',
+                None,
+            )  # The number of GPUs available to the run on each node
+            assert total_num_nodes is not None, 'TOTAL_NUM_NODES must be set.'
+            assert num_train_nodes is not None, 'TRAIN_NUM_NODES must be set.'
+            assert lws is not None, 'LOCAL_WORLD_SIZE must be set.'
+            total_num_nodes = int(total_num_nodes)
+            num_train_nodes = int(num_train_nodes)
+            lws = int(lws)
+
+            inference_nodes = total_num_nodes - num_train_nodes
+            inference_gpus = inference_nodes * lws
+            assert inference_gpus % self.vllm_tensor_parallel_size == 0, f' {inference_gpus=} must be divisible by {self.vllm_tensor_parallel_size=}.'
+            self.num_vllm_engines = inference_gpus // self.vllm_tensor_parallel_size
+
+            log.info(
+                f'Using {self.num_vllm_engines} vllm engines with {self.vllm_tensor_parallel_size=} per engine.',
             )
+
             self.vllm_sync_backend = var_config.get('vllm_sync_backend', 'nccl')
             self.test_prompt = 'Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions.'
 
