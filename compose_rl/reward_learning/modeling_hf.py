@@ -69,8 +69,8 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
         tokenizer (PreTrainedTokenizer): The tokenizer that the model will use.
     """
     model_cls: Union[
-        _BaseAutoModelClass,
-        PreTrainedModel] = AutoModelForCausalLMWithRM  # type: ignore
+        type[_BaseAutoModelClass],
+        type[PreTrainedModel]] = AutoModelForCausalLMWithRM  # type: ignore
     default_train_metrics: tuple = ()
     default_eval_metrics: tuple = ()
 

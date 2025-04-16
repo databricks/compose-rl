@@ -50,8 +50,8 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         should_save_peft_only (bool): Whether to save only the PEFT model. Default: ``False``.
     """
     model_cls: Union[
-        _BaseAutoModelClass,
-        PreTrainedModel] = AutoModelForCausalLMAsPolicy  # type: ignore
+        type[_BaseAutoModelClass],
+        type[PreTrainedModel]] = AutoModelForCausalLMAsPolicy  # type: ignore
     default_train_metrics: tuple = ()
     default_eval_metrics: tuple = ()
 
