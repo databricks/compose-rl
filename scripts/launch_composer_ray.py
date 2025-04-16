@@ -280,6 +280,10 @@ if __name__ == '__main__':
     assert num_nodes is not None, 'NUM_NODES must be set'
     num_nodes = int(num_nodes)
 
+    # Set the environment variables for the total number of nodes
+    # since NUM_NODES is overridden by train_num_node
+    os.environ['TOTAL_NUM_NODES'] = str(num_nodes)
+
     num_train_nodes = yaml_cfg['variables']['num_train_nodes']  # type: ignore
     # This includes the master node
     num_inference_nodes = num_nodes - num_train_nodes + 1
