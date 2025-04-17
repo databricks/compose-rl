@@ -226,6 +226,9 @@ def causal_classifier_forward(
             dim=1,
             index=batch['text_len'].view(-1, 1) - 1,
         )
+        
+    # Debugging printout
+    print('output scores are: ', output_scores)
 
     # We need to add the labels here to compute metrics
     outputs: dict[str, torch.Tensor] = {
