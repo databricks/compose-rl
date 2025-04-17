@@ -4,6 +4,7 @@
 """A unified script to create prompt datasets for different data types."""
 
 import argparse
+import logging
 import os
 from typing import Any, Iterator, Literal
 
@@ -19,6 +20,8 @@ from compose_rl.data.rlvr_utils import (
     prepare_gsm8k_prompt,
     prepare_math_prompt,
 )
+
+log = logging.getLogger(__name__)
 
 
 class UnifiedTokenizedDataset(IterableDataset):
@@ -49,11 +52,11 @@ class UnifiedTokenizedDataset(IterableDataset):
         self.dataset_type = dataset_type
         self.dataset_name = dataset_name.lower()
 
-        print(f'Dataset name: {dataset_name}')
+        log.info(f'Dataset name: {dataset_name}')
         if subset:
-            print(f'Processing subset: {subset}')
-        print(f'Processing split: {split}')
-        print(f'Processing dataset type: {dataset_type}')
+            log.info(f'Processing subset: {subset}')
+        log.info(f'Processing split: {split}')
+        log.info(f'Processing dataset type: {dataset_type}')
 
         self.hf_dataset = hf_datasets.load_dataset(
             path=dataset_name,
@@ -188,16 +191,18 @@ class UnifiedTokenizedDataset(IterableDataset):
             add_generation_prompt=True,
         )
         if len(encoded_prompt) > self.max_length:
-            print(f'Prompt too long: {len(encoded_prompt)}')
+            log.info(f'Prompt too long: {len(encoded_prompt)}')
             return None
 
         verified_answer = answer_fn(sample)
         if verified_answer is None:
-            print(f'No answer found for sample: {sample}')
+            log.warning(f'No answer found for sample: {sample}')
             return None
 
         if not self._check_for_encoding(verified_answer):
-            print(f'Encoding error for verified answer, cannot save: {sample}')
+            log.warning(
+                f'Encoding error for verified answer, cannot save: {sample}',
+            )
             return None
 
         return {
@@ -223,11 +228,11 @@ class UnifiedTokenizedDataset(IterableDataset):
             return False
 
         if _sample != sample:
-            print(f'Encoding error for sample: {sample}')
+            log.warning(f'Encoding error for sample: {sample}')
             return False
 
         if _sample == '':
-            print(f'Encoding error for sample: {sample}')
+            log.warning(f'Encoding error for sample: {sample}')
             return False
 
         return True
@@ -268,7 +273,7 @@ def main(
     )
     tokenizer.model_max_length = int(1e30)
 
-    print(f'Using tokenizer: {tokenizer}')
+    log.info(f'Using tokenizer: {tokenizer}')
 
     num_written = 0
     for split in splits:
@@ -287,15 +292,14 @@ def main(
                 subset=subset,
             )
 
-            print('Converting to MDS format')
+            log.info('Converting to MDS format')
 
             for sample in dataset:
                 num_written += 1
                 out.write(sample)
 
-        print(f'Finished writing {num_written} samples')
-    print('Finished converting')
-    print('Dataset has:', num_written, 'samples')
+        log.info(f'Finished writing {num_written} samples')
+    log.info(f'Dataset has: {num_written} samples')
 
 
 if __name__ == '__main__':
