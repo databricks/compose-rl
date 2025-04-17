@@ -222,7 +222,8 @@ def env_generate(
             # We need to recompute the logits here. Otherwise there are numerical differences
             # We also need to do it on the size of `device_train_microbatch_size` otherwise
             # there are numerical differences at training time.
-            logits = []
+            # log probs will be [batch_size, generated_len]
+            log_probs = []
             values = []
 
             input_model_kwargs = {
@@ -233,7 +234,7 @@ def env_generate(
                 'action_mask': action_mask,
                 'actions': actions,
             }
-
+            # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
             for i in range(batch_size // device_train_microbatch_size):
                 curr_kwargs = {
                     key: value[i * device_train_microbatch_size:(i + 1) *
@@ -242,18 +243,23 @@ def env_generate(
                     for key, value in input_model_kwargs.items()
                 }
                 cur_output = actor_critic(curr_kwargs)
-                logits.append(cur_output['logits'])
-                values.append(cur_output['values'])
+                cur_logits = cur_output['logits']
+                cur_values = cur_output['values']
+                # need to pull out current actions and prompt len
+                cur_actions = curr_kwargs['actions']
+                cur_prompt_len = curr_kwargs['prompt_len']
 
-            device_train_microbatch_logits = torch.cat(logits)
+                cur_log_probs = get_log_probs(
+                    logits=cur_logits,
+                    actions=cur_actions,
+                    prompt_len=cur_prompt_len,
+                    max_gen_len=max_gen_len,
+                )
+                log_probs.append(cur_log_probs)
+                values.append(cur_values)
+
+            device_train_microbatch_log_probs = torch.cat(log_probs)
             device_train_microbatch_values = torch.cat(values)
-
-            device_train_microbatch_log_probs = get_log_probs(
-                logits=device_train_microbatch_logits,
-                actions=actions,
-                prompt_len=prompt_len,
-                max_gen_len=max_gen_len,
-            )
 
             # Need to add in the padding for the value function
             value_action_mask = torch.cat([
