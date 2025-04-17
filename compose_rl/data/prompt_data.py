@@ -11,6 +11,8 @@ import torch
 from streaming import StreamingDataset
 from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
 
+import compose_rl.utils as utils
+
 log = logging.getLogger(__name__)
 
 
@@ -41,6 +43,12 @@ def prompt_dataset_collate_fn(
         cur_values = [item[key] for item in batch]
         if key in ['prompt_len']:
             collated_batch[key] = torch.stack(cur_values).squeeze(dim=1)
+            continue
+
+        if key in ['verified_answer']:
+            collated_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
+                utils.flatten(cur_values),
+            )
             continue
 
         collated_batch[key] = ref_collate_fn(cur_values)['input_ids']
@@ -90,5 +98,21 @@ class PromptStreamingDataset(StreamingDataset):
             prompt = prompt[:-truncate_len]
 
         prompt_len = torch.Tensor([len(prompt)]).to(dtype=torch.int64)
+        item_dict = {'prompt': prompt, 'prompt_len': prompt_len}
 
-        return {'prompt': prompt, 'prompt_len': prompt_len}
+        verified_answer = sample.get('verified_answer', None)
+        if verified_answer:
+            if isinstance(verified_answer, str):
+                _answer = verified_answer
+            else:
+                try:
+                    _answer = verified_answer.decode('utf-8', errors='strict')
+                except UnicodeDecodeError as e:
+                    log.error(
+                        f'Failed to decode verifed_answer with error: {e}',
+                    )
+                    _answer = ''
+
+            item_dict['verified_answer'] = _answer  # type: ignore
+
+        return item_dict

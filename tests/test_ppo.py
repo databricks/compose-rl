@@ -22,16 +22,19 @@ from compose_rl.ppo import (
     ComposerMosaicPolicy,
     PPOCallback,
 )
-from tests.common import PromptDataset, world_size
+from tests.common import PromptDataset, VerifiablePromptDataset, world_size
 
 
 @pytest.mark.parametrize('model_type', ['mpt', 'hf'])
+@pytest.mark.parametrize('dataset_type', ['prompt', 'verifiable_prompt'])
 def test_model_forward(
     tiny_gpt2_tokenizer: PreTrainedTokenizer,
     model_type: str,
+    dataset_type: str,
 ):
     prompt_len = 10
-    dataset = PromptDataset(prompt_len=prompt_len)
+    data_class = PromptDataset if dataset_type == 'prompt' else VerifiablePromptDataset
+    dataset = data_class(prompt_len=prompt_len)
     dataloader = DataLoader(
         dataset,
         collate_fn=partial(
