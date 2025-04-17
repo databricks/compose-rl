@@ -1,7 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the BadGenerationEndReward class."""
+"""Tests for the MATHVerifierReward class."""
 
 from typing import Any
 
