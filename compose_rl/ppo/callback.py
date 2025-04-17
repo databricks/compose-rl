@@ -124,6 +124,7 @@ def env_generate(
     with get_precision_context(precision):
         prompt_len = batch['prompt_len']
         verified_answers = batch.get('verified_answer', None)
+        prompt_id = batch['prompt_id']
 
         with torch.no_grad():
             cur_device = prompt_tokens.device
@@ -270,6 +271,7 @@ def env_generate(
             device_train_microbatch_values *= value_action_mask
 
             partial_env_output = {
+                'prompt_id': prompt_id,
                 'actions': actions.detach(),
                 'old_log_probs': device_train_microbatch_log_probs.detach(),
                 'obs': right_padded_obs.detach(),
@@ -342,6 +344,10 @@ class PPOCallback(CallbackWithConfig):
         # Per-device generate size.
         self.device_generate_batch_size: int = var_config.get(
             'device_generate_batch_size',
+        )
+        self.generations_per_prompt: int = var_config.get(
+            'generations_per_prompt',
+            1,
         )
         self.device_train_batch_size: int = train_config.get(
             'device_train_batch_size',
@@ -436,7 +442,9 @@ class PPOCallback(CallbackWithConfig):
         self.precision = state.precision
         self.device_train_microbatch_size: int = state.device_train_microbatch_size  # type: ignore
 
-        self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
+        # self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
+        # NOTE: Trying to include generations_per_prompt in the batch size
+        self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size * self.generations_per_prompt
 
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
@@ -558,7 +566,7 @@ class PPOCallback(CallbackWithConfig):
             padding_key = None
             for batch in batches:
                 # For keys that do not require additional processing
-                if key in ['prompt_len', 'verified_answer']:
+                if key in ['prompt_len', 'verified_answer', 'prompt_id']:
                     curr_values.append(batch[key])
                     continue
 
@@ -590,6 +598,17 @@ class PPOCallback(CallbackWithConfig):
                 else:
                     # this is an edge case that we will not hit currently, but just handling it as needed
                     ret_batch[key] = curr_values
+        # print(f"{ret_batch.keys()}")
+        # print(f"{ret_batch['prompt'].shape=}")
+        # print(f"{ret_batch['prompt_attention_mask'].shape=}")
+        # print(f"{ret_batch['prompt_len'].shape=}")
+        # print(f"{ret_batch['prompt_id'].shape=}")
+        # print(f"{ret_batch=}")
+        # dict_keys(['prompt_id', 'prompt', 'prompt_len', 'prompt_attention_mask'])
+        # ret_batch['prompt'].shape=torch.Size([32, 547])
+        # ret_batch['prompt_attention_mask'].shape=torch.Size([32, 547])
+        # ret_batch['prompt_len'].shape=torch.Size([32])
+        # ret_batch['prompt_id'].shape=torch.Size([32])
 
         return ret_batch
 
@@ -618,32 +637,45 @@ class PPOCallback(CallbackWithConfig):
         # We can have the generate size be greater than the device train microbatch size
         num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
 
+
         gen_batch_partial_outputs = []
+        exploded_batch = []
         for i in range(num_gen_calls):
+            # Extract a minibatch of size device_generate_batch_size from the full batch
             gen_batch = self._extract_minibatch(
                 batch=batch,
                 idx=i,
                 minibatch_size=self.device_generate_batch_size,
             )
+            for k in range(self.generations_per_prompt):
+                env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_generate(
+                    actor_critic=self.actor_critic,  # pyright: ignore
+                    vllm_engines=self.vllm_engines,
+                    reward_manager=self.reward_manager,
+                    batch=gen_batch,
+                    max_gen_len=self.max_gen_len,
+                    precision=self.precision,
+                    device_train_microbatch_size=self.device_train_microbatch_size,
+                    generation_kwargs=self.generation_kwargs,
+                    tokenizer=self.tokenizer,  # type: ignore
+                    eos_token_ids=self.eos_token_ids,  # type: ignore
+                )
 
-            env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_generate(
-                actor_critic=self.actor_critic,  # pyright: ignore
-                vllm_engines=self.vllm_engines,
-                reward_manager=self.reward_manager,
-                batch=gen_batch,
-                max_gen_len=self.max_gen_len,
-                precision=self.precision,
-                device_train_microbatch_size=self.device_train_microbatch_size,
-                generation_kwargs=self.generation_kwargs,
-                tokenizer=self.tokenizer,  # type: ignore
-                eos_token_ids=self.eos_token_ids,  # type: ignore
-            )
+                self.prompts_and_gens.extend(prompts_and_gens)
 
-            self.prompts_and_gens.extend(prompts_and_gens)
-
-            gen_batch_partial_outputs.append(
-                (env_outputs, ref_outputs, all_rewards_dict),
-            )
+                gen_batch_partial_outputs.append(
+                    (env_outputs, ref_outputs, all_rewards_dict),
+                )
+                # Add gen_batch self.generations_per_prompt times to the exploded batch
+                gen_batch_clone = gen_batch.copy()
+                print(f"{i=} {k=} {gen_batch_clone['prompt_id']=}")
+                exploded_batch.append(gen_batch_clone)
+        # Concatenate all mini batches together    
+        exploded_batch = self._merge_minibatches(exploded_batch)
+        print(f"{exploded_batch.keys()=}")
+        print(f"{exploded_batch['prompt_id'].shape=}")
+        print(f"{exploded_batch['prompt_id']=}")
+        breakpoint()
 
         # For every partial output we want to resolve them together
         # And compute the global per iteration batch advantage's mean and variance
@@ -695,6 +727,20 @@ class PPOCallback(CallbackWithConfig):
             for batch_key, tensor in batch.items()
         }
         return curr_gen_batch
+    
+    def _merge_minibatches(self, minibatches: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+        """Merges a list of minibatches into a single batch.
+
+        Args:
+            minibatches (list[dict[str, torch.Tensor]]): A list of minibatches to merge.
+
+        Returns:
+            merged_batch (dict[str, torch.Tensor]): The merged batch.
+        """
+        merged_batch = {}
+        for key in minibatches[0].keys():
+            merged_batch[key] = torch.cat([mb[key] for mb in minibatches])
+        return merged_batch
 
     def _resolve_outputs(
         self,
@@ -737,9 +783,19 @@ class PPOCallback(CallbackWithConfig):
                 torch.eq(output['obs'], self.pad_token_idx),  # type: ignore
             )
 
+        print(f"{outputs[0].keys()=}")
+        print(f"{outputs[0]=}")
+
         for key in outputs[0].keys():
             env_outputs[key] = torch.cat([output[key] for output in outputs])
-
+        print(f"{env_outputs.keys()=}")
+        print(f"{env_outputs=}")
+        print(f"{env_outputs['prompt_id'].shape=}")
+        print(f"{env_outputs['rewards'].shape=}")
+        print(f"{iter_batch['prompt_id'].shape=}")
+        print(f"{env_outputs['prompt_id']=}")
+        print(f"{iter_batch['prompt_id']=}")
+        breakpoint()
         # Now that rewards are resolved, we can compute advantages
         env_outputs['advantages'] = compute_advantages(
             rewards=env_outputs['rewards'],
