@@ -107,8 +107,10 @@ class PromptStreamingDataset(StreamingDataset):
             else:
                 try:
                     _answer = verified_answer.decode('utf-8', errors='strict')
-                except UnicodeDecodeError:
-                    print(f'Failed to decode verifed_answer')
+                except UnicodeDecodeError as e:
+                    log.error(
+                        f'Failed to decode verifed_answer with error: {e}',
+                    )
                     _answer = ''
 
             item_dict['verified_answer'] = _answer  # type: ignore
