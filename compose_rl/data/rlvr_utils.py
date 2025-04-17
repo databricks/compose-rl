@@ -140,20 +140,6 @@ def is_equiv(x1: str, x2: str) -> bool:
         return False
 
 
-def get_unnormalized_answer(text: str) -> str:
-    """Extracts raw answer from model output text."""
-    invalid_answer = '[invalidanswer]'
-    end_seq = 'I hope it is correct.'
-    text += end_seq
-    match = re.search(
-        r'Final Answer: The final answer is(.*?). I hope it is correct.',
-        text,
-    )
-    if match:
-        return match.group(1).strip()
-    return invalid_answer
-
-
 SUBSTITUTIONS = [
     ('an ', ''),
     ('a ', ''),
