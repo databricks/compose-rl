@@ -25,7 +25,9 @@ def test_validate_config(reward: GSM8KFormatVeriferReward) -> None:
     reward.validate_config()
 
 
-def test_call_base_verifer_invalid_input(reward: GSM8KFormatVeriferReward) -> None:
+def test_call_base_verifer_invalid_input(
+    reward: GSM8KFormatVeriferReward,
+) -> None:
     invalid_batch: dict[str, torch.Tensor] = {
         'zero_rewards': torch.zeros((2, 6)),
         'generated_lens': torch.tensor([6, 6]),
@@ -43,7 +45,10 @@ def test_call_base_verifer_invalid_input(reward: GSM8KFormatVeriferReward) -> No
                 'raw_untokenized_texts': [
                     ('', 'Answer is ####24'),
                     ('', 'This is a very long string answer'),
-                    ('', 'There are 32 initial numbers, adding 64 new elements gives 32+64 = 96. Answer is \boxed{96}'),
+                    (
+                        '',
+                        'There are 32 initial numbers, adding 64 new elements gives 32+64 = 96. Answer is \\boxed{96}',
+                    ),
                 ],
                 'verified_answers': ['24', '89', '96'],
                 'generated_lens': torch.tensor([5, 5, 3]),

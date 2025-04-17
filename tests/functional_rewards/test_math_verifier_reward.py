@@ -41,30 +41,36 @@ def test_call_base_verifer_invalid_input(reward: MATHVerifierReward) -> None:
             {
                 'zero_rewards': torch.zeros((3, 5)),
                 'raw_untokenized_texts': [
-                    ('', 'Answer is ####24'),
-                    ('', 'This is a very long string answer'),
-                    ('', 'There are 32 initial numbers, adding 64 new elements gives 32+64 = 96. Answer is \boxed{96}'),
+                    ('', 'Answer is \\boxed{24}'),
+                    (
+                        '',
+                        'We see that $f(y) + g(y) = y^4 -3y^3+y-3 +y^3+7y^2-2.$ Simplifying, we get $\\boxed{y^4-2y^3+7y^2+y-5}$.',
+                    ),
+                    (
+                        '',
+                        'Setting the exponents equal, we get that $36n=72$, or $n=\frac{72}{36}=\\boxed{2}$.',
+                    ),
                 ],
-                'verified_answers': ['24', '89', '96'],
+                'verified_answers': ['24', 'y^4-2y^3+7y^2+y-4', '2'],
                 'generated_lens': torch.tensor([5, 5, 3]),
             },
-            [(0, 4, 1.0), (1, 4, 0.0), (2, 2, 1.0)],
+            [(0, 4, 10.0), (1, 4, 0.0), (2, 2, 10.0)],
         ),
         (
             {
                 'zero_rewards': torch.zeros((2, 6)),
                 'raw_untokenized_texts': [
-                    ('', '####1'),
-                    ('', '##2'),
+                    ('', '\\boxed{\frac{1}{2}}'),
+                    ('', '\\boxed{45}'),
                 ],
-                'verified_answers': ['1', '4'],
+                'verified_answers': ['\frac{1}{2}', '4'],
                 'generated_lens': torch.tensor([6, 6]),
             },
-            [(0, 5, 1.0), (1, 5, 0.0)],
+            [(0, 5, 10.0), (1, 5, 0.0)],
         ),
     ],
 )
-def test_gms8k_answer_verifier(
+def test_math_verifier(
     reward: MATHVerifierReward,
     batch: dict[str, Any],
     expected_rewards: list[tuple[int, int, float]],

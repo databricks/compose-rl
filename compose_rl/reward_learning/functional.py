@@ -401,7 +401,7 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
         return self.reward if solution is not None else 0.0
 
 
-class MATHVeriferReward(BaseVerifierReward):
+class MATHVerifierReward(BaseVerifierReward):
 
     def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
         super().__init__(cfg, tokenizer)

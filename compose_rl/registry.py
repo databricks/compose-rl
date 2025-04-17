@@ -17,7 +17,7 @@ from compose_rl.reward_learning import (
     GSM8KFormatVeriferReward,
     IncreasingNumbersReward,
     InferenceRewardModel,
-    MATHVeriferReward,
+    MATHVerifierReward,
     OutputLengthReward,
     ShortResponseReward,
 )
@@ -32,7 +32,7 @@ RL_REWARD_REGISTRY = {
     'bad_generation_end': BadGenerationEndReward,
     'gsm8k_answer_verifier': GSM8KAnswerVeriferReward,
     'gsm8k_format_verifier': GSM8KFormatVeriferReward,
-    'math_verifier': MATHVeriferReward,
+    'math_verifier': MATHVerifierReward,
 }
 
 KL_CONTROLLER_REGISTRY = {
