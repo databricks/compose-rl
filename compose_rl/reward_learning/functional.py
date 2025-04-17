@@ -37,10 +37,6 @@ class IncreasingNumbersReward(Reward):
         except ValueError:
             return False
 
-    def validate_config(self):
-        # There are no config requirements for this reward
-        return
-
     def __call__(
         self,
         batch: MutableMapping,
@@ -105,10 +101,6 @@ class ShortResponseReward(Reward):
             f'Adding a reward of {self.reward} if a model generates ' +
             f'tokens under the length {self.len_threshold}',
         )
-
-    def validate_config(self):
-        # There are no config requirements for this reward
-        return
 
     def __call__(
         self,
@@ -262,10 +254,6 @@ class BaseVerifierReward(Reward):
         log.info(
             f'Using reward value of {self.reward} for {self.__class__.__name__} verifier',
         )
-
-    def validate_config(self):
-        # Base validation, can be overridden
-        return
 
     def __call__(
         self,
