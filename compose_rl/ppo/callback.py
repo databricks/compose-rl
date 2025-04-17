@@ -367,6 +367,8 @@ class PPOCallback(CallbackWithConfig):
         )
         assert self.epochs_per_iteration.unit == TimeUnit.EPOCH
 
+        # Programmatically setting the max buffer size instead of the yaml
+        var_config['buffer']['max_buffer_size'] = self.num_batches_per_update * self.generations_per_prompt
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
         self.kl_ctl = build_kl_controller(var_config['kl_controller'])
 
@@ -521,6 +523,7 @@ class PPOCallback(CallbackWithConfig):
             'trainer._train_data_spec should be updated whenever the dataloader is updated',
         )
         # Train Dataloader
+        # print(f"Buffer size = {len(self.buffer)}")
         state.set_dataloader(self.buffer, 'ep')
         state.train_dataloader = state.dataloader
         state.device_train_microbatch_size = _get_initial_device_train_microbatch_size(
@@ -668,22 +671,22 @@ class PPOCallback(CallbackWithConfig):
                 )
                 # Add gen_batch self.generations_per_prompt times to the exploded batch
                 gen_batch_clone = gen_batch.copy()
-                print(f"{i=} {k=} {gen_batch_clone['prompt_id']=}")
+                # print(f"{i=} {k=} {gen_batch_clone['prompt_id']=}")
                 exploded_batch.append(gen_batch_clone)
         # Concatenate all mini batches together    
         exploded_batch = self._merge_minibatches(exploded_batch)
-        print(f"{exploded_batch.keys()=}")
-        print(f"{exploded_batch['prompt_id'].shape=}")
-        print(f"{exploded_batch['prompt_id']=}")
-        breakpoint()
+        # print(f"{exploded_batch.keys()=}")
+        # print(f"{exploded_batch['prompt_id'].shape=}")
+        # print(f"{exploded_batch['prompt_id']=}")
 
         # For every partial output we want to resolve them together
         # And compute the global per iteration batch advantage's mean and variance
         resolved_outputs = self._resolve_outputs(
-            batch,
+            exploded_batch,
             gen_batch_partial_outputs,
         )
 
+        # TODO: Consider if we should shuffle the resolved_outputs here or not
         # We need to split the resolved outputs into minibatches
         for idx in range(self.iter_batch_size // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
@@ -694,7 +697,7 @@ class PPOCallback(CallbackWithConfig):
             self.buffer.add(minibatch)
 
         # Making sure we correctly parsed the minibatches
-        assert len(self.buffer) == self.num_batches_per_update
+        assert len(self.buffer) == self.num_batches_per_update * self.generations_per_prompt
 
         self.actor_critic.train()
 
@@ -783,19 +786,19 @@ class PPOCallback(CallbackWithConfig):
                 torch.eq(output['obs'], self.pad_token_idx),  # type: ignore
             )
 
-        print(f"{outputs[0].keys()=}")
-        print(f"{outputs[0]=}")
+        # print(f"{outputs[0].keys()=}")
+        # print(f"{outputs[0]=}")
 
         for key in outputs[0].keys():
             env_outputs[key] = torch.cat([output[key] for output in outputs])
-        print(f"{env_outputs.keys()=}")
-        print(f"{env_outputs=}")
-        print(f"{env_outputs['prompt_id'].shape=}")
-        print(f"{env_outputs['rewards'].shape=}")
-        print(f"{iter_batch['prompt_id'].shape=}")
-        print(f"{env_outputs['prompt_id']=}")
-        print(f"{iter_batch['prompt_id']=}")
-        breakpoint()
+        # print(f"{env_outputs.keys()=}")
+        # print(f"{env_outputs=}")
+        # print(f"{env_outputs['prompt_id'].shape=}")
+        # print(f"{env_outputs['rewards'].shape=}")
+        # print(f"{iter_batch['prompt_id'].shape=}")
+        # print(f"{env_outputs['prompt_id']=}")
+        # print(f"{iter_batch['prompt_id']=}")
+        
         # Now that rewards are resolved, we can compute advantages
         env_outputs['advantages'] = compute_advantages(
             rewards=env_outputs['rewards'],
@@ -881,7 +884,7 @@ class PPOCallback(CallbackWithConfig):
 
         self.kl_ctl.update(
             ift_kl_update,
-            self.num_batches_per_update * self.device_train_batch_size *
+            self.num_batches_per_update * self.generations_per_prompt * self.device_train_batch_size *
             dist.get_world_size(),
         )
 
