@@ -63,11 +63,6 @@ class InferenceRewardModel(RewardModel):
             self(dummy_batch)  # Indices here are arbitrary.
         dist.barrier()
 
-    def validate_config(self):
-        # Incorrect config settings will raise errors already in __init__ above
-        # Maybe refactor in the future to use this method?
-        return
-
     def postprocess_reward(self, reward: torch.Tensor) -> torch.Tensor:
         # if self.threshold is not None:
         # reward = self.model_cls.apply_threshold(reward, self.threshold)

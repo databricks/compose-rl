@@ -35,6 +35,15 @@ class BaseReward(ABC):
         self.cfg = cfg
         self.tokenizer = tokenizer
 
+    def validate_config(self) -> None:
+        """Validates the config of the reward class.
+
+        This method is called in the reward manager to ensure that the config is
+        valid. It should be overridden in subclasses to perform any necessary
+        validation.
+        """
+        pass
+
     @abstractmethod
     def __call__(self, *args: Any, **kwargs: Any) -> torch.FloatTensor:
         """Method for calculating rewards.
