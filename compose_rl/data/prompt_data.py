@@ -101,7 +101,11 @@ class PromptStreamingDataset(StreamingDataset):
 
         prompt_len = torch.Tensor([len(prompt)]).to(dtype=torch.int64)
         # Send the prompt id along with prompt data
-        item_dict = {'prompt_id': idx, 'prompt': prompt, 'prompt_len': prompt_len}
+        item_dict = {
+            'prompt_id': idx,
+            'prompt': prompt,
+            'prompt_len': prompt_len
+        }
 
         verified_answer = sample.get('verified_answer', None)
         if verified_answer:

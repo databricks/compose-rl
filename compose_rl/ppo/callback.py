@@ -368,7 +368,9 @@ class PPOCallback(CallbackWithConfig):
         assert self.epochs_per_iteration.unit == TimeUnit.EPOCH
 
         # Programmatically setting the max buffer size instead of the yaml
-        var_config['buffer']['max_buffer_size'] = self.num_batches_per_update * self.generations_per_prompt
+        var_config['buffer'
+                  ]['max_buffer_size'
+                   ] = self.num_batches_per_update * self.generations_per_prompt
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
         self.kl_ctl = build_kl_controller(var_config['kl_controller'])
 
@@ -627,7 +629,6 @@ class PPOCallback(CallbackWithConfig):
         # We can have the generate size be greater than the device train microbatch size
         num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
 
-
         gen_batch_partial_outputs = []
         exploded_batch = []
         for i in range(num_gen_calls):
@@ -645,7 +646,8 @@ class PPOCallback(CallbackWithConfig):
                     batch=gen_batch,
                     max_gen_len=self.max_gen_len,
                     precision=self.precision,
-                    device_train_microbatch_size=self.device_train_microbatch_size,
+                    device_train_microbatch_size=self.
+                    device_train_microbatch_size,
                     generation_kwargs=self.generation_kwargs,
                     tokenizer=self.tokenizer,  # type: ignore
                     eos_token_ids=self.eos_token_ids,  # type: ignore
@@ -680,7 +682,9 @@ class PPOCallback(CallbackWithConfig):
             self.buffer.add(minibatch)
 
         # Making sure we correctly parsed the minibatches
-        assert len(self.buffer) == self.num_batches_per_update * self.generations_per_prompt
+        assert len(
+            self.buffer
+        ) == self.num_batches_per_update * self.generations_per_prompt
 
         self.actor_critic.train()
 
@@ -714,7 +718,9 @@ class PPOCallback(CallbackWithConfig):
         }
         return curr_gen_batch
 
-    def _merge_minibatches(self, minibatches: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+    def _merge_minibatches(
+        self, minibatches: list[dict[str, torch.Tensor]]
+    ) -> dict[str, torch.Tensor]:
         """Merges a list of minibatches into a single batch.
 
         Args:
@@ -774,7 +780,6 @@ class PPOCallback(CallbackWithConfig):
             output['right_padded_attn_mask'] = torch.logical_not(
                 torch.eq(output['obs'], self.pad_token_idx),  # type: ignore
             )
-
 
         for key in outputs[0].keys():
             env_outputs[key] = torch.cat([output[key] for output in outputs])
