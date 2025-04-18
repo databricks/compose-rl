@@ -104,7 +104,7 @@ class PromptStreamingDataset(StreamingDataset):
         item_dict = {
             'prompt_id': idx,
             'prompt': prompt,
-            'prompt_len': prompt_len
+            'prompt_len': prompt_len,
         }
 
         verified_answer = sample.get('verified_answer', None)

@@ -683,7 +683,7 @@ class PPOCallback(CallbackWithConfig):
 
         # Making sure we correctly parsed the minibatches
         assert len(
-            self.buffer
+            self.buffer,
         ) == self.num_batches_per_update * self.generations_per_prompt
 
         self.actor_critic.train()
@@ -719,7 +719,8 @@ class PPOCallback(CallbackWithConfig):
         return curr_gen_batch
 
     def _merge_minibatches(
-        self, minibatches: list[dict[str, torch.Tensor]]
+        self,
+        minibatches: list[dict[str, torch.Tensor]],
     ) -> dict[str, torch.Tensor]:
         """Merges a list of minibatches into a single batch.
 
