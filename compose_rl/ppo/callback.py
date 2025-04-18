@@ -364,7 +364,9 @@ class PPOCallback(CallbackWithConfig):
         if self.num_batches_per_update % self.generations_per_prompt != 0:
             error_msg = f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}'
             raise ValueError(error_msg)
-        effective_gen_minibatches = (self.num_batches_per_update // self.generations_per_prompt)  * self.device_train_batch_size
+        effective_gen_minibatches = (
+            self.num_batches_per_update // self.generations_per_prompt
+        ) * self.device_train_batch_size
         if effective_gen_minibatches % self.device_generate_batch_size != 0:
             error_msg = f'For {self.num_batches_per_update=}, {self.generations_per_prompt=} and {self.device_train_batch_size=}, {effective_gen_minibatches=} must be divisible by {self.device_generate_batch_size=}'
             raise ValueError(error_msg)
