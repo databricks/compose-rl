@@ -59,10 +59,7 @@ def prompt_dataset_collate_fn(
         torch.eq(collated_batch['prompt'],
                  tokenizer.pad_token_id),  # type: ignore
     )
-    # print(f'Collated batch keys: {collated_batch.keys()}')
-    # dict_keys(['prompt_id', 'prompt', 'prompt_len', 'prompt_attention_mask'])
-    # print(f'{collated_batch=}')
-    # breakpoint()
+
     return collated_batch
 
 
