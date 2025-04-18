@@ -444,7 +444,7 @@ class PPOCallback(CallbackWithConfig):
         self.precision = state.precision
         self.device_train_microbatch_size: int = state.device_train_microbatch_size  # type: ignore
 
-        # Scale the iteration batch size by generations_per_prompt 
+        # Scale the iteration batch size by generations_per_prompt
         self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size * self.generations_per_prompt
 
         # The KL penalty in the reward should only exist if we aren't minimizing
@@ -637,7 +637,7 @@ class PPOCallback(CallbackWithConfig):
                 idx=i,
                 minibatch_size=self.device_generate_batch_size,
             )
-            for k in range(self.generations_per_prompt):
+            for _ in range(self.generations_per_prompt):
                 env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_generate(
                     actor_critic=self.actor_critic,  # pyright: ignore
                     vllm_engines=self.vllm_engines,
@@ -659,7 +659,7 @@ class PPOCallback(CallbackWithConfig):
                 # Add gen_batch self.generations_per_prompt times to the exploded batch
                 gen_batch_clone = gen_batch.copy()
                 exploded_batch.append(gen_batch_clone)
-        # Concatenate all mini batches together    
+        # Concatenate all mini batches together
         exploded_batch = self._merge_minibatches(exploded_batch)
 
         # For every partial output we want to resolve them together
@@ -713,7 +713,7 @@ class PPOCallback(CallbackWithConfig):
             for batch_key, tensor in batch.items()
         }
         return curr_gen_batch
-    
+
     def _merge_minibatches(self, minibatches: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
         """Merges a list of minibatches into a single batch.
 
@@ -772,7 +772,7 @@ class PPOCallback(CallbackWithConfig):
 
         for key in outputs[0].keys():
             env_outputs[key] = torch.cat([output[key] for output in outputs])
-        
+
         # Now that rewards are resolved, we can compute advantages
         env_outputs['advantages'] = compute_advantages(
             rewards=env_outputs['rewards'],
