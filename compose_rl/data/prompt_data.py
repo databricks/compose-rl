@@ -44,7 +44,9 @@ def prompt_dataset_collate_fn(
         if key in ['prompt_len']:
             collated_batch[key] = torch.stack(cur_values).squeeze(dim=1)
             continue
-
+        if key == 'prompt_id':
+            collated_batch[key] = torch.tensor(cur_values)
+            continue
         if key in ['verified_answer']:
             collated_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
                 utils.flatten(cur_values),
@@ -98,7 +100,12 @@ class PromptStreamingDataset(StreamingDataset):
             prompt = prompt[:-truncate_len]
 
         prompt_len = torch.Tensor([len(prompt)]).to(dtype=torch.int64)
-        item_dict = {'prompt': prompt, 'prompt_len': prompt_len}
+        # Send the prompt id along with prompt data
+        item_dict = {
+            'prompt_id': idx,
+            'prompt': prompt,
+            'prompt_len': prompt_len,
+        }
 
         verified_answer = sample.get('verified_answer', None)
         if verified_answer:
