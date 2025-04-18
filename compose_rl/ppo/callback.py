@@ -345,10 +345,6 @@ class PPOCallback(CallbackWithConfig):
         self.device_generate_batch_size: int = var_config.get(
             'device_generate_batch_size',
         )
-        self.generations_per_prompt: int = var_config.get(
-            'generations_per_prompt',
-            1,
-        )
         self.device_train_batch_size: int = train_config.get(
             'device_train_batch_size',
             None,
@@ -360,7 +356,14 @@ class PPOCallback(CallbackWithConfig):
             'num_batches_per_update',
             1,
         )
-
+        # Number of generations per prompt for a single PPO epoch.
+        self.generations_per_prompt: int = var_config.get(
+            'generations_per_prompt',
+            1,
+        )
+        if self.num_batches_per_update % self.generations_per_prompt != 0:
+            error_msg = f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}'
+            raise ValueError(error_msg)
         self.epochs_per_iteration = ensure_time(
             var_config.get('epoch_per_iteration', 1),
             TimeUnit.EPOCH,
@@ -368,9 +371,7 @@ class PPOCallback(CallbackWithConfig):
         assert self.epochs_per_iteration.unit == TimeUnit.EPOCH
 
         # Programmatically setting the max buffer size instead of the yaml
-        var_config['buffer'
-                  ]['max_buffer_size'
-                   ] = self.num_batches_per_update * self.generations_per_prompt
+        var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
         self.kl_ctl = build_kl_controller(var_config['kl_controller'])
 
@@ -446,8 +447,7 @@ class PPOCallback(CallbackWithConfig):
         self.precision = state.precision
         self.device_train_microbatch_size: int = state.device_train_microbatch_size  # type: ignore
 
-        # Scale the iteration batch size by generations_per_prompt
-        self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size * self.generations_per_prompt
+        self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
 
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
@@ -627,11 +627,12 @@ class PPOCallback(CallbackWithConfig):
         """
         # Determine the number of generating calls we want to make
         # We can have the generate size be greater than the device train microbatch size
-        num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
+        # Total num_gen_minibatches will be scaled down by generations_per_prompt
+        num_gen_minibatches = (self.num_batches_per_update // self.generations_per_prompt)  * self.device_train_batch_size // self.device_generate_batch_size
 
         gen_batch_partial_outputs = []
         exploded_batch = []
-        for i in range(num_gen_calls):
+        for i in range(num_gen_minibatches):
             # Extract a minibatch of size device_generate_batch_size from the full batch
             gen_batch = self._extract_minibatch(
                 batch=batch,
@@ -682,9 +683,7 @@ class PPOCallback(CallbackWithConfig):
             self.buffer.add(minibatch)
 
         # Making sure we correctly parsed the minibatches
-        assert len(
-            self.buffer,
-        ) == self.num_batches_per_update * self.generations_per_prompt
+        assert len(self.buffer) == self.num_batches_per_update
 
         self.actor_critic.train()
 
@@ -871,7 +870,7 @@ class PPOCallback(CallbackWithConfig):
         self.kl_ctl.update(
             ift_kl_update,
             self.num_batches_per_update * self.device_train_batch_size *
-            self.generations_per_prompt * dist.get_world_size(),
+            dist.get_world_size(),
         )
 
         self.kl_ift = []
