@@ -628,7 +628,9 @@ class PPOCallback(CallbackWithConfig):
         # Determine the number of generating calls we want to make
         # We can have the generate size be greater than the device train microbatch size
         # Total num_gen_minibatches will be scaled down by generations_per_prompt
-        num_gen_minibatches = (self.num_batches_per_update // self.generations_per_prompt)  * self.device_train_batch_size // self.device_generate_batch_size
+        num_gen_minibatches = (
+            self.num_batches_per_update // self.generations_per_prompt
+        ) * self.device_train_batch_size // self.device_generate_batch_size
 
         gen_batch_partial_outputs = []
         exploded_batch = []
