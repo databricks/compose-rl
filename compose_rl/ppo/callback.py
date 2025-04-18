@@ -725,7 +725,13 @@ class PPOCallback(CallbackWithConfig):
         """
         merged_batch = {}
         for key in minibatches[0].keys():
-            merged_batch[key] = torch.cat([mb[key] for mb in minibatches])
+            # Handle verified_answer separately
+            if key in ['verified_answer']:
+                merged_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
+                    utils.flatten([mb[key] for mb in minibatches]),
+                )
+            else:
+                merged_batch[key] = torch.cat([mb[key] for mb in minibatches])
         return merged_batch
 
     def _resolve_outputs(
