@@ -258,18 +258,10 @@ def env_generate(
                 )
                 log_probs.append(cur_log_probs)
                 values.append(cur_values)
+                # print(f"env generate: {i=} {cur_values=}")
 
+            # print(f"env generate: {actor_critic.config=}")
             device_train_microbatch_log_probs = torch.cat(log_probs)
-            device_train_microbatch_values = torch.cat(values)
-
-            # Need to add in the padding for the value function
-            value_action_mask = torch.cat([
-                action_mask,
-                torch.zeros((batch_size, 1), device=cur_device),
-            ],
-                                          dim=-1)
-            device_train_microbatch_values *= value_action_mask
-
             partial_env_output = {
                 'prompt_id': prompt_id,
                 'actions': actions.detach(),
@@ -277,8 +269,19 @@ def env_generate(
                 'obs': right_padded_obs.detach(),
                 'generated_len': generated_len,
                 'action_mask': action_mask,
-                'values': device_train_microbatch_values.detach(),
             }
+            # Only compute the value function when joint_actor_critic is True
+            if actor_critic.config.joint_actor_critic:
+                device_train_microbatch_values = torch.cat(values)
+
+                # Need to add in the padding for the value function
+                value_action_mask = torch.cat([
+                    action_mask,
+                    torch.zeros((batch_size, 1), device=cur_device),
+                ],
+                                            dim=-1)
+                device_train_microbatch_values *= value_action_mask
+                partial_env_output['values']=device_train_microbatch_values.detach()
 
             # Future implementations may change the way reward_seq_len is defined
             # e.g., if special formatting is applied
@@ -793,17 +796,78 @@ class PPOCallback(CallbackWithConfig):
             env_outputs[key] = torch.cat([output[key] for output in outputs])
 
         # Now that rewards are resolved, we can compute advantages
-        env_outputs['advantages'] = compute_advantages(
-            rewards=env_outputs['rewards'],
-            values=env_outputs['values'],
-            gamma=self.gamma,
-            lambda_gae=self.lambda_gae,
-        )
+        if 'values' in env_outputs:
+            # compute the PPO advantages
+            env_outputs['advantages'] = compute_advantages(
+                rewards=env_outputs['rewards'],
+                values=env_outputs['values'],
+                gamma=self.gamma,
+                lambda_gae=self.lambda_gae,
+            )
+            # This advantage is a 2D tensor of [batch_size, gen_len]
+            batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
+                env_outputs['advantages'],
+                env_outputs['action_mask'],
+            )
+        else:
+            # compute the GRPO advantages
+            # print(f"{env_outputs.keys()}")
+            # dict_keys(['prompt_id', 'actions', 'old_log_probs', 'obs', 'generated_len', 'action_mask', 'rewards', 'env_rewards', 'ift_log_probs', 'ift_kl', '', 'right_padded_attn_mask'])
+            # print(f"{env_outputs['rewards'].shape=} {env_outputs['rewards']=}")
+            # print(f"{env_outputs['prompt_id'].shape=} {env_outputs['prompt_id']=}")
+            # rewards is of shape [batch_size, gen_len]
+            # prompt_id is of shape [batch_size]
+            # First we need to group the rewards by prompt_ids and calculate advantages
+            
+            prompt_id = env_outputs['prompt_id']
+            rewards = env_outputs['rewards']
+            # TODO: Maybe do something with env_outputs['action_mask'] on 'rewards' before taking a sum
+            rewards = utils.masked_sum(rewards, env_outputs['action_mask'], dim=-1)
+            # rewards = rewards.sum(1)
+            # print(f"After reward flattening")
+            # print(f"{rewards.shape=} {rewards=}")
+            # Get unique prompt IDs and their indices
+            unique_prompt_ids, inverse_indices = torch.unique(prompt_id, return_inverse=True)
+            # print(f"{unique_prompt_ids.shape=} {unique_prompt_ids=}")
+            # print(f"{inverse_indices.shape=} {inverse_indices=}")
+            # Use scatter to compute means and standard deviations
+            # First, we'll create a tensor to track counts, sums, and sum of squares
+            n_unique = len(unique_prompt_ids)
+            counts = torch.zeros(n_unique, device=prompt_id.device)
+            sums = torch.zeros(n_unique, device=prompt_id.device)
+            sum_squares = torch.zeros(n_unique, device=prompt_id.device)
+            # print(f"{counts.shape=} {counts=}")
+            # print(f"{sums.shape=} {sums=}")
+            # print(f"{sum_squares.shape=} {sum_squares=}")
+            # Use scatter_add to accumulate values
+            counts.scatter_add_(0, inverse_indices, torch.ones_like(rewards))
+            sums.scatter_add_(0, inverse_indices, rewards)
+            sum_squares.scatter_add_(0, inverse_indices, rewards**2)
+            # print(f"post scatter add")
+            # print(f"{counts.shape=} {counts=}")
+            # print(f"{sums.shape=} {sums=}")
+            # print(f"{sum_squares.shape=} {sum_squares=}")
 
-        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            env_outputs['advantages'],
-            env_outputs['action_mask'],
-        )
+            # Compute means and standard deviations
+            means = sums / counts
+            variances = (sum_squares / counts) - (means**2)
+            stds = torch.sqrt(variances)
+            # print(f"post compute means and stds")
+            # print(f"{means.shape=} {means=}")
+            # print(f"{stds.shape=} {stds=}")
+            
+            # Map back to original tensor shape
+            mean_rewards = means[inverse_indices]
+            std_rewards = stds[inverse_indices]
+            # print(f"post map back to original tensor shape")
+            # print(f"{mean_rewards.shape=} {mean_rewards=}")
+            # print(f"{std_rewards.shape=} {std_rewards=}")
+
+            grpo_advantage = rewards - mean_rewards/ (std_rewards + 1e-8)
+            env_outputs["grpo_rewards"] = rewards
+            env_outputs["advantages"] = grpo_advantage
+            batch_adv_mean = grpo_advantage.mean()
+            batch_adv_var = grpo_advantage.var()
 
         mean_ift = masked_mean(
             env_outputs['ift_kl'],

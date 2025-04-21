@@ -14,7 +14,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from compose_rl.ppo.modeling_hf import ComposerHFPolicy
 from compose_rl.ppo.modeling_mpt import MPTForPolicy
-from compose_rl.ppo.modeling_utils import composer_ppo_forward, ppo_loss
+from compose_rl.ppo.modeling_utils import composer_ppo_forward, ppo_loss, grpo_loss
 from compose_rl.ppo.policy_configuration import MPTPolicyConfig
 from compose_rl.utils import (
     clear_mb_load_balancing_loss,
@@ -130,6 +130,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
 
         self.running_stats = collections.defaultdict(lambda: [])
 
+        # First entrypoint
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
             tokenizer=tokenizer,
@@ -192,14 +193,26 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         raise ValueError('Eval forward is not supported for ComposerHFPolicy.',)
 
     def loss(self, outputs: MutableMapping, batch: MutableMapping):
-        return_dict, kl_loss = ppo_loss(
-            outputs,
-            batch,
-            self.config.value_clip_range,
-            self.config.policy_clip_ratio,
-            self.config.value_loss_weight,
-            self.compute_kl_loss,  # pyright: ignore
-        )
+        # print(f"OOOOOOOOOOOOOOOOOOOOO  Almost computing the loss")
+        # print(f"OOOOOOOOOOOOOOOOOOOOO  {outputs.keys()=}")
+        # print(f"OOOOOOOOOOOOOOOOOOOOO  {batch.keys()=}")
+        # print(f"OOOOOOOOOOOOOOOOOOOOO  {self.config=}")
+        if self.config.joint_actor_critic:
+            return_dict, kl_loss = ppo_loss(
+                outputs,
+                batch,
+                self.config.value_clip_range,
+                self.config.policy_clip_ratio,
+                self.config.value_loss_weight,
+                self.compute_kl_loss,  # pyright: ignore
+            )
+        else:
+            return_dict, kl_loss = grpo_loss(
+                outputs,
+                batch,
+                self.config.policy_clip_ratio,
+                self.compute_kl_loss,  # pyright: ignore
+            )
 
         self.policy_kl.append(kl_loss)
 

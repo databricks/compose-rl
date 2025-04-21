@@ -58,15 +58,21 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
                 config.base_config,
                 **kwargs,
             )
-        self.dropout = nn.Dropout(self.config.critic_dropout)
-        self.critic_head = nn.Linear(
-            self.config.hidden_size,
-            1,
-        )
-        self.critic_head._fsdp_wrap = True  # pyright: ignore
+        if self.config.joint_actor_critic:
+            self.dropout = nn.Dropout(self.config.critic_dropout)
+            self.critic_head = nn.Linear(
+                self.config.hidden_size,
+                1,
+            )
+            self.critic_head._fsdp_wrap = True  # pyright: ignore
+            self.critic_head._is_critic_head = True  # pyright: ignore
+        else:
+            # print(f"%%%%%%%%%%%%%%%%%%In AutoModelForCausalLMAsPolicy init: {self.config.joint_actor_critic=}")
+            # self.critic_head = None
+            pass
+            
         self.lm_backbone._fsdp_wrap = True
 
-        self.critic_head._is_critic_head = True  # pyright: ignore
 
     def _init_weights(self, module: nn.Module) -> None:
         if hasattr(module, '_is_critic_head'):
@@ -143,6 +149,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
         **kwargs: Any,
     ) -> PreTrainedModel:
         config.pretrained = False
+        # print(f"******************In AutoModelForCausalLMAsPolicy from_config: {config=}")
         model = cls(config, **kwargs)
         return model
 
@@ -174,6 +181,10 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
             'eager',
         )
         load_in_8bit = kwargs.pop('load_in_8bit', False)
+        if hasattr(config, 'joint_actor_critic'):
+            # print(f"******************In AutoModelForCausalLMAsPolicy from_pretrained: {config.joint_actor_critic=}")
+            # print(f"******************In AutoModelForCausalLMAsPolicy from_pretrained: Updating the default {joint_actor_critic=} to {config.joint_actor_critic=}")
+            joint_actor_critic = config.joint_actor_critic
 
         pretrained_model_config = AutoConfig.from_pretrained(
             pretrained_model_name_or_path,
@@ -243,7 +254,8 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
         )
 
         values = None
-        if prompt_len is not None:
+        if prompt_len is not None and hasattr(self, 'critic_head') and self.critic_head is not None:
+            # Only compute critic values if critic head is initialized
             assert max_gen_len is not None
             assert action_mask is not None
             dropout_enc = self.dropout(
