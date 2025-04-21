@@ -367,7 +367,7 @@ def grpo_loss(
         'kl/ift_kl_scalar': batch['ift_kl_scalar'],
         'policy_loss/clip_frac': policy_clip_frac,
         'kl/online_ift_kl': online_ift_kl,
-        'advantages/mean': utils.masked_mean(advantages, batch['action_mask']),
+        'advantages/mean': advantages.mean(),
         'policy_loss/ratio': utils.masked_mean(ratio, batch['action_mask']),
         'length/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
     }

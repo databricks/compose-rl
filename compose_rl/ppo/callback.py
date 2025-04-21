@@ -822,6 +822,7 @@ class PPOCallback(CallbackWithConfig):
             prompt_id = env_outputs['prompt_id']
             rewards = env_outputs['rewards']
             # TODO: Maybe do something with env_outputs['action_mask'] on 'rewards' before taking a sum
+            # print(f"rewards before flattening {rewards.shape=} {rewards=}")
             rewards = utils.masked_sum(rewards, env_outputs['action_mask'], dim=-1)
             # rewards = rewards.sum(1)
             # print(f"After reward flattening")
@@ -862,8 +863,12 @@ class PPOCallback(CallbackWithConfig):
             # print(f"post map back to original tensor shape")
             # print(f"{mean_rewards.shape=} {mean_rewards=}")
             # print(f"{std_rewards.shape=} {std_rewards=}")
+            # print(f"{rewards.shape=} {rewards=}")
 
-            grpo_advantage = rewards - mean_rewards/ (std_rewards + 1e-8)
+            # Borrowing this logic from TRL: https://github.com/huggingface/trl/blob/c82f626f94a83986fd1b28091fac3a0100b51c68/trl/trainer/grpo_trainer.py#L1057C52-L1057C52
+            grpo_advantage = (rewards - mean_rewards) / (std_rewards + 1e-4)
+            # print(f"{grpo_advantage.shape=} {grpo_advantage=}")
+            # breakpoint()
             env_outputs["grpo_rewards"] = rewards
             env_outputs["advantages"] = grpo_advantage
             batch_adv_mean = grpo_advantage.mean()
