@@ -261,6 +261,8 @@ class BaseVerifierReward(Reward):
     ) -> torch.Tensor:
         """Apply the reward for verifying the correct answer from the model.
 
+        Currently verifier rewards are only applied to the last token of the sequence.
+
         Args:
             batch (dict): The input batch containing all information needed.
 
@@ -330,7 +332,9 @@ class BaseVerifierReward(Reward):
         Returns:
             float: The reward score.
         """
-        pass
+        raise NotImplementedError(
+            'Subclasses must implement `score_generations` definition.',
+        )
 
 
 class GSM8KAnswerVeriferReward(BaseVerifierReward):
