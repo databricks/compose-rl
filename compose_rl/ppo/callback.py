@@ -872,7 +872,9 @@ class PPOCallback(CallbackWithConfig):
             print(f"{len(local_responses)=}")
             print(f"{type(local_responses[0])=} {len(local_responses[0])=}")
             print(f"{type(local_responses[0][0])=} {len(local_responses[0][0])=}")
+            # Print per local response size
             local_responses = local_responses[0]
+            print(f"{[len(response) for response in local_responses]=}")
 
             log.info(f'took: {time.time() - start_time} to scatter prompts')
             print(f"{len(batch['prompt'])=}")
@@ -898,7 +900,12 @@ class PPOCallback(CallbackWithConfig):
                 dtype=prompt_tokens.dtype,
                 device=cur_device,
             )
+            print(f"Right before constructing seqeunces")
             print(f"{padded_responses.shape=}")
+            print(f"{prompt_tokens.shape=}")
+            sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
+            print(f"{sequences.shape=}")
+            print(f"{batch.keys()=}")
             exit(1)
         
         
