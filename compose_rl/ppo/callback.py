@@ -581,7 +581,8 @@ class PPOCallback(CallbackWithConfig):
                 if key in ['prompt_len', 'verified_answer', 'prompt_id']:
                     curr_values.append(batch[key])
                     continue
-
+                
+                print(f"In _get_next_iter_prompts {key=} {batch[key].shape=}")
                 bs, seq_len = batch[key].shape
 
                 if key == 'prompt':
@@ -604,6 +605,7 @@ class PPOCallback(CallbackWithConfig):
             # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
             if isinstance(curr_values[0], torch.Tensor):
                 ret_batch[key] = torch.cat(curr_values)
+                print(f"In _get_next_iter_prompts {key=} {ret_batch[key]=}")
             else:
                 if key == 'verified_answer':
                     ret_batch[key] = list(utils.flatten(curr_values))
@@ -855,7 +857,9 @@ class PPOCallback(CallbackWithConfig):
             dist.barrier()
 
             print(f"After dist barrier")
-            print(f"{len(split_responses)=}")
+            if split_responses is not None:
+                # Probably only goes here for rank 0
+                print(f"{len(split_responses)=}")
             # scatter the respective responses to all other ranks
             local_responses = [None]
             start_time = time.time()
