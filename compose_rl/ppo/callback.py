@@ -605,7 +605,7 @@ class PPOCallback(CallbackWithConfig):
             # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
             if isinstance(curr_values[0], torch.Tensor):
                 ret_batch[key] = torch.cat(curr_values)
-                print(f"In _get_next_iter_prompts {key=} {ret_batch[key]=}")
+                print(f"In _get_next_iter_prompts {key=} {ret_batch[key].shape=}")
             else:
                 if key == 'verified_answer':
                     ret_batch[key] = list(utils.flatten(curr_values))
@@ -870,7 +870,10 @@ class PPOCallback(CallbackWithConfig):
             )
             print(f"After scatter")
             print(f"{len(local_responses)=}")
-            print(f"{local_responses[0]=}")
+            print(f"{type(local_responses[0])=} {len(local_responses[0])=}")
+            print(f"{type(local_responses[0][0])=} {len(local_responses[0][0])=}")
+            local_responses = local_responses[0]
+
             log.info(f'took: {time.time() - start_time} to scatter prompts')
             print(f"{len(batch['prompt'])=}")
             print(f"{batch['prompt'][0].shape=}")
