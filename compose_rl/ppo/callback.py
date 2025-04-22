@@ -371,12 +371,18 @@ class PPOCallback(CallbackWithConfig):
         if self.num_batches_per_update % self.generations_per_prompt != 0:
             error_msg = f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}'
             raise ValueError(error_msg)
-        effective_gen_minibatches = (
-            self.num_batches_per_update // self.generations_per_prompt
-        ) * self.device_train_batch_size
-        if effective_gen_minibatches % self.device_generate_batch_size != 0:
-            error_msg = f'For {self.num_batches_per_update=}, {self.generations_per_prompt=} and {self.device_train_batch_size=}, {effective_gen_minibatches=} must be divisible by {self.device_generate_batch_size=}'
+        if self.num_batches_per_update * self.device_train_batch_size % self.device_generate_batch_size != 0:
+            error_msg = f'{self.num_batches_per_update=} * {self.device_train_batch_size=} must be divisible by {self.device_generate_batch_size=}'
             raise ValueError(error_msg)
+        if self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size <= 0:
+            error_msg = f'{self.num_batches_per_update=} * {self.device_train_batch_size=} // {self.device_generate_batch_size=} must be greater than 0'
+            raise ValueError(error_msg)
+        # effective_gen_minibatches = (
+        #     self.num_batches_per_update // self.generations_per_prompt
+        # ) * self.device_train_batch_size
+        # if effective_gen_minibatches % self.device_generate_batch_size != 0:
+        #     error_msg = f'For {self.num_batches_per_update=}, {self.generations_per_prompt=} and {self.device_train_batch_size=}, {effective_gen_minibatches=} must be divisible by {self.device_generate_batch_size=}'
+        #     raise ValueError(error_msg)
         self.epochs_per_iteration = ensure_time(
             var_config.get('epoch_per_iteration', 1),
             TimeUnit.EPOCH,
@@ -566,9 +572,11 @@ class PPOCallback(CallbackWithConfig):
 
     def _get_next_iter_prompts(self):
         """Gets the next iteration's batch of prompts."""
+
+        n_unique_batches = self.num_batches_per_update // self.generations_per_prompt
         batches = [
             self._get_single_batch_prompts()
-            for _ in range(self.num_batches_per_update)
+            for _ in range(n_unique_batches)
         ]
 
         ret_batch = {}
@@ -581,30 +589,32 @@ class PPOCallback(CallbackWithConfig):
 
             padding_key = None
             for batch in batches:
-                # For keys that do not require additional processing
-                if key in ['prompt_len', 'verified_answer', 'prompt_id']:
-                    curr_values.append(batch[key])
-                    continue
-                
-                print(f"In _get_next_iter_prompts {key=} {batch[key].shape=}")
-                bs, seq_len = batch[key].shape
+                # Explode the batch into multiple batches for each generation
+                for _ in range(self.generations_per_prompt):
+                    # For keys that do not require additional processing
+                    if key in ['prompt_len', 'verified_answer', 'prompt_id']:
+                        curr_values.append(batch[key])
+                        continue
+                    
+                    print(f"In _get_next_iter_prompts {key=} {batch[key].shape=}")
+                    bs, seq_len = batch[key].shape
 
-                if key == 'prompt':
-                    padding_key = self.pad_token_idx
-                    if (batch[key][:, -1] == padding_key).any():
-                        raise ValueError(
-                            'The last token in the prompt should not be the pad token. Please double '
-                            + 'check the dataloader and prompt and dataloader.',
-                        )
-                elif key == 'prompt_attention_mask':
-                    padding_key = False
+                    if key == 'prompt':
+                        padding_key = self.pad_token_idx
+                        if (batch[key][:, -1] == padding_key).any():
+                            raise ValueError(
+                                'The last token in the prompt should not be the pad token. Please double '
+                                + 'check the dataloader and prompt and dataloader.',
+                            )
+                    elif key == 'prompt_attention_mask':
+                        padding_key = False
 
-                # Compute the required padding and concatenate with the batch tensor
-                pad = torch.ones(
-                    (bs, max_len - seq_len),
-                    dtype=batch[key].dtype,
-                ) * padding_key  # type: ignore
-                curr_values.append(torch.cat([pad, batch[key]], dim=-1))
+                    # Compute the required padding and concatenate with the batch tensor
+                    pad = torch.ones(
+                        (bs, max_len - seq_len),
+                        dtype=batch[key].dtype,
+                    ) * padding_key  # type: ignore
+                    curr_values.append(torch.cat([pad, batch[key]], dim=-1))
 
             # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
             if isinstance(curr_values[0], torch.Tensor):
@@ -620,7 +630,11 @@ class PPOCallback(CallbackWithConfig):
         return ret_batch
 
     def _get_single_batch_prompts(self):
-        """Gets a single batch of prompts from the dataloader."""
+        """Gets a single batch of prompts from the dataloader.
+        
+        This batch will be distributed data parallel across the training gpus.
+        Each gpu will get `global_train_batch_size / (num_train_nodes * 8)` prompts.
+        """
         try:
             return next(self.train_prompt_loader_iter)
         except StopIteration:
@@ -916,12 +930,13 @@ class PPOCallback(CallbackWithConfig):
         
         
         
+
+    
+        print(f"{self.device_train_batch_size=}")
         # Determine the number of generating calls we want to make
         # We can have the generate size be greater than the device train microbatch size
         # Total num_gen_minibatches will be scaled down by generations_per_prompt
-        num_gen_minibatches = (
-            self.num_batches_per_update // self.generations_per_prompt
-        ) * self.device_train_batch_size // self.device_generate_batch_size
+        num_gen_minibatches = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
 
         gen_batch_partial_outputs = []
         exploded_batch = []
@@ -932,31 +947,31 @@ class PPOCallback(CallbackWithConfig):
                 idx=i,
                 minibatch_size=self.device_generate_batch_size,
             )
-            for _ in range(self.generations_per_prompt):
-                env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_generate(
-                    actor_critic=self.actor_critic,  # pyright: ignore
-                    vllm_engines=self.vllm_engines,
-                    reward_manager=self.reward_manager,
-                    batch=gen_batch,
-                    max_gen_len=self.max_gen_len,
-                    precision=self.precision,
-                    device_train_microbatch_size=self.
-                    device_train_microbatch_size,
-                    generation_kwargs=self.generation_kwargs,
-                    tokenizer=self.tokenizer,  # type: ignore
-                    eos_token_ids=self.eos_token_ids,  # type: ignore
-                )
+            env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_generate(
+                actor_critic=self.actor_critic,  # pyright: ignore
+                vllm_engines=self.vllm_engines,
+                reward_manager=self.reward_manager,
+                batch=gen_batch,
+                max_gen_len=self.max_gen_len,
+                precision=self.precision,
+                device_train_microbatch_size=self.
+                device_train_microbatch_size,
+                generation_kwargs=self.generation_kwargs,
+                tokenizer=self.tokenizer,  # type: ignore
+                eos_token_ids=self.eos_token_ids,  # type: ignore
+            )
 
-                self.prompts_and_gens.extend(prompts_and_gens)
+            self.prompts_and_gens.extend(prompts_and_gens)
 
-                gen_batch_partial_outputs.append(
-                    (env_outputs, ref_outputs, all_rewards_dict),
-                )
-                # Add gen_batch self.generations_per_prompt times to the exploded batch
-                gen_batch_clone = gen_batch.copy()
-                exploded_batch.append(gen_batch_clone)
+            gen_batch_partial_outputs.append(
+                (env_outputs, ref_outputs, all_rewards_dict),
+            )
+            # Add gen_batch self.generations_per_prompt times to the exploded batch
+            # gen_batch_clone = gen_batch.copy()
+            # exploded_batch.append(gen_batch_clone)
         # Concatenate all mini batches together
-        exploded_batch = self._merge_minibatches(exploded_batch)
+        # exploded_batch = self._merge_minibatches(exploded_batch)
+        exploded_batch = batch
 
         # For every partial output we want to resolve them together
         # And compute the global per iteration batch advantage's mean and variance
@@ -965,7 +980,6 @@ class PPOCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
-        # TODO: Consider if we should shuffle the resolved_outputs here or not
         # We need to split the resolved outputs into minibatches
         for idx in range(self.iter_batch_size // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
