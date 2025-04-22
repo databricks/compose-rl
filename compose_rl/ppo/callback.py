@@ -131,16 +131,20 @@ def env_generate(
             prompt_dtype = prompt_tokens.dtype
 
             start_gen_time = time.time()
-
-            sequences = generate(
-                actor_critic,
-                vllm_engines,
-                max_gen_len,
-                batch,
-                pad_token_id, # type: ignore
-                tokenizer,
-                generation_kwargs,
-            )
+            
+            if 'sequences' in batch:
+                print(f"############################ SKIPPING LOCAL GENERATIONS!!! pulling from {batch['sequences'].shape=}")
+                sequences = batch['sequences']
+            else:
+                sequences = generate(
+                    actor_critic,
+                    vllm_engines,
+                    max_gen_len,
+                    batch,
+                    pad_token_id, # type: ignore
+                    tokenizer,
+                    generation_kwargs,
+                )
 
             num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
 
@@ -906,7 +910,8 @@ class PPOCallback(CallbackWithConfig):
             sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
             print(f"{sequences.shape=}")
             print(f"{batch.keys()=}")
-            exit(1)
+            # Add the prepared sequences to the batch again
+            batch['sequences'] = sequences
         
         
         
