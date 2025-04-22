@@ -652,8 +652,12 @@ class PPOCallback(CallbackWithConfig):
             eos_token_ids=self.eos_token_ids
             batch_size = batch['prompt'].shape[0]
             prompt_all_gather_start_time = time.time()
+
+            print(f"{prompt_tokens.shape=}")
             all_batched_prompts = dist.all_gather_object(prompt_tokens)
             batch_sizes = [len(batch) for batch in all_batched_prompts]
+            print(f"{len(all_batched_prompts)=}")
+            print(f"{batch_sizes=}")
 
             log.info(
                 f'took : {time.time() - prompt_all_gather_start_time} to gather prompts',
@@ -661,14 +665,12 @@ class PPOCallback(CallbackWithConfig):
             all_prompts = [
                 prompt for batch in all_batched_prompts for prompt in batch
             ]
+            print(f"{len(all_prompts)=}")
 
             if dist.get_global_rank() == 0:
                 # TEMP: Resetting prompt_tokens as batched
-                print(f"{len(all_prompts)=}")
-                print(f"{prompt_tokens.shape=}")
-                prompt_tokens = torch.cat(all_prompts)
-                print(f"{prompt_tokens.shape=}")
-                breakpoint()
+                # prompt_tokens = torch.cat(all_prompts)
+                # print(f"{prompt_tokens.shape=}")
                 futs = []
                 sampling_params = {
                     'temperature': generation_kwargs.get('temperature', 1.0),
