@@ -721,9 +721,11 @@ class PPOCallback(CallbackWithConfig):
                         ])
 
                     log.info(f'took: {time.time() - start_time} to gather futures')
+                    print(f"{len(all_responses)=}")
                     max_vllm_generated_len = max([
                         len(response) for response in all_responses  # type: ignore
                     ])
+                    print(f"{max_vllm_generated_len=}")
                     padded_responses = []
                     for sequence in all_responses:  # type: ignore
                         sequence = list(sequence)
@@ -733,11 +735,14 @@ class PPOCallback(CallbackWithConfig):
                             ] * (max_vllm_generated_len - len(sequence))
 
                         padded_responses.append(sequence)
+                    print(f"{len(padded_responses)=}")
                     padded_responses = torch.tensor(
                         padded_responses,
                         dtype=prompt_tokens.dtype,
                         device=cur_device,
                     )
+                    print(f"{padded_responses.shape=}")
+                    print(f"{prompt_tokens.shape=}")
                     sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
 
                 
@@ -826,7 +831,7 @@ class PPOCallback(CallbackWithConfig):
 
                 print(f"{len(prompts_and_gens)=}")
                 print(f"{len(all_prompts)=}")
-                breakpoint()
+                exit(-1)
             else:
                 # Remove the memory from all gather as they are only used for the first rank
                 all_batched_prompts = None
