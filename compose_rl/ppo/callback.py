@@ -912,8 +912,7 @@ class PPOCallback(CallbackWithConfig):
             print(f"{batch.keys()=}")
             # Add the prepared sequences to the batch again
             batch['sequences'] = sequences
-        
-        
+            exit(-1)
         
         
         
