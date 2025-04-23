@@ -304,6 +304,8 @@ def grpo_loss(
     outputs: MutableMapping,
     batch: MutableMapping,
     policy_clip_ratio: float,
+    policy_clip_high_ratio: float | None = None,
+    length_normalize_policy_loss: bool = True,
     add_direct_kl_loss: bool = False,
 ) -> tuple[MutableMapping, torch.Tensor]:
     """Compute the GRPO loss.
@@ -312,6 +314,11 @@ def grpo_loss(
         outputs (MutableMapping): The outputs from the forward pass.
         batch (MutableMapping): The batch to compute the loss over.
         policy_clip_ratio (float): The policy clip ratio.
+        policy_clip_high_ratio (float | None): The policy clip high ratio. 
+            If None, then the policy clip high ratio is set to the policy clip ratio.
+            Borrowed from DAPO paper: https://arxiv.org/abs/2503.14476
+        length_normalize_policy_loss (bool): Whether to normalize the policy loss by the length of the sequence.
+            Default: ``True`` following the GRPO paper.
         add_direct_kl_loss (bool): Whether to add the KL loss directly to the loss. Default: ``False``.
     """
     # advantages: [bs]
@@ -343,12 +350,14 @@ def grpo_loss(
     # print(f"Inside GRPO loss, {advantages.shape=}") # advantage is [device_train_batch_size]
 
     policy_loss_1 = -advantages * ratio
+    if policy_clip_high_ratio is None:
+        policy_clip_high_ratio = policy_clip_ratio
+
     policy_loss_2 = -advantages * torch.clamp(
         ratio,
         1 - policy_clip_ratio,
-        1 + policy_clip_ratio,
+        1 + policy_clip_high_ratio,
     )
-
 
     policy_loss = torch.max(policy_loss_1, policy_loss_2)
     policy_clip_frac = utils.masked_mean(
@@ -356,9 +365,15 @@ def grpo_loss(
         batch['action_mask'],
     )
 
-    # print(f"Inside GRPO loss, {policy_loss.shape=} {policy_loss=}")
-    policy_loss = utils.masked_mean(policy_loss, batch['action_mask'])
-    # print(f"Inside GRPO loss, after masked mean, {policy_loss.shape=} {policy_loss=}")
+    print(f"Inside GRPO loss, {policy_loss.shape=} {policy_loss=}")
+    if length_normalize_policy_loss:
+        mean_policy_loss = utils.masked_mean(policy_loss, batch['action_mask'])
+        print(f"Inside GRPO loss, after masked mean, {mean_policy_loss.shape=} {mean_policy_loss=}")
+        policy_loss = mean_policy_loss
+    else:
+        sum_policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
+        print(f"AHAHAHAHAHAHHAHAHHAHAHHAHAHHAHGAHAH: Inside GRPO loss, after masked sum, {sum_policy_loss.shape=} {sum_policy_loss=}")
+        policy_loss = sum_policy_loss
 
 
     return_dict = {

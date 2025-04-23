@@ -72,6 +72,9 @@ class HFPolicyConfig(PretrainedConfig):
         target_kl: float = 0.1,
         policy_clip_ratio: float = 0.15,
         compute_kl_loss: bool = True,
+        advantage_normalization: bool = True, # Default is true to fall back to GRPO
+        length_normalize_policy_loss: bool = True, # Default is true to fall back to GRPO
+        policy_clip_high_ratio: float | None = None,
         **kwargs: Any,
     ):
         """Config Class for HFPolicy."""
@@ -106,3 +109,7 @@ class HFPolicyConfig(PretrainedConfig):
         self.target_kl = target_kl
         self.policy_clip_ratio = policy_clip_ratio
         self.compute_kl_loss = compute_kl_loss
+        # Additional GRPO config overrides
+        self.advantage_normalization = advantage_normalization
+        self.length_normalize_policy_loss = length_normalize_policy_loss
+        self.policy_clip_high_ratio = policy_clip_high_ratio

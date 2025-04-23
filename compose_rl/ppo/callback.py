@@ -212,6 +212,7 @@ def env_generate(
                 pad_token=pad_token_id,  # type: ignore
             )
 
+            # Add prompt id and reward info here for extra tracking
             untokenized_prompt_and_responses = []
             for i in range(batch_size):
                 prompt = tokenizer.decode(  # type: ignore
@@ -304,6 +305,20 @@ def env_generate(
                 device_train_microbatch_size=device_train_microbatch_size,
                 verified_answers=verified_answers,
             )
+            # print(f"{type(all_rewards)=}")
+            # untokenized_prompt_response_and_rewards = []
+            # # Will keep track of prompt_id, prompt, response, and rewards for the batch
+            # for i in range(batch_size):
+            #     prompt, generated_text = untokenized_prompt_and_responses[i]
+            #     print(f"{i=} {prompt_id.shape=} {prompt_id[i]=}")
+            #     breakpoint()
+            #     cur_prompt_id = prompt_id[i]
+            #     rewards = [
+            #         reward[i].item() for reward in all_rewards.values()
+            #     ]
+            #     untokenized_prompt_response_and_rewards.append(
+            #         (prompt, generated_text, rewards),
+            #     )
 
     return (
         partial_env_output,
@@ -333,6 +348,9 @@ class PPOCallback(CallbackWithConfig):
         self.gamma = var_config.get('gamma', 1.0)
         # Value used in the generalized advantage estimate calculation.
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
+        # Get the Loss specific config.
+        # self.advantage_normalization = var_config.get('advantage_normalization', True) # Defaults to GRPO behavior
+        # self.length_normalize_policy_loss = var_config.get('length_normalize_policy_loss', True) # Defaults to GRPO behavior
 
         # Generation keyword arguments.
         self.generation_kwargs = var_config.get('generation_kwargs')
@@ -399,6 +417,7 @@ class PPOCallback(CallbackWithConfig):
         self.wandb_logger = None
         self.mlflow_logger = None
         self.prompts_and_gens = []
+        self.prompt_ids_and_rewards = []
         self.iter_num = 0
         self.train_prompt_loader_state_dict = None
         self.train_prompt_loader = None
@@ -1089,6 +1108,16 @@ class PPOCallback(CallbackWithConfig):
 
         for key in outputs[0].keys():
             env_outputs[key] = torch.cat([output[key] for output in outputs])
+        
+        print(f"{env_outputs.keys()=}")
+        # env_outputs.keys()=dict_keys(['prompt_id', 'actions', 'old_log_probs', 'obs', 'generated_len', 'action_mask', 'rewards', 'env_rewards', 'ift_log_probs', 'ift_kl', 'bad_generation_end_reward', 'gsm8k_answer_verifier_reward', 'gsm8k_format_verifier_reward', 'penalize_extra_short_responses_reward', 'right_padded_attn_mask'])
+        print(f"{env_outputs['rewards'].shape=}")
+        print(f"{env_outputs['prompt_id'].shape=}")
+        print(f"{len(self.prompts_and_gens)=}")
+        # Keep track of reward and prompt ids too along with prompts and gens
+        prompt_ids = env_outputs['prompt_id'].detach().cpu().tolist()
+        rewards = env_outputs['rewards'].sum(dim=-1).detach().cpu().tolist()
+        self.prompt_ids_and_rewards.extend(list(zip(prompt_ids, rewards)))
 
         # Now that rewards are resolved, we can compute advantages
         if 'values' in env_outputs:
@@ -1161,7 +1190,10 @@ class PPOCallback(CallbackWithConfig):
             # print(f"{rewards.shape=} {rewards=}")
 
             # Borrowing this logic from TRL: https://github.com/huggingface/trl/blob/c82f626f94a83986fd1b28091fac3a0100b51c68/trl/trainer/grpo_trainer.py#L1057C52-L1057C52
-            grpo_advantage = (rewards - mean_rewards) / (std_rewards + 1e-4)
+            grpo_advantage = (rewards - mean_rewards)
+            # Only normalize the advantage if flag is set
+            if self.actor_critic.config.advantage_normalization:
+                grpo_advantage /= (std_rewards + 1e-4)
             # print(f"{grpo_advantage.shape=} {grpo_advantage=}")
             env_outputs["grpo_rewards"] = rewards
             env_outputs["advantages"] = grpo_advantage
@@ -1203,6 +1235,20 @@ class PPOCallback(CallbackWithConfig):
         prompts_and_gens = list(
             chain(*dist.all_gather_object(self.prompts_and_gens)),
         )
+        prompt_ids_and_rewards = list(
+            chain(*dist.all_gather_object(self.prompt_ids_and_rewards)),
+        )
+        # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation)
+        columns = ['prompt_id', 'reward', 'prompt', 'generation']
+        save_data = [
+            (prompt_id, reward, prompt, generation)
+            for (prompt_id, reward), (prompt, generation) in zip(
+                prompt_ids_and_rewards,
+                prompts_and_gens,
+            )
+        ]
+        # Sort the save_data by reward in descending order
+        save_data = sorted(save_data, key=lambda x: x[1], reverse=True)
 
         if dist.get_global_rank() == 0:
             if self.wandb_logger is not None:
@@ -1214,8 +1260,8 @@ class PPOCallback(CallbackWithConfig):
                 )
 
                 text_table = wandb.Table(
-                    data=prompts_and_gens,
-                    columns=['prompt', 'generation'],
+                    data=save_data,
+                    columns=columns,
                 )
 
                 artifact.add(text_table, 'predictions')
@@ -1225,12 +1271,13 @@ class PPOCallback(CallbackWithConfig):
 
             if self.mlflow_logger is not None:
                 self.mlflow_logger.log_table(
-                    columns=['prompt', 'generations'],
-                    rows=prompts_and_gens,
+                    columns=columns,
+                    rows=save_data,
                     name=f'Prompt_generations_{self.iter_num}',
                 )
 
         self.prompts_and_gens = []
+        self.prompt_ids_and_rewards = []
 
     def _update_ift_kl(self):
         local_kl = torch.stack(self.kl_ift)

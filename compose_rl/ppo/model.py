@@ -207,10 +207,14 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
                 self.compute_kl_loss,  # pyright: ignore
             )
         else:
+            # print(f"OOOOOOOOOOOOOOOOOOOOO  {self.config.policy_clip_ratio=}")
+            # print(f"OOOOOOOOOOOOOOOOOOOOO  {self.config.policy_clip_high_ratio=}")
             return_dict, kl_loss = grpo_loss(
                 outputs,
                 batch,
                 self.config.policy_clip_ratio,
+                self.config.policy_clip_high_ratio,
+                self.config.length_normalize_policy_loss,
                 self.compute_kl_loss,  # pyright: ignore
             )
 

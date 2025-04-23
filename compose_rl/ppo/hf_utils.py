@@ -231,6 +231,10 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
             target_kl=target_kl,
             policy_clip_ratio=policy_clip_ratio,
             compute_kl_loss=compute_kl_loss,
+            # Manully reset the additional params introduced in HFPolicyConfig
+            advantage_normalization=config.advantage_normalization,
+            length_normalize_policy_loss=config.length_normalize_policy_loss,
+            policy_clip_high_ratio=config.policy_clip_high_ratio,
         )
 
         model = cls(policy_config)

@@ -97,9 +97,9 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             additional_eval_metrics=additional_eval_metrics,
             should_save_peft_only=should_save_peft_only,
         )
-        # print(f"&&&&&&&&&&&In HFPolicy init: {self.config.joint_actor_critic=}")
-        # print(f"&&&&&&&&&&&In HFPolicy init: {self.model.config.joint_actor_critic=}")
-        # Fixed now. Getting false for both
+        # print(f"&&&&&&&&&&&In HFPolicy init: {self.config=}")
+        # print(f"&&&&&&&&&&&In HFPolicy init: {self.model.config=}")
+        # # Fixed now. Getting false for both
         # breakpoint()
         self.model.config.pretrained = False  # type: ignore
 
@@ -136,9 +136,10 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             vocab_size=base_config.vocab_size,
             pretrain_cfg=pretrain_cfg,
         )
-
+        # print(f"******************In build config: {config=}")
         set_config_overrides(config, config_overrides)
-        # print(f"******************In build config after set_config_overrides: {config.joint_actor_critic=}")
+        # print(f"******************In build config after set_config_overrides: {config=}")
+        # breakpoint()
 
         return config
 
@@ -176,7 +177,6 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         modules = {
             'base_model': base_model,
             'model_block': model_block,
-            # 'critic_head': critic_head,
             'tied_embeddings': tied_embeddings,
             'lm_head': lm_head,
         }
