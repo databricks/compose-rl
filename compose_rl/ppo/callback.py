@@ -115,10 +115,6 @@ def env_generate(
     batch_size, _ = prompt_tokens.shape
 
     pad_token_id = tokenizer.pad_token_id
-    if pad_token_id in eos_token_ids:
-        log.warning(
-            'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
-        )
 
     if pad_token_id is None:
         raise ValueError(
@@ -426,6 +422,11 @@ class PPOCallback(CallbackWithConfig):
     def init(self, state: State, logger: Logger):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
+
+        if self.pad_token_idx in self.eos_token_ids:
+            log.warning(
+                'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
+            )
 
         # TODO (#158): do this through composer.
         for destination in ensure_tuple(logger.destinations):
