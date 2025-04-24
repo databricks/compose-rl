@@ -117,7 +117,7 @@ def env_generate(
     pad_token_id = tokenizer.pad_token_id
     if pad_token_id in eos_token_ids:
         log.warning(
-            'Pad token id is in eos_token_ids list. Be careful with any data processing going forward!',
+            'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
         )
 
     if pad_token_id is None:
