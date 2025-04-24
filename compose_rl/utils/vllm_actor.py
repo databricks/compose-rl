@@ -31,7 +31,7 @@ except:
 
 log = logging.getLogger(__name__)
 
-
+from composer_rl.utils.vllm_utils import WorkerWrap
 @ray.remote
 class LLMRayActor:
 

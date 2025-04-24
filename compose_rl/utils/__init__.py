@@ -41,6 +41,7 @@ from compose_rl.utils.vllm_utils import (
     broadcast_to_vllm,
     create_vllm_engines,
     init_process_group,
+    WorkerWrap,
 )
 
 __all__ = [
@@ -81,4 +82,5 @@ __all__ = [
     'init_process_group',
     'broadcast_to_vllm',
     'flatten',
+    'WorkerWrap',
 ]
