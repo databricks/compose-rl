@@ -365,14 +365,11 @@ def grpo_loss(
         batch['action_mask'],
     )
 
-    print(f"Inside GRPO loss, {policy_loss.shape=} {policy_loss=}")
     if length_normalize_policy_loss:
         mean_policy_loss = utils.masked_mean(policy_loss, batch['action_mask'])
-        print(f"Inside GRPO loss, after masked mean, {mean_policy_loss.shape=} {mean_policy_loss=}")
         policy_loss = mean_policy_loss
     else:
         sum_policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
-        print(f"AHAHAHAHAHAHHAHAHHAHAHHAHAHHAHGAHAH: Inside GRPO loss, after masked sum, {sum_policy_loss.shape=} {sum_policy_loss=}")
         policy_loss = sum_policy_loss
 
 

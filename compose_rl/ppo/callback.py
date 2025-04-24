@@ -133,7 +133,7 @@ def env_generate(
             start_gen_time = time.time()
             
             if 'sequences' in batch:
-                print(f"############################ SKIPPING LOCAL GENERATIONS!!! pulling from {batch['sequences'].shape=}")
+                # print(f"############################ SKIPPING LOCAL GENERATIONS!!! pulling from {batch['sequences'].shape=}")
                 sequences = batch['sequences']
             else:
                 sequences = generate(
@@ -615,7 +615,7 @@ class PPOCallback(CallbackWithConfig):
                         curr_values.append(batch[key])
                         continue
                     
-                    print(f"In _get_next_iter_prompts {key=} {batch[key].shape=}")
+                    # print(f"In _get_next_iter_prompts {key=} {batch[key].shape=}")
                     bs, seq_len = batch[key].shape
 
                     if key == 'prompt':
@@ -638,7 +638,7 @@ class PPOCallback(CallbackWithConfig):
             # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
             if isinstance(curr_values[0], torch.Tensor):
                 ret_batch[key] = torch.cat(curr_values)
-                print(f"In _get_next_iter_prompts {key=} {ret_batch[key].shape=}")
+                # print(f"In _get_next_iter_prompts {key=} {ret_batch[key].shape=}")
             else:
                 if key == 'verified_answer':
                     ret_batch[key] = list(utils.flatten(curr_values))
@@ -692,11 +692,11 @@ class PPOCallback(CallbackWithConfig):
             batch_size = batch['prompt'].shape[0]
             prompt_all_gather_start_time = time.time()
 
-            print(f"{prompt_tokens.shape=}")
+            # print(f"{prompt_tokens.shape=}")
             all_batched_prompts = dist.all_gather_object(prompt_tokens)
             batch_sizes = [len(batch) for batch in all_batched_prompts]
-            print(f"{len(all_batched_prompts)=}")
-            print(f"{batch_sizes=}")
+            # print(f"{len(all_batched_prompts)=}")
+            # print(f"{batch_sizes=}")
 
             log.info(
                 f'took : {time.time() - prompt_all_gather_start_time} to gather prompts',
@@ -704,7 +704,7 @@ class PPOCallback(CallbackWithConfig):
             all_prompts = [
                 prompt for batch in all_batched_prompts for prompt in batch
             ]
-            print(f"{len(all_prompts)=}")
+            # print(f"{len(all_prompts)=}")
 
             if dist.get_global_rank() == 0:
                 # TEMP: Resetting prompt_tokens as batched
@@ -725,9 +725,9 @@ class PPOCallback(CallbackWithConfig):
                     if token != pad_token_id
                 ]
                             for prompt in all_prompts]
-                print(f"{prompt_tokens.shape=}")
-                print(f"{len(all_prompts)=}")
-                print(f"{[len(prompt) for prompt in all_prompts]=}")
+                # print(f"{prompt_tokens.shape=}")
+                # print(f"{len(all_prompts)=}")
+                # print(f"{[len(prompt) for prompt in all_prompts]=}")
 
 
                 with get_precision_context(precision), torch.no_grad():
@@ -893,10 +893,10 @@ class PPOCallback(CallbackWithConfig):
             
             dist.barrier()
 
-            print(f"After dist barrier")
-            if split_responses is not None:
+            # print(f"After dist barrier")
+            # if split_responses is not None:
                 # Probably only goes here for rank 0
-                print(f"{len(split_responses)=}")
+                # print(f"{len(split_responses)=}")
             # scatter the respective responses to all other ranks
             local_responses = [None]
             start_time = time.time()
@@ -905,23 +905,23 @@ class PPOCallback(CallbackWithConfig):
                 split_responses,
                 src=0,
             )
-            print(f"After scatter")
-            print(f"{len(local_responses)=}")
-            print(f"{type(local_responses[0])=} {len(local_responses[0])=}")
-            print(f"{type(local_responses[0][0])=} {len(local_responses[0][0])=}")
+            # print(f"After scatter")
+            # print(f"{len(local_responses)=}")
+            # print(f"{type(local_responses[0])=} {len(local_responses[0])=}")
+            # print(f"{type(local_responses[0][0])=} {len(local_responses[0][0])=}")
             # Print per local response size
             local_responses = local_responses[0]
-            print(f"{[len(response) for response in local_responses]=}")
+            # print(f"{[len(response) for response in local_responses]=}")
 
             log.info(f'took: {time.time() - start_time} to scatter prompts')
-            print(f"{len(batch['prompt'])=}")
-            print(f"{batch['prompt'][0].shape=}")
+            # print(f"{len(batch['prompt'])=}")
+            # print(f"{batch['prompt'][0].shape=}")
 
 
             max_vllm_generated_len = max([
                 len(response) for response in local_responses  # type: ignore
             ])
-            print(f"{max_vllm_generated_len=}")
+            # print(f"{max_vllm_generated_len=}")
             padded_responses = []
             for sequence in local_responses:  # type: ignore
                 sequence = list(sequence)
@@ -931,18 +931,18 @@ class PPOCallback(CallbackWithConfig):
                     ] * (max_vllm_generated_len - len(sequence))
 
                 padded_responses.append(sequence)
-            print(f"{len(padded_responses)=}")
+            # print(f"{len(padded_responses)=}")
             padded_responses = torch.tensor(
                 padded_responses,
                 dtype=prompt_tokens.dtype,
                 device=cur_device,
             )
-            print(f"Right before constructing seqeunces")
-            print(f"{padded_responses.shape=}")
-            print(f"{prompt_tokens.shape=}")
+            # print(f"Right before constructing seqeunces")
+            # print(f"{padded_responses.shape=}")
+            # print(f"{prompt_tokens.shape=}")
             sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
-            print(f"{sequences.shape=}")
-            print(f"{batch.keys()=}")
+            # print(f"{sequences.shape=}")
+            # print(f"{batch.keys()=}")
             # Add the prepared sequences to the batch again
             batch['sequences'] = sequences
         
@@ -950,7 +950,7 @@ class PPOCallback(CallbackWithConfig):
         
 
     
-        print(f"{self.device_train_batch_size=}")
+        # print(f"{self.device_train_batch_size=}")
         # Determine the number of generating calls we want to make
         # We can have the generate size be greater than the device train microbatch size
         # Total num_gen_minibatches will be scaled down by generations_per_prompt
@@ -1109,11 +1109,11 @@ class PPOCallback(CallbackWithConfig):
         for key in outputs[0].keys():
             env_outputs[key] = torch.cat([output[key] for output in outputs])
         
-        print(f"{env_outputs.keys()=}")
+        # print(f"{env_outputs.keys()=}")
         # env_outputs.keys()=dict_keys(['prompt_id', 'actions', 'old_log_probs', 'obs', 'generated_len', 'action_mask', 'rewards', 'env_rewards', 'ift_log_probs', 'ift_kl', 'bad_generation_end_reward', 'gsm8k_answer_verifier_reward', 'gsm8k_format_verifier_reward', 'penalize_extra_short_responses_reward', 'right_padded_attn_mask'])
-        print(f"{env_outputs['rewards'].shape=}")
-        print(f"{env_outputs['prompt_id'].shape=}")
-        print(f"{len(self.prompts_and_gens)=}")
+        # print(f"{env_outputs['rewards'].shape=}")
+        # print(f"{env_outputs['prompt_id'].shape=}")
+        # print(f"{len(self.prompts_and_gens)=}")
         # Keep track of reward and prompt ids too along with prompts and gens
         prompt_ids = env_outputs['prompt_id'].detach().cpu().tolist()
         rewards = env_outputs['rewards'].sum(dim=-1).detach().cpu().tolist()
