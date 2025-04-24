@@ -31,7 +31,6 @@ except:
 
 log = logging.getLogger(__name__)
 
-from composer_rl.utils.vllm_utils import WorkerWrap
 @ray.remote
 class LLMRayActor:
 
@@ -46,6 +45,7 @@ class LLMRayActor:
 
         # See https://github.com/vllm-project/vllm/blob/main/vllm/executor/gpu_executor.py
         if self.use_gpu_executor:
+            from .vllm_utils import WorkerWrap
             vllm.worker.worker.Worker = WorkerWrap  # type: ignore
         else:
 
