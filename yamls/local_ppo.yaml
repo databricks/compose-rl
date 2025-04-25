@@ -48,6 +48,7 @@ variables:
 
   epoch_per_iteration: 1
   num_batches_per_update: 8
+  generations_per_prompt: 4
 
   max_gen_len: 32
 
