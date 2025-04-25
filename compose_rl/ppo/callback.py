@@ -135,15 +135,20 @@ def env_generate(
 
             start_gen_time = time.time()
 
-            sequences = generate(
-                actor_critic,
-                vllm_engines,
-                max_gen_len,
-                batch,
-                pad_token_id, # type: ignore
-                tokenizer,
-                generation_kwargs,
-            )
+            if 'sequences' in batch:
+                # If we have sequences in the batch, we can use them directly
+                sequences = batch['sequences']
+            else:
+                # Otherwise, we need to run generate
+                sequences = generate(
+                    actor_critic,
+                    vllm_engines,
+                    max_gen_len,
+                    batch,
+                    pad_token_id, # type: ignore
+                    tokenizer,
+                    generation_kwargs,
+                )
 
             num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
 
@@ -648,6 +653,153 @@ class PPOCallback(CallbackWithConfig):
         Args:
             batch (dict): the iteration level batch we want to interact with the environment.
         """
+        # If vllm engines are available
+        # 1. Gather all prompts from all ranks
+        # 2. Run generate over all prompts in one go
+        # 3. Scatter the generated responses back to the correct rank
+        # 4. Save the tokenized sequences in the batch for future use
+        vllm_engines=self.vllm_engines
+        if vllm_engines is not None:
+            # Pull the necessary variables from the batch and self
+            cur_device = batch['prompt'].device
+            prompt_tokens = batch['prompt']
+
+            precision = self.precision
+            generation_kwargs = self.generation_kwargs
+            max_gen_len = self.max_gen_len
+            tokenizer = self.tokenizer
+            pad_token_id = tokenizer.pad_token_id
+
+            prompt_all_gather_start_time = time.time()
+
+            all_batched_prompts = dist.all_gather_object(prompt_tokens)
+            batch_sizes = [len(batch) for batch in all_batched_prompts]
+
+            log.info(
+                f'took : {time.time() - prompt_all_gather_start_time} to gather prompts',
+            )
+            all_prompts = [
+                prompt for batch in all_batched_prompts for prompt in batch
+            ]
+
+            if dist.get_global_rank() == 0:
+                futs = []
+                sampling_params = {
+                    'temperature': generation_kwargs.get('temperature', 1.0),
+                    'top_p': generation_kwargs.get('top_p', 1.0),
+                    'top_k': generation_kwargs.get('top_k', 50),
+                    'max_tokens': max_gen_len,
+                }
+
+                # We have to remove all pad tokens here
+                all_prompts = [[
+                    token
+                    for token in prompt.detach().cpu().tolist()
+                    if token != pad_token_id
+                ]
+                            for prompt in all_prompts]
+
+
+                with get_precision_context(precision), torch.no_grad():
+                    # Generate with vllm
+                    # Calculate the base batch size
+                    vllm_batch_size = len(all_prompts) // len(vllm_engines)
+                    # Calculate the remainder (prompts that don't fit evenly)
+                    remainder = len(all_prompts) % len(vllm_engines)
+
+                    start_idx = 0
+                    for i, engine in enumerate(vllm_engines):
+                        # Assign one extra prompt to the first 'remainder' engines
+                        if i < remainder:
+                            end_idx = start_idx + vllm_batch_size + 1
+                        else:
+                            end_idx = start_idx + vllm_batch_size
+
+                        cur_prompts_ids = all_prompts[start_idx:end_idx]
+                        cur_prompts = [
+                            tokenizer.decode(prompt) for prompt in cur_prompts_ids
+                        ]
+
+                        futs.append(
+                            engine.generate.remote(
+                                cur_prompts,
+                                sampling_params=sampling_params,
+                            ),
+                        )
+
+                        # Update the start index for the next iteration
+                        start_idx = end_idx
+
+                    start_time = time.time()
+                    results = ray.get(futs)
+                    all_responses = []
+
+                    # Get all of the ray futures
+                    for i, result in enumerate(results):
+                        # Each result is a list of responses this assumes one output per input
+                        all_responses.extend([
+                            resp.outputs[0].token_ids for resp in result
+                        ])
+
+                    log.info(f'took: {time.time() - start_time} to gather futures')
+
+                    # Distribute padded responses back to the correct device
+                    split_responses = []
+                    start = 0
+                    for size in batch_sizes:
+                        split_responses.append(all_responses[start:start + size])
+                        start += size
+            else:
+                # Remove the memory from all gather as they are only used for the first rank
+                all_batched_prompts = None
+                all_prompts = None
+                split_responses = None
+
+            # Do another garbage collection and empty the cache
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            dist.barrier()
+            
+            # Scatter the generated responses back to the correct rank
+            local_responses = [None]
+            start_time = time.time()
+            torch.distributed.scatter_object_list(
+                local_responses,
+                split_responses,
+                src=0,
+            )
+            local_responses = local_responses[0]
+
+            log.info(f'took: {time.time() - start_time} to scatter prompts')
+
+            # Pad the responses to the maximum length
+            max_vllm_generated_len = max([
+                len(response) for response in local_responses  # type: ignore
+            ])
+            padded_responses = []
+            for sequence in local_responses:  # type: ignore
+                sequence = list(sequence)
+                if len(sequence) < max_vllm_generated_len:
+                    sequence = sequence + [
+                        pad_token_id,
+                    ] * (max_vllm_generated_len - len(sequence))
+
+                padded_responses.append(sequence)
+
+            # Convert the padded responses to a tensor
+            padded_responses = torch.tensor(
+                padded_responses,
+                dtype=prompt_tokens.dtype,
+                device=cur_device,
+            )
+
+            # Construct full sequences from the prompt and padded responses
+            sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
+            # Add the prepared sequences to the batch again
+            batch['sequences'] = sequences
+
         # Determine the number of generating calls we want to make
         # We can have the generate size be greater than the device train microbatch size
         num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
