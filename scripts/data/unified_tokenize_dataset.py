@@ -45,6 +45,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         dataset_type: Literal['preference', 'single_prompt',
                               'verifiable_answers'],
         subset: str | None = None,
+        token: str | None = None,
     ):
         self.tokenizer = tokenizer
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
@@ -63,6 +64,7 @@ class UnifiedTokenizedDataset(IterableDataset):
             name=subset,
             split=split,
             streaming=True,
+            token=token,
         )
 
     def __iter__(self) -> Iterator[dict[str, bytes]]:
@@ -248,6 +250,7 @@ def main(
     dataset_type: Literal['preference', 'single_prompt', 'verifiable_answers'],
     max_length: int = 2048,
     subset: str | None = None,
+    token: str | None = None,
 ):
     columns = {
         'preference': {
@@ -269,6 +272,7 @@ def main(
 
     tokenizer = AutoTokenizer.from_pretrained(
         tokenizer_name,
+        token=token,
         trust_remote_code=True,
     )
     tokenizer.model_max_length = int(1e30)
@@ -290,6 +294,7 @@ def main(
                 tokenizer=tokenizer,
                 dataset_type=dataset_type,
                 subset=subset,
+                token=token,
             )
 
             log.info('Converting to MDS format')
@@ -345,6 +350,7 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
+    hf_token = os.environ.get('HF_TOKEN')
 
     main(
         dataset_name=args.dataset_name,
@@ -356,4 +362,5 @@ if __name__ == '__main__':
         dataset_type=args.dataset_type,
         max_length=args.max_length,
         subset=args.subset,
+        token=hf_token,
     )
