@@ -555,12 +555,10 @@ class PPOCallback(CallbackWithConfig):
 
     def _get_next_iter_prompts(self):
         """Gets the next iteration's batch of prompts."""
-
         # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
         n_unique_batches = self.num_batches_per_update // self.generations_per_prompt
         batches = [
-            self._get_single_batch_prompts()
-            for _ in range(n_unique_batches)
+            self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
 
         ret_batch = {}
@@ -587,7 +585,8 @@ class PPOCallback(CallbackWithConfig):
                         if (batch[key][:, -1] == padding_key).any():
                             raise ValueError(
                                 'The last token in the prompt should not be the pad token. Please double '
-                                + 'check the dataloader and prompt and dataloader.',
+                                +
+                                'check the dataloader and prompt and dataloader.',
                             )
                     elif key == 'prompt_attention_mask':
                         padding_key = False
@@ -651,8 +650,7 @@ class PPOCallback(CallbackWithConfig):
                 batch=gen_batch,
                 max_gen_len=self.max_gen_len,
                 precision=self.precision,
-                device_train_microbatch_size=self.
-                device_train_microbatch_size,
+                device_train_microbatch_size=self.device_train_microbatch_size,
                 generation_kwargs=self.generation_kwargs,
                 tokenizer=self.tokenizer,  # type: ignore
                 eos_token_ids=self.eos_token_ids,  # type: ignore
