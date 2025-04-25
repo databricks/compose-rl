@@ -49,7 +49,8 @@ Below is the set of commands to run to prepare datasets into the appropriate Mos
 
 Below is the command to prepare preference data -- which can be used for reward model or offline RL (e.g. DPO) training:
 
-```
+<!--pytest.mark.skip-->
+```bash
 cd scripts
 python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_binarized_cleaned \
 --local_dir pref_data \
@@ -60,7 +61,8 @@ python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_bin
 
 Below is the command to prepare prompt data -- which can be used for online RL (e.g. PPO) training:
 
-```
+<!--pytest.mark.skip-->
+```bash
 cd scripts
 python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_binarized_cleaned \
 --local_dir prompt_data \
@@ -68,6 +70,25 @@ python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_bin
 --tokenizer_name meta-llama/Llama-3.1-8B-Instruct \
 --split train_prefs
 ```
+
+To further enable online RL with [verifiable rewards](https://arxiv.org/abs/2411.15124) you can use the following command:
+
+<!--pytest.mark.skip-->
+```bash
+cd scripts
+python data/unified_tokenize_dataset.py --dataset_name <hf_dataset_name> \
+--local_dir verifiable_data \
+--dataset_type verifiable_answers \
+--tokenizer_name meta-llama/Llama-3.1-8B-Instruct \
+--split train \
+```
+
+We currently support the following two HuggingFace datasets for verifiable rewards:
+
+- GMS8k: `openai/gsm8k`
+- MATH: `DigitalLearningGmbH/MATH-lighteval`
+
+The data preparation scripts also supports additional arguments for specifying the subset of the HuggingFace dataset `--subset <str>` and max sequence length `--max_length <int>`
 
 ### Model training
 
