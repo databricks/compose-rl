@@ -76,9 +76,11 @@ class HFPolicyConfig(PretrainedConfig):
     ):
         """Config Class for HFPolicy."""
         if not joint_actor_critic:
-            raise ValueError(
-                'We only support joint actor-critic right now. Please set joint_actor_critic=`True`.',
-            )
+            print(f"^^^^^^^^^^^^^^^^ In HFPolicyConfig init: {joint_actor_critic=}")
+            print(f"Experimenting with joint_actor_critic=False")
+            # raise ValueError(
+            #     'We only support joint actor-critic right now. Please set joint_actor_critic=`True`.',
+            # )
         super().__init__(**kwargs)
 
         self.base_model = base_model

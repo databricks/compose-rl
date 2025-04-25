@@ -74,9 +74,13 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         additional_eval_metrics: Optional[list] = None,
         should_save_peft_only: bool = False,
     ):
+        # Change the model_cls if config_overrides provides joint_actor_critic False
+        # if not config_overrides['joint_actor_critic']:
+        #     self.model_cls = AutoModelFor
+        # Second entrypoint
         super().__init__(
             pretrained_model_name_or_path,
-            tokenizer=tokenizer,
+            # tokenizer=tokenizer,
             pretrained=pretrained,
             pretrained_lora_id_or_path=pretrained_lora_id_or_path,
             trust_remote_code=trust_remote_code,
@@ -93,6 +97,10 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             additional_eval_metrics=additional_eval_metrics,
             should_save_peft_only=should_save_peft_only,
         )
+        # print(f"&&&&&&&&&&&In HFPolicy init: {self.config.joint_actor_critic=}")
+        # print(f"&&&&&&&&&&&In HFPolicy init: {self.model.config.joint_actor_critic=}")
+        # Fixed now. Getting false for both
+        # breakpoint()
         self.model.config.pretrained = False  # type: ignore
 
     @classmethod
@@ -119,7 +127,8 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             'trust_remote_code': trust_remote_code,
             'token': use_auth_token,
         }
-
+        # print(f"******************In build config: {base_config=}")
+        # print(f"******************In build config: {config_overrides['joint_actor_critic']=}")
         config = HFPolicyConfig(
             base_model=pretrained_model_name_or_path,
             base_config=base_config,
@@ -129,6 +138,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         )
 
         set_config_overrides(config, config_overrides)
+        # print(f"******************In build config after set_config_overrides: {config.joint_actor_critic=}")
 
         return config
 
@@ -153,7 +163,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             base_model = model.lm_backbone.transformer  # type: ignore
 
         model_block = hf_get_hidden_layers(base_model)  # type: ignore
-        critic_head = model.critic_head
+        
         lm_head = model.lm_backbone.get_output_embeddings()  # type: ignore
 
         # Try to get input embeddings from the transformer backbone
@@ -166,10 +176,13 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         modules = {
             'base_model': base_model,
             'model_block': model_block,
-            'critic_head': critic_head,
+            # 'critic_head': critic_head,
             'tied_embeddings': tied_embeddings,
             'lm_head': lm_head,
         }
+        if hasattr(model, 'critic_head'):
+            critic_head = model.critic_head
+            modules['critic_head'] = critic_head
 
         for mod_name, module in modules.items():
             if module is None:

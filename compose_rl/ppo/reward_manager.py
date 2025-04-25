@@ -86,6 +86,7 @@ class RewardManager:
         ref_model_config: dict[str,
                                Any] = self.ref_config.get('model_config', None)
 
+        # NOTE: this also goes via hf_base.py but as `LlamaForCausalLM` instead
         self.reference_model = self.initialize_composer_model(
             model_config=ref_model_config,
             model_name='reference',
