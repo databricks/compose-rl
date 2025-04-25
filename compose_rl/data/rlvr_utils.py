@@ -7,6 +7,7 @@ import signal
 import types
 from typing import Any
 
+import re
 import sympy
 from sympy.parsing.latex import parse_latex
 
@@ -250,3 +251,13 @@ def prepare_math_prompt(sample: Any) -> str:
     _instruction = " Let's think step by step and output the final answer within \\boxed{}."
     final_prompt = f'Question: {prompt} ' + _instruction
     return final_prompt
+
+def get_messages_from_llama3_chat_template_prompt(text: str) -> list[dict[str, str]]:
+    messages = []
+    # Regular expression to match the role and content
+    pattern = re.compile(r"<\|start_header_id\|>(.*?)<\|end_header_id\|>\n(.*?)<\|eot_id\|>", re.DOTALL)
+    for match in pattern.finditer(text):
+        role = match.group(1).strip()
+        content = match.group(2).strip()
+        messages.append({"role": role, "content": content})
+    return messages

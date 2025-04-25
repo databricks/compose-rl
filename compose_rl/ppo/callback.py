@@ -52,6 +52,9 @@ from compose_rl.utils import (
     masked_mean,
     switch_left_to_right_padding,
 )
+from compose_rl.data.rlvr_utils import (
+    get_messages_from_llama3_chat_template_prompt,
+)
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 Policy = Union[ComposerHFPolicyModel, ComposerMosaicPolicy]
@@ -348,9 +351,8 @@ class PPOCallback(CallbackWithConfig):
         self.gamma = var_config.get('gamma', 1.0)
         # Value used in the generalized advantage estimate calculation.
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
-        # Get the Loss specific config.
-        # self.advantage_normalization = var_config.get('advantage_normalization', True) # Defaults to GRPO behavior
-        # self.length_normalize_policy_loss = var_config.get('length_normalize_policy_loss', True) # Defaults to GRPO behavior
+        # Get the system prompt if given
+        self.system_prompt = var_config.get('system_prompt', None)
 
         # Generation keyword arguments.
         self.generation_kwargs = var_config.get('generation_kwargs')
@@ -677,7 +679,6 @@ class PPOCallback(CallbackWithConfig):
         # HACKY Experimental code
         vllm_engines=self.vllm_engines
         if vllm_engines is not None:
-            pass
             # Want to move the prompts_and_gens to a seperate inference call if vllm_engines is not None
             cur_device = batch['prompt'].device
             prompt_tokens = batch['prompt']
@@ -746,10 +747,21 @@ class PPOCallback(CallbackWithConfig):
                         else:
                             end_idx = start_idx + batch_size
 
-                        cur_prompts = all_prompts[start_idx:end_idx]
+                        cur_prompts_ids = all_prompts[start_idx:end_idx]
                         cur_prompts = [
-                            tokenizer.decode(prompt) for prompt in cur_prompts
+                            tokenizer.decode(prompt) for prompt in cur_prompts_ids
                         ]
+                        # Extract the system prompt and inject the one in the yaml
+                        # "<|start_header_id|>user<|end_header_id|>"
+                        if self.system_prompt is not None:
+                            new_prompts = []
+                            for cur_prompt in cur_prompts:
+                                cur_messages = get_messages_from_llama3_chat_template_prompt(cur_prompt)
+                                cur_messages[0]['content'] = self.system_prompt
+                                new_prompt = tokenizer.apply_chat_template(cur_messages, tokenize=False, add_generation_prompt=True)
+                                new_prompts.append(new_prompt)
+                            cur_prompts = new_prompts
+                        
                         futs.append(
                             engine.generate.remote(
                                 cur_prompts,
@@ -779,107 +791,6 @@ class PPOCallback(CallbackWithConfig):
                     for size in batch_sizes:
                         split_responses.append(all_responses[start:start + size])
                         start += size
-
-
-                    # TODO: Continue here!
-
-                    # padded_responses = torch.tensor(
-                    #     padded_responses,
-                    #     dtype=prompt_tokens.dtype,
-                    #     device=cur_device,
-                    # )
-                    # print(f"{padded_responses.shape=}")
-                    # print(f"{prompt_tokens.shape=}")
-                    # sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
-
-                # Re-distribute sequences into batch
-                # print(f"{sequences.shape=}")
-                # breakpoint()
-
-
-                # # Process sequences to get prompt_and_gens
-
-                # num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
-
-                # log.info(
-                #     f'It took {time.time() - start_gen_time} to generate {num_tokens_generated} tokens',
-                # )
-
-                # gc.collect()
-                # if torch.cuda.is_available():
-                #     torch.cuda.empty_cache()
-
-                # generated_len = torch.ones(
-                #     batch_size,
-                #     device=cur_device,
-                #     dtype=prompt_dtype,
-                # ) * max_gen_len
-
-                # # If all the processes early exit generate, then we need to manually pad everything
-                # # we can pad this with pad tokens, since we switch the padding between left and right
-                # # padding based on the sequence length + max_sequence_length.
-                # if prompt_tokens.size(1) + max_gen_len > sequences.size(1):
-                #     len_to_pad = max_gen_len - (
-                #         sequences.size(1) - prompt_tokens.size(1)
-                #     )
-
-                #     extra_padding = torch.ones(
-                #         (batch_size, len_to_pad),
-                #         device=cur_device,
-                #         dtype=prompt_dtype,
-                #     ) * pad_token_id
-                #     sequences = torch.cat(
-                #         [sequences, extra_padding],  # type: ignore
-                #         dim=-1,  # type: ignore
-                #     )
-
-                # # Sanity checking we're adding max_gen_len to prompt_tokens
-                # assert prompt_tokens.size(1) + max_gen_len == sequences.size(1)
-
-                # # Actions are what tokens the current policy would generate.
-                # actions = sequences[:, -max_gen_len:]
-
-                # right_padded_obs = switch_left_to_right_padding(
-                #     sequences,
-                #     prompt_len,
-                #     max_gen_len,
-                #     pad_token_id,  # type: ignore
-                # )
-                # right_padded_attn_mask = torch.logical_not(
-                #     torch.eq(right_padded_obs, pad_token_id),  # type: ignore
-                # )
-
-                # (
-                #     right_padded_obs,
-                #     right_padded_attn_mask,
-                #     generated_len,
-                #     action_mask,
-                # ) = mask_eos(
-                #     actions=actions,
-                #     right_padded_obs=right_padded_obs,
-                #     right_padded_attn_mask=right_padded_attn_mask,
-                #     prompt_len=prompt_len,
-                #     generated_len=generated_len,
-                #     max_gen_len=max_gen_len,
-                #     eos_token_ids=eos_token_ids,  # type: ignore
-                #     pad_token=pad_token_id,  # type: ignore
-                # )
-
-                # untokenized_prompt_and_responses = []
-                # for i in range(batch_size):
-                #     prompt = tokenizer.decode(  # type: ignore
-                #         right_padded_obs[i, :prompt_len[i]])
-                #     generated_text = tokenizer.decode(  # type:  ignore
-                #         get_decoded_sequence(actions[i], generated_len[i],
-                #                                 max_gen_len))
-                #     untokenized_prompt_and_responses.append(
-                #         (prompt, generated_text),
-                #     )
-                # prompts_and_gens = untokenized_prompt_and_responses
-
-                # print(f"{len(prompts_and_gens)=}")
-                # print(f"{len(all_prompts)=}")
-                # exit(-1)
             else:
                 # Remove the memory from all gather as they are only used for the first rank
                 all_batched_prompts = None
@@ -893,11 +804,6 @@ class PPOCallback(CallbackWithConfig):
             
             dist.barrier()
 
-            # print(f"After dist barrier")
-            # if split_responses is not None:
-                # Probably only goes here for rank 0
-                # print(f"{len(split_responses)=}")
-            # scatter the respective responses to all other ranks
             local_responses = [None]
             start_time = time.time()
             torch.distributed.scatter_object_list(
