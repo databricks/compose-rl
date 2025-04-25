@@ -637,7 +637,6 @@ class PPOCallback(CallbackWithConfig):
 
         gen_batch_partial_outputs = []
         for i in range(num_gen_calls):
-            # Extract a minibatch of size device_generate_batch_size from the full batch
             gen_batch = self._extract_minibatch(
                 batch=batch,
                 idx=i,
