@@ -658,7 +658,7 @@ class PPOCallback(CallbackWithConfig):
         # 2. Run generate over all prompts in one go
         # 3. Scatter the generated responses back to the correct rank
         # 4. Save the tokenized sequences in the batch for future use
-        vllm_engines=self.vllm_engines
+        vllm_engines = self.vllm_engines
         if vllm_engines is not None:
             # Pull the necessary variables from the batch and self
             cur_device = batch['prompt'].device
@@ -668,7 +668,7 @@ class PPOCallback(CallbackWithConfig):
             generation_kwargs = self.generation_kwargs
             max_gen_len = self.max_gen_len
             tokenizer = self.tokenizer
-            pad_token_id = tokenizer.pad_token_id
+            pad_token_id = tokenizer.pad_token_id  # type: ignore
 
             prompt_all_gather_start_time = time.time()
 
@@ -697,8 +697,7 @@ class PPOCallback(CallbackWithConfig):
                     for token in prompt.detach().cpu().tolist()
                     if token != pad_token_id
                 ]
-                            for prompt in all_prompts]
-
+                               for prompt in all_prompts]
 
                 with get_precision_context(precision), torch.no_grad():
                     # Generate with vllm
@@ -717,7 +716,8 @@ class PPOCallback(CallbackWithConfig):
 
                         cur_prompts_ids = all_prompts[start_idx:end_idx]
                         cur_prompts = [
-                            tokenizer.decode(prompt) for prompt in cur_prompts_ids
+                            tokenizer.decode(prompt)  # type: ignore
+                            for prompt in cur_prompts_ids
                         ]
 
                         futs.append(
@@ -741,13 +741,17 @@ class PPOCallback(CallbackWithConfig):
                             resp.outputs[0].token_ids for resp in result
                         ])
 
-                    log.info(f'took: {time.time() - start_time} to gather futures')
+                    log.info(
+                        f'took: {time.time() - start_time} to gather futures',
+                    )
 
                     # Distribute padded responses back to the correct device
                     split_responses = []
                     start = 0
                     for size in batch_sizes:
-                        split_responses.append(all_responses[start:start + size])
+                        split_responses.append(
+                            all_responses[start:start + size],
+                        )
                         start += size
             else:
                 # Remove the memory from all gather as they are only used for the first rank
@@ -759,9 +763,9 @@ class PPOCallback(CallbackWithConfig):
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            
+
             dist.barrier()
-            
+
             # Scatter the generated responses back to the correct rank
             local_responses = [None]
             start_time = time.time()
