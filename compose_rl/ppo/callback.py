@@ -363,8 +363,9 @@ class PPOCallback(CallbackWithConfig):
         )
 
         if self.num_batches_per_update % self.generations_per_prompt != 0:
-            error_msg = f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}'
-            raise ValueError(error_msg)
+            raise ValueError(
+                f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}',
+            )
 
         self.epochs_per_iteration = ensure_time(
             var_config.get('epoch_per_iteration', 1),
