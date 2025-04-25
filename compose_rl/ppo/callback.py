@@ -643,6 +643,7 @@ class PPOCallback(CallbackWithConfig):
                 idx=i,
                 minibatch_size=self.device_generate_batch_size,
             )
+
             env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_generate(
                 actor_critic=self.actor_critic,  # pyright: ignore
                 vllm_engines=self.vllm_engines,
@@ -712,29 +713,6 @@ class PPOCallback(CallbackWithConfig):
             for batch_key, tensor in batch.items()
         }
         return curr_gen_batch
-
-    def _merge_minibatches(
-        self,
-        minibatches: list[dict[str, torch.Tensor]],
-    ) -> dict[str, torch.Tensor]:
-        """Merges a list of minibatches into a single batch.
-
-        Args:
-            minibatches (list[dict[str, torch.Tensor]]): A list of minibatches to merge.
-
-        Returns:
-            merged_batch (dict[str, torch.Tensor]): The merged batch.
-        """
-        merged_batch = {}
-        for key in minibatches[0].keys():
-            # Handle verified_answer separately
-            if key in ['verified_answer']:
-                merged_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
-                    utils.flatten([mb[key] for mb in minibatches]),
-                )
-            else:
-                merged_batch[key] = torch.cat([mb[key] for mb in minibatches])
-        return merged_batch
 
     def _resolve_outputs(
         self,
