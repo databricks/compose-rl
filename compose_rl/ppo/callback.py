@@ -94,7 +94,7 @@ def env_generate(
         generation_kwargs (dict): Generation keyword arguments.
         tokenizer (Tokenizer): The actor critic's tokenizer.
         eos_token_ids (list[int]): A list of eos token ids.
-        kl_estimator (str): Which kl estimator to use. Options are 'kl1', 'kl2' and 'kl3'.
+        kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
 
     Returns:
         partial_env_output (dict[str, tensor]): Partially complete dictionary of return elements suitable
