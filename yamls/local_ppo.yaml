@@ -43,6 +43,7 @@ variables:
   # RL parameters
   gamma: 1.0
   lambda_gae: 0.95
+  kl_estimator: k1
 
   device_generate_batch_size: 32
 
@@ -51,6 +52,11 @@ variables:
   generations_per_prompt: 4
 
   max_gen_len: 32
+
+  eos_token_ids:
+    - 128001
+    - 128008
+    - 128009
 
   rewards:
     short_response_reward:

@@ -447,11 +447,6 @@ class PPOCallback(CallbackWithConfig):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
 
-        if self.pad_token_idx in self.eos_token_ids:
-            log.warning(
-                'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
-            )
-
         # TODO (#158): do this through composer.
         for destination in ensure_tuple(logger.destinations):
             if isinstance(destination, WandBLogger):
@@ -506,6 +501,10 @@ class PPOCallback(CallbackWithConfig):
         # This needs to be done here becuase callbacks are init'd before we attach
         # the dataloader as a property to state
         self.tokenizer = state.model.tokenizer
+        if self.pad_token_idx in self.input_eos_token_ids:
+            log.warning(
+                'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
+            )
 
         self.eos_token_ids = [self.tokenizer.eos_token_id]  # type: ignore
         if self.input_eos_token_ids is not None:
