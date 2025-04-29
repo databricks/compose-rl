@@ -91,6 +91,19 @@ class LLMRayActor:
             **kwargs,
         )
 
+    def chat(self, *args: Any, **kwargs: Any):
+        log.info(f'Chat kwargs are: {kwargs}')
+        sampling_params = None
+        if 'sampling_params' in kwargs:
+            sampling_params = SamplingParams(**kwargs.pop('sampling_params'))
+            log.info(f'sampling_params is: {sampling_params}')
+
+        return self.llm.chat(
+            sampling_params=sampling_params,
+            *args,
+            **kwargs,
+        )
+
     def init_process_group(
         self,
         master_address: str,
