@@ -510,21 +510,28 @@ class RewardManager:
                 max_gen_len=curr_batch['max_gen_len'],
             )
 
-            logratio = curr_ref_log_probs - curr_batch['action_log_probs']
+            logprob_diff = (
+                curr_batch['action_log_probs'] - curr_ref_log_probs
+            ).clamp(min=-40.0, max=40.0)
+            approxkl_k1 = logprob_diff
+            approxkl_k2 = 0.5 * (logprob_diff**2)
+            approxkl_k3 = torch.expm1(-logprob_diff) + logprob_diff
+            approxkl_k3_offpolicy = 1.0 - torch.exp(-logprob_diff)
+
             curr_kl = 0.0
             if kl_estimator == 'k1':
-                curr_kl = -1.0 * logratio
+                curr_kl = approxkl_k1
             elif kl_estimator == 'k2':
                 # The k2_loss is approximately equivalent to the one-step KL divergence penalty with the k1 estimator
                 # used in https://arxiv.org/pdf/2310.10505.
-                curr_kl = 0.5 * (logratio**2)
+                curr_kl = approxkl_k2
             elif kl_estimator == 'k3':
                 # The k3 estimator is the non negative kl approximation in http://joschu.net/blog/kl-approx.html
-                curr_kl = (torch.exp(logratio) - 1) + logratio
+                curr_kl = approxkl_k3
             elif kl_estimator == 'k3_offpolicy':
                 # This is taken from https://hongyuzang.notion.site/The-critical-implementation-detail-of-KL-loss-in-GRPO-1ae3fe2c1ff9809a9307c5402e190373
-                # This is specifically for off-policy training and can be useful for async training.
-                curr_kl = 1.0 - torch.exp(-1.0 * logratio)
+                # This is specifically for off-policy learning and can be useful for async training.
+                curr_kl = approxkl_k3_offpolicy
 
             kl.append(curr_kl)
             ref_model_log_probs.append(curr_ref_log_probs)
