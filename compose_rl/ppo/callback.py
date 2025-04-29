@@ -72,6 +72,7 @@ def env_generate(
     generation_kwargs: dict,
     tokenizer: Tokenizer,
     eos_token_ids: list[int],
+    kl_estimator: str,
 ) -> tuple[dict[str, torch.Tensor],
            list[tuple[str, str]],
            ReferenceOutput,
@@ -93,6 +94,7 @@ def env_generate(
         generation_kwargs (dict): Generation keyword arguments.
         tokenizer (Tokenizer): The actor critic's tokenizer.
         eos_token_ids (list[int]): A list of eos token ids.
+        kl_estimator (str): Which kl estimator to use. Options are 'kl1', 'kl2' and 'kl3'.
 
     Returns:
         partial_env_output (dict[str, tensor]): Partially complete dictionary of return elements suitable
@@ -295,6 +297,7 @@ def env_generate(
                 actions=actions,
                 action_log_probs=device_train_microbatch_log_probs,
                 device_train_microbatch_size=device_train_microbatch_size,
+                kl_estimator=kl_estimator,
                 verified_answers=verified_answers,
             )
 
@@ -326,6 +329,13 @@ class PPOCallback(CallbackWithConfig):
         self.gamma = var_config.get('gamma', 1.0)
         # Value used in the generalized advantage estimate calculation.
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
+        # Which kl estimator to use
+        self.kl_estimator = var_config.get('kl_estimator', 'k1')
+        if self.kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
+            raise ValueError(
+                f'Invalid kl estimator: {self.kl_estimator}. ' +
+                'Valid options are: k1, k2, k3, k3_offpolicy.',
+            )
 
         # Generation keyword arguments.
         self.generation_kwargs = var_config.get('generation_kwargs')
@@ -660,6 +670,7 @@ class PPOCallback(CallbackWithConfig):
                 generation_kwargs=self.generation_kwargs,
                 tokenizer=self.tokenizer,  # type: ignore
                 eos_token_ids=self.eos_token_ids,  # type: ignore
+                kl_estimator=self.kl_estimator,
             )
 
             self.prompts_and_gens.extend(prompts_and_gens)
