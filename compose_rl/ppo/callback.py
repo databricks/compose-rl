@@ -501,11 +501,6 @@ class PPOCallback(CallbackWithConfig):
         # This needs to be done here becuase callbacks are init'd before we attach
         # the dataloader as a property to state
         self.tokenizer = state.model.tokenizer
-        if self.pad_token_idx in self.input_eos_token_ids:
-            log.warning(
-                'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
-            )
-
         self.eos_token_ids = [self.tokenizer.eos_token_id]  # type: ignore
         if self.input_eos_token_ids is not None:
             self.eos_token_ids = self.input_eos_token_ids
@@ -516,6 +511,11 @@ class PPOCallback(CallbackWithConfig):
                 log.info(
                     f'Token {eos_token_id} is {self.tokenizer.decode([eos_token_id])}.',  # type: ignore
                 )
+
+        if self.pad_token_idx in self.eos_token_ids:
+            log.warning(
+                'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
+            )
 
         self.train_prompt_loader_iter = iter(
             self.train_prompt_loader,  # pyright: ignore
