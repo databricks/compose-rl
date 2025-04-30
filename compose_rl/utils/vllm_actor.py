@@ -98,8 +98,6 @@ class LLMRayActor:
             sampling_params = SamplingParams(**kwargs.pop('sampling_params'))
             log.info(f'sampling_params is: {sampling_params}')
 
-        print(f"IN LLM RAY ACTOR: {args=}")
-        print(f"IN LLM RAY ACTOR: {kwargs=}")
         return self.llm.chat(
             *args,
             **kwargs,
