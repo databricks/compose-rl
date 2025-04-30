@@ -19,7 +19,9 @@ def reward() -> BadGenerationEndReward:
         'eos_penalty': True,
         'extra_special_tokens': ['<|im_end|>'],
     }
-    tokenizer = AutoTokenizer.from_pretrained('EleutherAI/gpt-neox-20b',)
+    tokenizer = AutoTokenizer.from_pretrained(
+        'EleutherAI/gpt-neox-20b',
+    )
     special_tokens_dict: dict[str, list[str]] = {
         'additional_special_tokens': ['<|im_end|>'],
     }
