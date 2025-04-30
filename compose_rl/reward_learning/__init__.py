@@ -30,6 +30,7 @@ from compose_rl.reward_learning.model import (
 RewardModelConfig.register_for_auto_class()
 AutoModelForCausalLMWithRM.register_for_auto_class('AutoModel')
 
+# Register rewards
 from compose_rl.registry import rewards
 
 rewards.register('increasing_numbers', func=IncreasingNumbersReward)

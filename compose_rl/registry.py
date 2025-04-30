@@ -4,7 +4,7 @@
 from llmfoundry.utils.registry_utils import create_registry
 
 from compose_rl.ppo.kl_controller import BaseKLController
-from compose_rl.reward_learning import BaseReward
+from compose_rl.reward_learning.base_reward import BaseReward
 
 _rewards_description = (
     """The function rewards registry is used to register classes that implement function rewards.
