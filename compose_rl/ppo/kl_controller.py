@@ -10,7 +10,7 @@ import torch
 class BaseKLController():
     """Base KL Controller class."""
 
-    def __init__(self, device: str):
+    def __init__(self, kl_config: dict, device: str):
         self.device = device
 
     @abstractmethod
@@ -48,7 +48,7 @@ class AdaptiveKLController(BaseKLController):
     """
 
     def __init__(self, kl_config: dict, device: str = 'cpu'):
-        super().__init__(device=device)
+        super().__init__(kl_config=kl_config, device=device)
         self._value = kl_config['init_kl_coef']
         self._target = kl_config['target']
         self._horizon = kl_config['horizon']
@@ -76,7 +76,7 @@ class FixedKLController(BaseKLController):
     """Fixed KL controller that always returns same value."""
 
     def __init__(self, kl_config: dict, device: str = 'cpu'):
-        super().__init__(device=device)
+        super().__init__(kl_config=kl_config, device=device)
         self._value = kl_config['init_kl_coef']
 
     def update(self, current: torch.Tensor, n_steps: int):
@@ -100,7 +100,7 @@ class KLPIDController(BaseKLController):
     """
 
     def __init__(self, kl_config: dict, device: str = 'cpu'):
-        super().__init__(device=device)
+        super().__init__(kl_config=kl_config, device=device)
         self._value: torch.Tensor = torch.tensor([kl_config['init_kl_coef']],
                                                  requires_grad=True,
                                                  device=self.device)
@@ -145,7 +145,7 @@ class BallKLController(BaseKLController):
     """
 
     def __init__(self, kl_config: dict, device: str = 'cpu'):
-        super().__init__(device=device)
+        super().__init__(kl_config=kl_config, device=device)
         self._value: torch.Tensor = torch.tensor([kl_config['init_kl_coef']],
                                                  requires_grad=True,
                                                  device=self.device)

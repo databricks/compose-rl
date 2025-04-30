@@ -20,7 +20,9 @@ class BaseReward(ABC):
             will reference this attribute.
 
     Args:
+        cfg: the config for the reward class.
         tokenizer: the tokenizer being used.
+        **kwargs: additional keyword arguments.
     """
 
     # Whether the class blocks (True) or can be run async (False)
