@@ -13,8 +13,11 @@ from compose_rl.reward_learning import (
     BadGenerationEndReward,
     ComposerHFPairwiseRewardModel,
     ComposerMPTPairwiseRewardModel,
+    GSM8KAnswerVeriferReward,
+    GSM8KFormatVeriferReward,
     IncreasingNumbersReward,
     InferenceRewardModel,
+    MATHVerifierReward,
     OutputLengthReward,
     ShortResponseReward,
 )
@@ -27,6 +30,9 @@ RL_REWARD_REGISTRY = {
     'mpt_pairwise': ComposerMPTPairwiseRewardModel,
     'hf_pairwise': ComposerHFPairwiseRewardModel,
     'bad_generation_end': BadGenerationEndReward,
+    'gsm8k_answer_verifier': GSM8KAnswerVeriferReward,
+    'gsm8k_format_verifier': GSM8KFormatVeriferReward,
+    'math_verifier': MATHVerifierReward,
 }
 
 KL_CONTROLLER_REGISTRY = {

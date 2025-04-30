@@ -8,7 +8,10 @@ from compose_rl.reward_learning.base_reward import (
 )
 from compose_rl.reward_learning.functional import (
     BadGenerationEndReward,
+    GSM8KAnswerVeriferReward,
+    GSM8KFormatVeriferReward,
     IncreasingNumbersReward,
+    MATHVerifierReward,
     OutputLengthReward,
     ShortResponseReward,
 )
@@ -39,4 +42,7 @@ __all__ = [
     'IncreasingNumbersReward',
     'OutputLengthReward',
     'ShortResponseReward',
+    'GSM8KFormatVeriferReward',
+    'GSM8KAnswerVeriferReward',
+    'MATHVerifierReward',
 ]

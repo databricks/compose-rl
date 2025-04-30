@@ -2,7 +2,7 @@ run_name:  # TODO: fill in
 max_seq_len: 2048
 
 variables:
-  tokenizer_name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  tokenizer_name: meta-llama/Llama-3.1-8B-Instruct
 
   reference_model:
     model_config: &base_model
@@ -10,7 +10,7 @@ variables:
       pretrained: true
       use_auth_token: true
       use_flash_attention_2: true
-      pretrained_model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+      pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
 
     precision: amp_bf16
 
@@ -43,13 +43,20 @@ variables:
   # RL parameters
   gamma: 1.0
   lambda_gae: 0.95
+  kl_estimator: k1
 
   device_generate_batch_size: 32
 
   epoch_per_iteration: 1
   num_batches_per_update: 8
+  generations_per_prompt: 4
 
   max_gen_len: 32
+
+  eos_token_ids:
+  - 128001
+  - 128008
+  - 128009
 
   rewards:
     short_response_reward:

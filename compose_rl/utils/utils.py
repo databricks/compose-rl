@@ -4,7 +4,8 @@
 import logging
 import re
 import warnings
-from typing import Optional, Union
+from collections.abc import Generator, Iterable
+from typing import Any, Optional, Union
 
 import spacy
 import spacy_alignments as tokenizations
@@ -358,7 +359,7 @@ def mask_eos(
     prompt_len: torch.Tensor,
     generated_len: torch.Tensor,
     max_gen_len: int,
-    eos_token: int,
+    eos_token_ids: list[int],
     pad_token: int,
 ):
     """Mask EOS tokens in a given sequence and returns appropriate values.
@@ -370,13 +371,19 @@ def mask_eos(
         - prompt_len (torch.Tensor): the prompt length.
         - generated_len (torch.Tensor): the generated length for each prompt.
         - max_gen_len (int): the maximum generated length.
-        - eos_token (int): the token representing end of sequence token.
+        - eos_token (list[int]): the token representing end of sequence token.
         - pad_token (int): the token representing pad token.
     """
     # Creating appropriate masks based upon EOS appearing in sequences
-    eos_actions = actions == eos_token
+    eos_tokens_tensor = torch.tensor(
+        eos_token_ids,
+        dtype=actions.dtype,
+        device=actions.device,
+    )
+    eos_actions = torch.isin(actions, eos_tokens_tensor)
     action_mask = torch.ones_like(actions)
     seen_eos_batches = set()
+
     for eos_idx in eos_actions.nonzero(as_tuple=False):
         batch_idx = int(eos_idx[0])
         if eos_idx[1] < max_gen_len and batch_idx not in seen_eos_batches:
@@ -1078,3 +1085,23 @@ def make_action_mask(
         mask[i, :prompt_len[i] - 1] = 0
 
     return mask
+
+
+def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
+    """Recursively flattens an arbitrarily nested iterable (excluding strings).
+
+    Note: strings are treated as atomic elements and are not flattened into
+    characters.
+
+    Args:
+        coll (Union[Iterable[Any], str]): The nested iterable to flatten.
+
+    Yields:
+        Any: The individual, non-iterable elements from the flattened structure.
+    """
+    for i in coll:
+        if isinstance(i, Iterable) and not isinstance(i, str):
+            for subc in flatten(i):
+                yield subc
+        else:
+            yield i
