@@ -274,7 +274,9 @@ class RewardManager:
         # changes made during reward string formatting
         curr_rewards = reward_model(
             reward_batch,
-        ).to(dtype=batch['zero_rewards'].dtype,)
+        ).to(
+            dtype=batch['zero_rewards'].dtype,
+        )
 
         assert isinstance(curr_rewards, torch.Tensor)
         # Passing in reward_seq_lens to make sure RL formatting in env_generate
@@ -503,9 +505,10 @@ class RewardManager:
         ref_model_log_probs = []
         for i in range(batch_size // device_train_microbatch_size):
             curr_batch = {
-                key: value[i * device_train_microbatch_size:(i + 1) *
-                           device_train_microbatch_size]
-                if isinstance(value, torch.Tensor) else value
+                key:
+                    value[i * device_train_microbatch_size:(i + 1) *
+                          device_train_microbatch_size]
+                    if isinstance(value, torch.Tensor) else value
                 for key, value in batch.items()
             }
             curr_ref_output = self.reference_model(curr_batch)

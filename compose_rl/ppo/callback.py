@@ -73,11 +73,12 @@ def env_generate(
     tokenizer: Tokenizer,
     eos_token_ids: list[int],
     kl_estimator: str,
-) -> tuple[dict[str, torch.Tensor],
-           list[tuple[str, str]],
-           ReferenceOutput,
-           RewardOutput,
-          ]:
+) -> tuple[
+    dict[str, torch.Tensor],
+    list[tuple[str, str]],
+    ReferenceOutput,
+    RewardOutput,
+]:
     """Run generate from the model.
 
     Runs generate over a set of prompts in the batch. It also does extra computation
@@ -240,9 +241,10 @@ def env_generate(
             # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
             for i in range(batch_size // device_train_microbatch_size):
                 curr_kwargs = {
-                    key: value[i * device_train_microbatch_size:(i + 1) *
-                               device_train_microbatch_size]
-                    if isinstance(value, torch.Tensor) else value
+                    key:
+                        value[i * device_train_microbatch_size:(i + 1) *
+                              device_train_microbatch_size]
+                        if isinstance(value, torch.Tensor) else value
                     for key, value in input_model_kwargs.items()
                 }
                 cur_output = actor_critic(curr_kwargs)

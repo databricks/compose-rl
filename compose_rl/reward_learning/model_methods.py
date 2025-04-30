@@ -250,8 +250,8 @@ def pairwise_loss(
         'rejected_rewards':
             rejected_scores.detach(),
         'margin': (chosen_scores - rejected_scores).detach(),
-        'accuracy':
-            (chosen_scores > rejected_scores).detach().to(torch.float32),
+        'accuracy': (chosen_scores
+                     > rejected_scores).detach().to(torch.float32),
     }
 
     loss_dict.update(partial_loss_dict)
