@@ -1,43 +1,51 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Registry for all the components in the Compose RL."""
+from llmfoundry.utils.registry_utils import create_registry
 
-from compose_rl.ppo.kl_controller import (
-    AdaptiveKLController,
-    BallKLController,
-    FixedKLController,
-    KLPIDController,
+from compose_rl.ppo.kl_controller import BaseKLController
+from compose_rl.reward_learning import BaseReward
+
+_rewards_description = (
+    """The function rewards registry is used to register classes that implement function rewards.
+
+    One example of this is IncreasingNumbersReward. See reward_learning/functional.py for examples.
+
+    Args:
+        tokenizer: Tokenizer: The tokenizer being used.
+        kwargs: dict[Any, Any]: Additional keyword arguments.
+
+    Returns:
+        BaseReward: The reward class.
+    """
 )
-from compose_rl.reward_learning import (
-    BadGenerationEndReward,
-    ComposerHFPairwiseRewardModel,
-    ComposerMPTPairwiseRewardModel,
-    GSM8KAnswerVeriferReward,
-    GSM8KFormatVeriferReward,
-    IncreasingNumbersReward,
-    InferenceRewardModel,
-    MATHVerifierReward,
-    OutputLengthReward,
-    ShortResponseReward,
+rewards = create_registry(
+    'llmfoundry',
+    'rewards',
+    generic_type=type[BaseReward],
+    entry_points=True,
+    description=_rewards_description,
 )
 
-RL_REWARD_REGISTRY = {
-    'increasing_numbers': IncreasingNumbersReward,
-    'output_length': OutputLengthReward,
-    'short_response_reward': ShortResponseReward,
-    'inference_reward_model': InferenceRewardModel,
-    'mpt_pairwise': ComposerMPTPairwiseRewardModel,
-    'hf_pairwise': ComposerHFPairwiseRewardModel,
-    'bad_generation_end': BadGenerationEndReward,
-    'gsm8k_answer_verifier': GSM8KAnswerVeriferReward,
-    'gsm8k_format_verifier': GSM8KFormatVeriferReward,
-    'math_verifier': MATHVerifierReward,
-}
+_kl_controller_description = (
+    """The KL Controller registry is used to register classes that implement KL Controller.
 
-KL_CONTROLLER_REGISTRY = {
-    'adaptive': AdaptiveKLController,
-    'fixed': FixedKLController,
-    'pid': KLPIDController,
-    'ball': BallKLController,
-}
+    One example of this is FixedKLController. See ppo/kl_controller.py for examples.
+
+    Args:
+        kl_config: dict[Any, Any]: The config for the kl controller class.
+        device: Optional[torch.device]: The device to use for the kl controller.
+
+    Returns:
+        BaseKLController: The kl controller class.
+    """
+)
+kl_controllers = create_registry(
+    'llmfoundry',
+    'kl_controllers',
+    generic_type=type[BaseKLController],
+    entry_points=True,
+    description=_kl_controller_description,
+)
+
+__all__ = ['rewards', 'kl_controllers']

@@ -38,7 +38,7 @@ from compose_rl.ppo.reward_manager import (
     RewardManager,
     RewardOutput,
 )
-from compose_rl.registry_builders import build_kl_controller
+from compose_rl.registry_builders import build_kl_controllers
 from compose_rl.utils import (
     add_right_padding,
     broadcast_to_vllm,
@@ -386,7 +386,12 @@ class PPOCallback(CallbackWithConfig):
         # Programmatically setting the max buffer size instead of the yaml
         var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
-        self.kl_ctl = build_kl_controller(var_config['kl_controller'])
+        # Build the KL controller through registries
+        kl_ctl_name = var_config['kl_controller'].pop('kl_ctl_type')
+        self.kl_ctl = build_kl_controllers(
+            name=kl_ctl_name,
+            kl_config=var_config['kl_controller'],
+        )
 
         self.kl_ift = []
 
