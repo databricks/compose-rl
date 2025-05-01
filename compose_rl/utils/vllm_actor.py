@@ -43,12 +43,19 @@ class LLMRayActor:
     ) -> None:
         import vllm
 
+        noset_visible_devices = kwargs.pop("noset_visible_devices")
+        
         if kwargs.get('distributed_executor_backend') == 'ray':
             # a hack to make the script work.
             # stop ray from manipulating *_VISIBLE_DEVICES
             # at the top-level when the distributed_executor_backend is ray.
             os.environ.pop('CUDA_VISIBLE_DEVICES', None)
             os.environ.pop('ROCR_VISIBLE_DEVICES', None)
+        elif noset_visible_devices:
+            # We need to set CUDA_VISIBLE_DEVICES to the ray assigned GPU
+            # when the distributed_executor_backend is not ray and
+            # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set.
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(ray.get_gpu_ids()[0])
 
         num_gpus = kwargs.pop('num_gpus')
         bundle_indices = kwargs.pop('bundle_indices', None)
