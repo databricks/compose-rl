@@ -132,7 +132,6 @@ class WorkerWrap:
             rank=rank,
             group_name=group_name,
         )
-        self.rank = rank
         log.info(f'init process group for: {torch.distributed.get_rank()}')
         log.info(
             f'init_process_group: master_address={master_address}, master_port={master_port}, ',
@@ -163,10 +162,10 @@ class WorkerWrap:
 
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
-        if weight.dtype != self.model_config.dtype:
-            weight = weight.to(self.model_config.dtype)
+        if weight.dtype != self.model_config.dtype:  # type: ignore
+            weight = weight.to(self.model_config.dtype)  # type: ignore
 
-        self.model_runner.model.load_weights(
+        self.model_runner.model.load_weights( # type: ignore
             weights=[(name, weight)],
         )  # type: ignore
 
@@ -242,22 +241,26 @@ def create_vllm_engines(
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,
             ).remote(
-                model=pretrain,
-                revision=revision,
-                tokenizer_revision=revision,
-                trust_remote_code=True,
-                worker_extension_cls='compose_rl.utils.vllm_utils.WorkerWrap',
-                tensor_parallel_size=tensor_parallel_size,
-                enforce_eager=enforce_eager,
-                dtype='bfloat16',
-                seed=seed + i,
-                distributed_executor_backend=distributed_executor_backend,
-                enable_prefix_caching=enable_prefix_caching,
-                max_model_len=max_model_len,
-                gpu_memory_utilization=vllm_gpu_memory_utilization,
-                bundle_indices=bundle_indices,
-                num_gpus=1,
-                noset_visible_devices=ray_noset_visible_devices(),
+                model=pretrain,  # type: ignore
+                revision=revision,  # type: ignore
+                tokenizer_revision=revision,  # type: ignore
+                trust_remote_code=True,  # type: ignore
+                worker_extension_cls= # type: ignore
+                'compose_rl.utils.vllm_utils.WorkerWrap',
+                tensor_parallel_size=tensor_parallel_size,  # type: ignore
+                enforce_eager=enforce_eager,  # type: ignore
+                dtype='bfloat16',  # type: ignore
+                seed=seed + i,  # type: ignore
+                distributed_executor_backend= # type: ignore
+                distributed_executor_backend,
+                enable_prefix_caching=enable_prefix_caching,  # type: ignore
+                max_model_len=max_model_len,  # type: ignore
+                gpu_memory_utilization= # type: ignore
+                vllm_gpu_memory_utilization,
+                bundle_indices=bundle_indices,  # type: ignore
+                num_gpus=1,  # type: ignore
+                noset_visible_devices= # type: ignore
+                ray_noset_visible_devices(),
             ),
         )
 
@@ -458,7 +461,7 @@ def broadcast_to_vllm(
     log.info(f'number of parameters updated is: {count}')
 
 
-def ray_noset_visible_devices(env_vars=os.environ):
+def ray_noset_visible_devices(env_vars: os._Environ = os.environ):
     # Refer to
     # https://github.com/ray-project/ray/blob/161849364a784442cc659fb9780f1a6adee85fce/python/ray/_private/accelerators/nvidia_gpu.py#L95-L96
     # https://github.com/ray-project/ray/blob/161849364a784442cc659fb9780f1a6adee85fce/python/ray/_private/accelerators/amd_gpu.py#L102-L103
