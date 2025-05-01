@@ -19,7 +19,7 @@ _rewards_description = (
 rewards = create_registry(
     'llmfoundry',
     'rewards',
-    generic_type=None, # pyright: ignore[reportGeneralTypeIssues]
+    generic_type=None, # type: ignore
     entry_points=True,
     description=_rewards_description,
 )
@@ -40,7 +40,7 @@ _kl_controller_description = (
 kl_controllers = create_registry(
     'llmfoundry',
     'kl_controllers',
-    generic_type=None, # pyright: ignore[reportGeneralTypeIssues]
+    generic_type=None, # type: ignore
     entry_points=True,
     description=_kl_controller_description,
 )
@@ -51,10 +51,8 @@ def initialize_registries():
     from compose_rl.ppo.kl_controller import BaseKLController
     from compose_rl.reward_learning.base_reward import BaseReward
 
-    rewards.generic_type = type[  # pyright: ignore[reportGeneralTypeIssues]
-        BaseReward]
-    kl_controllers.generic_type = type[  # pyright: ignore[reportGeneralTypeIssues]
-        BaseKLController]
+    rewards.generic_type = type[BaseReward]  # type: ignore
+    kl_controllers.generic_type = type[BaseKLController]  # type: ignore
 
 
 __all__ = ['rewards', 'kl_controllers', 'initialize_registries']
