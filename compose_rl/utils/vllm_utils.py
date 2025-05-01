@@ -219,12 +219,11 @@ def create_vllm_engines(
         log.error(f'error is: {e}')
         raise e
 
+    num_gpus = int(tensor_parallel_size == 1)
+
     vllm_engines = []
     for i in range(num_engines):
-        # When tensor_parallel_size=1, vLLM init model in LLMEngine directly, assign 1 GPU for it.
-        num_gpus = int(tensor_parallel_size == 1)
         bundle_indices = None
-
         if tensor_parallel_size > 1:
             bundle_indices = list(
                 range(i * tensor_parallel_size, (i + 1) * tensor_parallel_size),
@@ -237,23 +236,25 @@ def create_vllm_engines(
         )
 
         log.info(f'vllm: {num_gpus=}, {num_engines=}')
+
         vllm_engines.append(
             LLMRayActor.options(
-                num_cpus=1,
+                num_cpus=num_gpus,
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,
             ).remote(
-                pretrain, # type: ignore
+                model=pretrain,
                 revision=revision,
                 tokenizer_revision=revision,
                 trust_remote_code=True,
+                worker_extension_class='compose_rl.utils.vllm_utils.WorkerWrap',
                 tensor_parallel_size=tensor_parallel_size,
                 enforce_eager=enforce_eager,
                 dtype='bfloat16',
                 seed=seed + i,
-                bundle_indices=bundle_indices,
                 enable_prefix_caching=enable_prefix_caching,
                 max_model_len=max_model_len,
+                bundle_indices=bundle_indices,
                 num_gpus=1,
             ),
         )

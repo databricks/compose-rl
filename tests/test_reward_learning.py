@@ -32,7 +32,9 @@ from compose_rl.reward_learning.hf_utils import AutoModelForCausalLMWithRM
 from tests.common import FineGrainedPreference, PairwisePreference, world_size
 
 
-def get_config(conf_path: str = './yamls/testing.yaml',) -> DictConfig:
+def get_config(
+    conf_path: str = './yamls/testing.yaml',
+) -> DictConfig:
     with open(conf_path) as f:
         test_cfg = om.load(f)
     return cast(DictConfig, test_cfg)
@@ -165,7 +167,9 @@ def test_forward_backward_hf_automodel():
     model = AutoModelForCausalLMWithRM.from_pretrained(model_id)
     model.train()
     original_params = next(model.parameters()).clone().data
-    optimizer = DecoupledAdamW(model.parameters(),)
+    optimizer = DecoupledAdamW(
+        model.parameters(),
+    )
     model_inputs = tokenizer(sample_text, return_tensors='pt')
     output = model(**model_inputs)
     loss = output.scores.mean()
@@ -376,10 +380,10 @@ def test_flashattention2(world_size: int):
             out_flash = {k: v.to('cpu') for k, v in out_flash.items()}
 
             assert torch.all(
-                out['chosen_scores'].bfloat16() !=
-                out['rejected_scores'].bfloat16(),
+                out['chosen_scores'].bfloat16()
+                != out['rejected_scores'].bfloat16(),
             )
             assert torch.all(
-                out_flash['chosen_scores'].bfloat16() !=
-                out_flash['rejected_scores'].bfloat16(),
+                out_flash['chosen_scores'].bfloat16()
+                != out_flash['rejected_scores'].bfloat16(),
             )
