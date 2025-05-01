@@ -106,7 +106,9 @@ def vllm_generate(
             The shape of the tensor is [batch_size, prompt_len + max_gen_len].
     """
     if type(vllm_engines) != list:
-        raise TypeError(f'vllm_engines must be a list. Instead got {type(vllm_engines)=}')
+        raise TypeError(
+            f'vllm_engines must be a list. Instead got {type(vllm_engines)=}',
+        )
     # 1. Gather all prompts from all ranks
     # 2. Run generate over all prompts in one go
     # 3. Scatter the generated responses back to the correct rank
