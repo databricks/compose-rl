@@ -29,6 +29,7 @@ from composer.utils import dist, ensure_tuple
 from llmfoundry.interfaces import CallbackWithConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
+import compose_rl.utils as utils
 from compose_rl.ppo.buffer import MinibatchRolloutBuffer
 from compose_rl.ppo.generation_utils import generate
 from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
@@ -71,11 +72,13 @@ def env_generate(
     generation_kwargs: dict,
     tokenizer: Tokenizer,
     eos_token_ids: list[int],
-) -> tuple[dict[str, torch.Tensor],
-           list[tuple[str, str]],
-           ReferenceOutput,
-           RewardOutput,
-          ]:
+    kl_estimator: str,
+) -> tuple[
+    dict[str, torch.Tensor],
+    list[tuple[str, str]],
+    ReferenceOutput,
+    RewardOutput,
+]:
     """Run generate from the model.
 
     Runs generate over a set of prompts in the batch. It also does extra computation
@@ -92,6 +95,7 @@ def env_generate(
         generation_kwargs (dict): Generation keyword arguments.
         tokenizer (Tokenizer): The actor critic's tokenizer.
         eos_token_ids (list[int]): A list of eos token ids.
+        kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
 
     Returns:
         partial_env_output (dict[str, tensor]): Partially complete dictionary of return elements suitable
@@ -122,6 +126,8 @@ def env_generate(
 
     with get_precision_context(precision):
         prompt_len = batch['prompt_len']
+        verified_answers = batch.get('verified_answer', None)
+        prompt_id = batch['prompt_id']
 
         with torch.no_grad():
             cur_device = prompt_tokens.device
@@ -220,7 +226,8 @@ def env_generate(
             # We need to recompute the logits here. Otherwise there are numerical differences
             # We also need to do it on the size of `device_train_microbatch_size` otherwise
             # there are numerical differences at training time.
-            logits = []
+            # log probs will be [batch_size, generated_len]
+            log_probs = []
             values = []
 
             input_model_kwargs = {
@@ -231,27 +238,33 @@ def env_generate(
                 'action_mask': action_mask,
                 'actions': actions,
             }
-
+            # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
             for i in range(batch_size // device_train_microbatch_size):
                 curr_kwargs = {
-                    key: value[i * device_train_microbatch_size:(i + 1) *
-                               device_train_microbatch_size]
-                    if isinstance(value, torch.Tensor) else value
+                    key:
+                        value[i * device_train_microbatch_size:(i + 1) *
+                              device_train_microbatch_size]
+                        if isinstance(value, torch.Tensor) else value
                     for key, value in input_model_kwargs.items()
                 }
                 cur_output = actor_critic(curr_kwargs)
-                logits.append(cur_output['logits'])
-                values.append(cur_output['values'])
+                cur_logits = cur_output['logits']
+                cur_values = cur_output['values']
+                # need to pull out current actions and prompt len
+                cur_actions = curr_kwargs['actions']
+                cur_prompt_len = curr_kwargs['prompt_len']
 
-            device_train_microbatch_logits = torch.cat(logits)
+                cur_log_probs = get_log_probs(
+                    logits=cur_logits,
+                    actions=cur_actions,
+                    prompt_len=cur_prompt_len,
+                    max_gen_len=max_gen_len,
+                )
+                log_probs.append(cur_log_probs)
+                values.append(cur_values)
+
+            device_train_microbatch_log_probs = torch.cat(log_probs)
             device_train_microbatch_values = torch.cat(values)
-
-            device_train_microbatch_log_probs = get_log_probs(
-                logits=device_train_microbatch_logits,
-                actions=actions,
-                prompt_len=prompt_len,
-                max_gen_len=max_gen_len,
-            )
 
             # Need to add in the padding for the value function
             value_action_mask = torch.cat([
@@ -262,6 +275,7 @@ def env_generate(
             device_train_microbatch_values *= value_action_mask
 
             partial_env_output = {
+                'prompt_id': prompt_id,
                 'actions': actions.detach(),
                 'old_log_probs': device_train_microbatch_log_probs.detach(),
                 'obs': right_padded_obs.detach(),
@@ -285,6 +299,8 @@ def env_generate(
                 actions=actions,
                 action_log_probs=device_train_microbatch_log_probs,
                 device_train_microbatch_size=device_train_microbatch_size,
+                kl_estimator=kl_estimator,
+                verified_answers=verified_answers,
             )
 
     return (
@@ -315,6 +331,13 @@ class PPOCallback(CallbackWithConfig):
         self.gamma = var_config.get('gamma', 1.0)
         # Value used in the generalized advantage estimate calculation.
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
+        # Which kl estimator to use
+        self.kl_estimator = var_config.get('kl_estimator', 'k1')
+        if self.kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
+            raise ValueError(
+                f'Invalid kl estimator: {self.kl_estimator}. ' +
+                'Valid options are: k1, k2, k3, k3_offpolicy.',
+            )
 
         # Generation keyword arguments.
         self.generation_kwargs = var_config.get('generation_kwargs')
@@ -345,6 +368,16 @@ class PPOCallback(CallbackWithConfig):
             'num_batches_per_update',
             1,
         )
+        # Number of generations per prompt for a single PPO epoch.
+        self.generations_per_prompt: int = var_config.get(
+            'generations_per_prompt',
+            1,
+        )
+
+        if self.num_batches_per_update % self.generations_per_prompt != 0:
+            raise ValueError(
+                f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}',
+            )
 
         self.epochs_per_iteration = ensure_time(
             var_config.get('epoch_per_iteration', 1),
@@ -352,6 +385,8 @@ class PPOCallback(CallbackWithConfig):
         )
         assert self.epochs_per_iteration.unit == TimeUnit.EPOCH
 
+        # Programmatically setting the max buffer size instead of the yaml
+        var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
         self.kl_ctl = build_kl_controller(var_config['kl_controller'])
 
@@ -376,15 +411,37 @@ class PPOCallback(CallbackWithConfig):
 
         self.vllm_engines = None
         self.num_vllm_engines = 0
-        if 'num_vllm_engines' in var_config:
-            self.num_vllm_engines = var_config['num_vllm_engines']
+        self.vllm_tensor_parallel_size = var_config.get(
+            'vllm_tensor_parallel_size',
+            None,
+        )
+        if self.vllm_tensor_parallel_size is not None:
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
 
-            self.vllm_tensor_parallel_size = var_config.get(
-                'vllm_tensor_parallel_size',
-                1,
+            # set vllm tensor parallel size
+            total_num_nodes = os.getenv('TOTAL_NUM_NODES', None)
+            num_train_nodes = os.getenv('TRAIN_NUM_NODES', None)
+            lws = os.getenv(
+                'LOCAL_WORLD_SIZE',
+                None,
+            )  # The number of GPUs available to the run on each node
+            assert total_num_nodes is not None, 'TOTAL_NUM_NODES must be set.'
+            assert num_train_nodes is not None, 'TRAIN_NUM_NODES must be set.'
+            assert lws is not None, 'LOCAL_WORLD_SIZE must be set.'
+            total_num_nodes = int(total_num_nodes)
+            num_train_nodes = int(num_train_nodes)
+            lws = int(lws)
+
+            inference_nodes = total_num_nodes - num_train_nodes
+            inference_gpus = inference_nodes * lws
+            assert inference_gpus % self.vllm_tensor_parallel_size == 0, f' {inference_gpus=} must be divisible by {self.vllm_tensor_parallel_size=}.'
+            self.num_vllm_engines = inference_gpus // self.vllm_tensor_parallel_size
+
+            log.info(
+                f'Using {self.num_vllm_engines} vllm engines with {self.vllm_tensor_parallel_size=} per engine.',
             )
+
             self.vllm_sync_backend = var_config.get('vllm_sync_backend', 'nccl')
             self.test_prompt = 'Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions.'
 
@@ -435,6 +492,8 @@ class PPOCallback(CallbackWithConfig):
         if self.num_vllm_engines > 0:
             self._create_vllm_engines()
 
+        state.vllm_engines = self.vllm_engines  # type: ignore[attr-defined]
+
     def before_load(self, state: State, logger: Logger):
         del logger
         self.train_prompt_loader = state.train_dataloader
@@ -444,7 +503,6 @@ class PPOCallback(CallbackWithConfig):
         # This needs to be done here becuase callbacks are init'd before we attach
         # the dataloader as a property to state
         self.tokenizer = state.model.tokenizer
-
         self.eos_token_ids = [self.tokenizer.eos_token_id]  # type: ignore
         if self.input_eos_token_ids is not None:
             self.eos_token_ids = self.input_eos_token_ids
@@ -455,6 +513,11 @@ class PPOCallback(CallbackWithConfig):
                 log.info(
                     f'Token {eos_token_id} is {self.tokenizer.decode([eos_token_id])}.',  # type: ignore
                 )
+
+        if self.pad_token_idx in self.eos_token_ids:
+            log.warning(
+                'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
+            )
 
         self.train_prompt_loader_iter = iter(
             self.train_prompt_loader,  # pyright: ignore
@@ -509,41 +572,58 @@ class PPOCallback(CallbackWithConfig):
 
     def _get_next_iter_prompts(self):
         """Gets the next iteration's batch of prompts."""
+        # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
+        n_unique_batches = self.num_batches_per_update // self.generations_per_prompt
         batches = [
-            self._get_single_batch_prompts()
-            for _ in range(self.num_batches_per_update)
+            self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
 
         ret_batch = {}
         for key in batches[0].keys():
             curr_values = []
-            max_len = max([batch[key].shape[-1] for batch in batches])
+
+            max_len = 0
+            if isinstance(batches[0][key], torch.Tensor):
+                max_len = max([batch[key].shape[-1] for batch in batches])
+
             padding_key = None
             for batch in batches:
-                # Take care of the prompt length here, no need for extra processing
-                if key == 'prompt_len':
-                    curr_values.append(batch[key])
-                    continue
+                # Explode the batch into multiple batches for each generation
+                for _ in range(self.generations_per_prompt):
+                    # For keys that do not require additional processing
+                    if key in ['prompt_len', 'verified_answer', 'prompt_id']:
+                        curr_values.append(batch[key])
+                        continue
 
-                bs, seq_len = batch[key].shape
+                    bs, seq_len = batch[key].shape
 
-                if key == 'prompt':
-                    padding_key = self.pad_token_idx
-                    if (batch[key][:, -1] == padding_key).any():
-                        raise ValueError(
-                            'The last token in the prompt should not be the pad token. Please double '
-                            + 'check the dataloader and prompt and dataloader.',
-                        )
-                elif key == 'prompt_attention_mask':
-                    padding_key = False
+                    if key == 'prompt':
+                        padding_key = self.pad_token_idx
+                        if (batch[key][:, -1] == padding_key).any():
+                            raise ValueError(
+                                'The last token in the prompt should not be the pad token. Please double '
+                                +
+                                'check the dataloader and prompt and dataloader.',
+                            )
+                    elif key == 'prompt_attention_mask':
+                        padding_key = False
 
-                pad = torch.ones(
-                    (bs, max_len - seq_len),
-                    dtype=batch[key].dtype,
-                ) * padding_key  # type: ignore
-                curr_values.append(torch.cat([pad, batch[key]], dim=-1))
+                    # Compute the required padding and concatenate with the batch tensor
+                    pad = torch.ones(
+                        (bs, max_len - seq_len),
+                        dtype=batch[key].dtype,
+                    ) * padding_key  # type: ignore
+                    curr_values.append(torch.cat([pad, batch[key]], dim=-1))
 
-            ret_batch[key] = torch.cat(curr_values)
+            # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
+            if isinstance(curr_values[0], torch.Tensor):
+                ret_batch[key] = torch.cat(curr_values)
+            else:
+                if key == 'verified_answer':
+                    ret_batch[key] = list(utils.flatten(curr_values))
+                else:
+                    # this is an edge case that we will not hit currently, but just handling it as needed
+                    ret_batch[key] = curr_values
 
         return ret_batch
 
@@ -591,6 +671,7 @@ class PPOCallback(CallbackWithConfig):
                 generation_kwargs=self.generation_kwargs,
                 tokenizer=self.tokenizer,  # type: ignore
                 eos_token_ids=self.eos_token_ids,  # type: ignore
+                kl_estimator=self.kl_estimator,
             )
 
             self.prompts_and_gens.extend(prompts_and_gens)

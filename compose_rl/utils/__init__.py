@@ -9,6 +9,7 @@ from compose_rl.utils.utils import (
     compute_advantages,
     dist_compute_masked_mean_and_var,
     extract_packed_chosen_rejected,
+    flatten,
     flip_pad_token_usage_for_generate,
     flip_pad_token_usage_in_ffn,
     format_reward_input,
@@ -79,4 +80,5 @@ __all__ = [
     'create_vllm_engines',
     'init_process_group',
     'broadcast_to_vllm',
+    'flatten',
 ]

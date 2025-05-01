@@ -189,7 +189,9 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
             )
 
     def eval_forward(self, batch: MutableMapping, outputs: MutableMapping):
-        raise ValueError('Eval forward is not supported for ComposerHFPolicy.',)
+        raise ValueError(
+            'Eval forward is not supported for ComposerHFPolicy.',
+        )
 
     def loss(self, outputs: MutableMapping, batch: MutableMapping):
         return_dict, kl_loss = ppo_loss(
