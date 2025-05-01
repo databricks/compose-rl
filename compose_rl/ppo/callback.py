@@ -45,8 +45,8 @@ from compose_rl.utils import (
     create_vllm_engines,
     dist_compute_masked_mean_and_var,
     get_decoded_sequence,
-    get_log_probs,
     get_entropies,
+    get_log_probs,
     init_process_group,
     mask_eos,
     masked_mean,
@@ -780,7 +780,7 @@ class PPOCallback(CallbackWithConfig):
             center_reward_mean=self.center_reward_mean,
         )
         env_outs.update(rew_outs)
-        
+
         # Keep track of prompt ids and rewards
         prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
         rewards = env_outs['rewards'].sum(dim=-1).detach().cpu().tolist()
@@ -845,13 +845,11 @@ class PPOCallback(CallbackWithConfig):
         )
         # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation)
         columns = ['prompt_id', 'reward', 'prompt', 'generation']
-        save_data = [
-            (prompt_id, reward, prompt, generation)
-            for (prompt_id, reward), (prompt, generation) in zip(
-                prompt_ids_and_rewards,
-                prompts_and_gens,
-            )
-        ]
+        save_data = [[prompt_id, reward, prompt, generation]
+                     for (prompt_id, reward), (prompt, generation) in zip(
+                         prompt_ids_and_rewards,
+                         prompts_and_gens,
+                     )]
         # Sort the save_data by reward in descending order
         save_data = sorted(save_data, key=lambda x: x[1], reverse=True)
 
