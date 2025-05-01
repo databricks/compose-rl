@@ -133,7 +133,7 @@ class PromptStreamingDataset(StreamingDataset):
                     log.error(
                         f'Failed to decode metadata with error: {e}',
                     )
-                    _answer = ''
+                    _metadata = ''
 
             item_dict['metadata'] = _metadata  # type: ignore
 
