@@ -207,9 +207,15 @@ class UnifiedTokenizedDataset(IterableDataset):
             )
             return None
 
+        metadata = sample.get('metadata', None)
+        if metadata is None:
+            log.warning(f'No metadata found for sample: {sample}')
+            return None
+
         return {
             'prompt': np.asarray(encoded_prompt).tobytes(),
             'verified_answer': verified_answer,
+            'metadata': metadata,
         }
 
     def _check_for_encoding(self, sample: str) -> bool:
@@ -229,12 +235,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         except UnicodeEncodeError:
             return False
 
-        if _sample != sample:
-            log.warning(f'Encoding error for sample: {sample}')
-            return False
-
-        if _sample == '':
-            log.warning(f'Encoding error for sample: {sample}')
+        if _sample != sample or _sample == '':
             return False
 
         return True
@@ -263,6 +264,7 @@ def main(
         'verifiable_answers': {
             'prompt': 'bytes',
             'verified_answer': 'str',
+            'metadata': 'str',
         },
         'classifier': {
             'input': 'bytes',

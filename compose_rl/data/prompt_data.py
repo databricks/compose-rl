@@ -47,7 +47,7 @@ def prompt_dataset_collate_fn(
         if key == 'prompt_id':
             collated_batch[key] = torch.tensor(cur_values)
             continue
-        if key in ['verified_answer']:
+        if key in ['verified_answer', 'metadata']:
             collated_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
                 utils.flatten(cur_values),
             )
@@ -121,5 +121,20 @@ class PromptStreamingDataset(StreamingDataset):
                     _answer = ''
 
             item_dict['verified_answer'] = _answer  # type: ignore
+
+        metadata = sample.get('metadata', None)
+        if metadata:
+            if isinstance(metadata, str):
+                _metadata = metadata
+            else:
+                try:
+                    _metadata = metadata.decode('utf-8', errors='strict')
+                except UnicodeDecodeError as e:
+                    log.error(
+                        f'Failed to decode metadata with error: {e}',
+                    )
+                    _answer = ''
+
+            item_dict['metadata'] = _metadata  # type: ignore
 
         return item_dict

@@ -303,6 +303,7 @@ class RewardManager:
         device_train_microbatch_size: int,
         kl_estimator: str,
         verified_answers: Optional[list[str]] = None,
+        metadata: Optional[list[str]] = None,
     ) -> tuple[ReferenceOutput, RewardOutput]:
         """Collect rewards for generations.
 
@@ -326,6 +327,7 @@ class RewardManager:
             device_train_microbatch_size (int): The device train microbatch size, which we need to compute log_probs otherwise we see numerical differences.
             kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
             verified_answers (Optional[list[str]]): A list of answers for verifiable rewards.
+            metadata (Optional[list[str]]): A list of metadata for verifiable rewards.
 
         Returns:
             ReferenceOutput: A tuple of float tensors. The first tensor is the
@@ -367,6 +369,8 @@ class RewardManager:
         }
         if verified_answers is not None:
             batch['verified_answers'] = verified_answers
+        if metadata is not None:
+            batch['metadata'] = metadata
 
         for reward_name in chain(
             self.functional_rewards,
