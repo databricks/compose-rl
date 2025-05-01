@@ -431,6 +431,11 @@ class PPOCallback(CallbackWithConfig):
 
             self.vllm_sync_backend = var_config.get('vllm_sync_backend', 'nccl')
             self.test_prompt = 'Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions.'
+        else:
+            # HF generate route extra checks
+            num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
+            if num_gen_calls <= 0:
+                raise ValueError(f'{num_gen_calls=} must be greater than 0')
 
     def init(self, state: State, logger: Logger):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
@@ -654,8 +659,6 @@ class PPOCallback(CallbackWithConfig):
                 # Determine the number of generating calls we want to make
                 # We can have the generate size be greater than the device train microbatch size
                 num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
-                if num_gen_calls <= 0:
-                    raise ValueError(f'{num_gen_calls=} must be greater than 0')
 
                 gen_batch_partial_outputs = []
                 all_sequences = []
