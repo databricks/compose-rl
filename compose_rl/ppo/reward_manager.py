@@ -96,7 +96,6 @@ class RewardManager:
 
         for reward_name, reward_config in self.config.items():
             assert isinstance(reward_name, str)
-
             if reward_name in self.all_rewards:
                 raise KeyError(
                     f'The reward manager already has a model with {reward_name=}',
@@ -105,17 +104,17 @@ class RewardManager:
             log.info(f'Initializing reward with name {reward_name}')
 
             # TODO: Validate reward_config
-            reward_name = reward_config.pop('reward_type')
-            reward_cls = rewards_registry.get(reward_name)
+            reward_type = reward_config.pop('reward_type')
+            reward_cls = rewards_registry.get(reward_type)
 
             if issubclass(reward_cls, Reward):
                 # TODO: This assumes that all functional rewards are document level rewards.
                 # This is not necessarily true, but is a reasonable assumption for now.
                 self.granularities[reward_name] = 'document'
                 model = build_rewards(
-                    name=reward_name,
+                    name=reward_type,
                     tokenizer=self.tokenizer,
-                    kwargs=reward_config,
+                    kwargs={'cfg': reward_config},
                 )
                 self.functional_rewards.append(reward_name)
 
@@ -125,9 +124,10 @@ class RewardManager:
                 )
 
                 if reward_cls == InferenceRewardModel:
-                    model = InferenceRewardModel(
-                        reward_config.get('config'),
-                        self.tokenizer,
+                    model = build_rewards(
+                        name=reward_type,
+                        tokenizer=self.tokenizer,
+                        kwargs=reward_config.get('config', {}),
                     )
                     self.inference_rewards.append(reward_name)
 

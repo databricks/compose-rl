@@ -3,9 +3,6 @@
 
 from llmfoundry.utils.registry_utils import create_registry
 
-from compose_rl.ppo.kl_controller import BaseKLController
-from compose_rl.reward_learning.base_reward import BaseReward
-
 _rewards_description = (
     """The function rewards registry is used to register classes that implement function rewards.
 
@@ -22,7 +19,7 @@ _rewards_description = (
 rewards = create_registry(
     'llmfoundry',
     'rewards',
-    generic_type=type[BaseReward],
+    generic_type=None, # pyright: ignore[reportGeneralTypeIssues]
     entry_points=True,
     description=_rewards_description,
 )
@@ -43,9 +40,21 @@ _kl_controller_description = (
 kl_controllers = create_registry(
     'llmfoundry',
     'kl_controllers',
-    generic_type=type[BaseKLController],
+    generic_type=None, # pyright: ignore[reportGeneralTypeIssues]
     entry_points=True,
     description=_kl_controller_description,
 )
 
-__all__ = ['rewards', 'kl_controllers']
+
+def initialize_registries():
+    """Initialize registries with their types after all modules are loaded."""
+    from compose_rl.ppo.kl_controller import BaseKLController
+    from compose_rl.reward_learning.base_reward import BaseReward
+
+    rewards.generic_type = type[  # pyright: ignore[reportGeneralTypeIssues]
+        BaseReward]
+    kl_controllers.generic_type = type[  # pyright: ignore[reportGeneralTypeIssues]
+        BaseKLController]
+
+
+__all__ = ['rewards', 'kl_controllers', 'initialize_registries']
