@@ -15,14 +15,14 @@ from compose_rl import registry
 from compose_rl.ppo.kl_controller import BaseKLController
 from compose_rl.reward_learning import BaseReward
 
-__all__ = ['build_kl_controllers', 'build_rewards']
+__all__ = ['build_kl_controller', 'build_reward']
 
 log = logging.getLogger(__name__)
 
 Tokenizer = Optional[Union[PreTrainedTokenizer, PreTrainedTokenizerFast]]
 
 
-def build_kl_controllers(
+def build_kl_controller(
     name: str,
     kl_config: dict[Any, Any],
     device: Optional[str] = None,
@@ -52,7 +52,7 @@ def build_kl_controllers(
     )
 
 
-def build_rewards(
+def build_reward(
     name: str,
     tokenizer: Tokenizer,
     kwargs: Optional[dict[str, Any]] = None,
@@ -67,7 +67,6 @@ def build_rewards(
     Returns:
         BaseReward: The reward model.
     """
-    registry_to_use = registry.rewards
     if name in registry.rewards:
         if kwargs is None:
             kwargs = {}
@@ -76,11 +75,10 @@ def build_rewards(
                 f'`tokenizer` is a reserved keyword for rewards. Please remove it from the kwargs.',
             )
         kwargs['tokenizer'] = copy.deepcopy(tokenizer)
-        registry_to_use = registry.rewards
 
     return construct_from_registry(
         name=name,
-        registry=registry_to_use,
+        registry=registry.rewards,
         partial_function=True,
         pre_validation_function=BaseReward,
         post_validation_function=None,

@@ -13,10 +13,6 @@ except ImportError:
 import compose_rl.dpo as dpo
 import compose_rl.reward_learning as reward_learning
 from compose_rl import data, metrics, utils
-from compose_rl.registry import initialize_registries
-
-# Initialize registries after all modules are loaded
-initialize_registries()
 
 __all__ = [
     'utils',

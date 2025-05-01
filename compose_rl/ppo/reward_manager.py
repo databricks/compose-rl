@@ -19,9 +19,9 @@ from llmfoundry.utils.config_utils import process_init_device  # type: ignore
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from compose_rl.ppo.kl_controller import BaseKLController
+from compose_rl.interfaces.base_kl_controller import BaseKLController
 from compose_rl.registry import rewards as rewards_registry
-from compose_rl.registry_builders import build_rewards
+from compose_rl.registry_builders import build_reward
 from compose_rl.reward_learning import (
     BadGenerationEndReward,
     BaseReward,
@@ -111,7 +111,7 @@ class RewardManager:
                 # TODO: This assumes that all functional rewards are document level rewards.
                 # This is not necessarily true, but is a reasonable assumption for now.
                 self.granularities[reward_name] = 'document'
-                model = build_rewards(
+                model = build_reward(
                     name=reward_type,
                     tokenizer=self.tokenizer,
                     kwargs={'cfg': reward_config},
@@ -124,7 +124,7 @@ class RewardManager:
                 )
 
                 if reward_cls == InferenceRewardModel:
-                    model = build_rewards(
+                    model = build_reward(
                         name=reward_type,
                         tokenizer=self.tokenizer,
                         kwargs=reward_config.get('config', {}),
