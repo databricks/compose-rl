@@ -106,6 +106,7 @@ def init_process_group(
 
     return pg
 
+
 class WorkerWrap:
 
     def init_process_group(
@@ -173,6 +174,7 @@ class WorkerWrap:
         if empty_cache:
             torch.cuda.empty_cache()
 
+
 def create_vllm_engines(
     num_engines: int,
     tensor_parallel_size: int,
@@ -182,6 +184,7 @@ def create_vllm_engines(
     seed: int,
     enable_prefix_caching: bool,
     max_model_len: int,
+    vllm_gpu_memory_utilization: float = 0.9,
 ):
     """Creates vllm engines.
 
@@ -194,6 +197,7 @@ def create_vllm_engines(
         seed (int): Seed for random number generation
         enable_prefix_caching (bool): Whether to enable prefix caching
         max_model_len (int): Maximum model length
+        vllm_gpu_memory_utilization (float): GPU memory utilization for vllm
     """
     bundles = [{
         'GPU': 1,
@@ -244,6 +248,7 @@ def create_vllm_engines(
                 seed=seed + i,
                 enable_prefix_caching=enable_prefix_caching,
                 max_model_len=max_model_len,
+                gpu_memory_utilization=vllm_gpu_memory_utilization,
                 bundle_indices=bundle_indices,
                 num_gpus=1,
             ),
