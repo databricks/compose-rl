@@ -247,7 +247,7 @@ def create_vllm_engines(
                 revision=revision,
                 tokenizer_revision=revision,
                 trust_remote_code=True,
-                worker_extension_class='compose_rl.utils.vllm_utils.WorkerWrap',
+                worker_extension_cls='compose_rl.utils.vllm_utils.WorkerWrap',
                 tensor_parallel_size=tensor_parallel_size,
                 enforce_eager=enforce_eager,
                 dtype='bfloat16',
