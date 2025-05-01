@@ -782,40 +782,36 @@ class PPOCallback(CallbackWithConfig):
         env_outs.update(rew_outs)
         
         # Keep track of prompt ids and rewards
-        prompt_ids = env_outputs['prompt_id'].detach().cpu().tolist()
-        rewards = env_outputs['rewards'].sum(dim=-1).detach().cpu().tolist()
+        prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
+        rewards = env_outs['rewards'].sum(dim=-1).detach().cpu().tolist()
         self.prompt_ids_and_rewards.extend(list(zip(prompt_ids, rewards)))
-        print(f"{len(prompt_ids)}")
-        print(f"{len(rewards)}")
-        breakpoint()
 
         # Adding the right_padded_attn_mask to the env_outputs
         env_outs['right_padded_attn_mask'] = torch.logical_not(
             torch.eq(env_outs['obs'], self.pad_token_idx),  # type: ignore
         )
-        env_outputs = env_outs
 
         # Now that rewards are resolved, we can compute advantages
-        env_outputs['advantages'] = compute_advantages(
-            rewards=env_outputs['rewards'],
-            values=env_outputs['values'],
+        env_outs['advantages'] = compute_advantages(
+            rewards=env_outs['rewards'],
+            values=env_outs['values'],
             gamma=self.gamma,
             lambda_gae=self.lambda_gae,
         )
 
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            env_outputs['advantages'],
-            env_outputs['action_mask'],
+            env_outs['advantages'],
+            env_outs['action_mask'],
         )
 
         mean_ift = masked_mean(
-            env_outputs['ift_kl'],
-            env_outputs['action_mask'],
+            env_outs['ift_kl'],
+            env_outs['action_mask'],
         )
 
         self.kl_ift.append(mean_ift.cpu())
 
-        iter_batch.update(env_outputs)
+        iter_batch.update(env_outs)
 
         iter_batch.update({
             'max_gen_len':
@@ -829,7 +825,7 @@ class PPOCallback(CallbackWithConfig):
                 torch.ones(self.iter_batch_size) * self.kl_ctl.value,
             'reward_std':
                 torch.ones(self.iter_batch_size) *
-                env_outputs['rewards'].std().to('cpu'),
+                env_outs['rewards'].std().to('cpu'),
         })
 
         # Moving minibatches to CPU to not take additional GPU memory
