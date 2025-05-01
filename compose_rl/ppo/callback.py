@@ -47,6 +47,7 @@ from compose_rl.utils import (
     dist_compute_masked_mean_and_var,
     get_decoded_sequence,
     get_log_probs,
+    get_entropies,
     init_process_group,
     mask_eos,
     masked_mean,
@@ -214,6 +215,7 @@ def env_reward(
         # there are numerical differences at training time.
         # log probs will be [batch_size, generated_len]
         log_probs = []
+        entropies = []
         values = []
 
         input_model_kwargs = {
@@ -246,10 +248,18 @@ def env_reward(
                 prompt_len=cur_prompt_len,
                 max_gen_len=max_gen_len,
             )
+            cur_entropies = get_entropies(
+                logits=cur_logits,
+                actions=cur_actions,
+                prompt_len=cur_prompt_len,
+                max_gen_len=max_gen_len,
+            )
             log_probs.append(cur_log_probs)
+            entropies.append(cur_entropies)
             values.append(cur_values)
 
         device_train_microbatch_log_probs = torch.cat(log_probs)
+        device_train_microbatch_entropies = torch.cat(entropies)
         device_train_microbatch_values = torch.cat(values)
 
         # Need to add in the padding for the value function
@@ -264,6 +274,7 @@ def env_reward(
             'prompt_id': prompt_id,
             'actions': actions.detach(),
             'old_log_probs': device_train_microbatch_log_probs.detach(),
+            'old_entropies': device_train_microbatch_entropies.detach(),
             'obs': right_padded_obs.detach(),
             'generated_len': generated_len,
             'action_mask': action_mask,
