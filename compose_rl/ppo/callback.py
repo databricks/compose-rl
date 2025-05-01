@@ -11,7 +11,7 @@ import os
 import socket
 import time
 from itertools import chain
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import ray
 import torch
@@ -129,8 +129,8 @@ def env_reward(
 
         start_gen_time = time.time()
 
-        assert 'sequences' in batch, f"sequences is not in batch {batch.keys()=}"
-        
+        assert 'sequences' in batch, f'sequences is not in batch {batch.keys()=}'
+
         sequences = batch['sequences']
 
         num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
@@ -206,9 +206,7 @@ def env_reward(
             generated_text = tokenizer.decode(  # type:  ignore
                 get_decoded_sequence(actions[i], generated_len[i],
                                             max_gen_len))
-            untokenized_prompt_and_responses.append(
-                (prompt, generated_text),
-            )
+            untokenized_prompt_and_responses.append((prompt, generated_text),)
 
         # Making logits [batch_size, generated_len, vocab_size]
         # We need to recompute the logits here. Otherwise there are numerical differences
@@ -229,9 +227,10 @@ def env_reward(
         # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
         for i in range(batch_size // device_train_microbatch_size):
             curr_kwargs = {
-                key: value[i * device_train_microbatch_size:(i + 1) *
-                            device_train_microbatch_size]
-                if isinstance(value, torch.Tensor) else value
+                key:
+                    value[i * device_train_microbatch_size:(i + 1) *
+                          device_train_microbatch_size]
+                    if isinstance(value, torch.Tensor) else value
                 for key, value in input_model_kwargs.items()
             }
             cur_output = actor_critic(curr_kwargs)
@@ -258,7 +257,7 @@ def env_reward(
             action_mask,
             torch.zeros((batch_size, 1), device=cur_device),
         ],
-                                        dim=-1)
+                                      dim=-1)
         device_train_microbatch_values *= value_action_mask
 
         partial_env_output = {
@@ -694,10 +693,9 @@ class PPOCallback(CallbackWithConfig):
             max_gen_len=self.max_gen_len,
             precision=self.precision,
             device_train_microbatch_size=self.device_train_microbatch_size,
-            kl_estimator=self.kl_estimator,
-            generation_kwargs=self.generation_kwargs,
             tokenizer=self.tokenizer,  # type: ignore
             eos_token_ids=self.eos_token_ids,  # type: ignore
+            kl_estimator=self.kl_estimator,
         )
 
         self.prompts_and_gens.extend(prompts_and_gens)

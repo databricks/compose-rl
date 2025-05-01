@@ -3,11 +3,11 @@
 
 """All generation utils for the llm or vllm engines."""
 
+import gc
 import logging
 import time
-from typing import Optional, Union
+from typing import Union
 
-import gc
 import ray
 import torch
 from composer.utils import dist
@@ -81,8 +81,9 @@ def hf_generate(
 
     return sequences
 
+
 def vllm_generate(
-    vllm_engines: Optional[list],
+    vllm_engines: list,
     batch: dict,
     max_gen_len: int,
     generation_kwargs: dict,
@@ -104,6 +105,7 @@ def vllm_generate(
         sequences (tensor): Tensor containing the prompt and generated sequences.
             The shape of the tensor is [batch_size, prompt_len + max_gen_len].
     """
+    assert type(vllm_engines) is list, 'vllm_engines must be a list'
     # 1. Gather all prompts from all ranks
     # 2. Run generate over all prompts in one go
     # 3. Scatter the generated responses back to the correct rank
@@ -121,9 +123,7 @@ def vllm_generate(
     log.info(
         f'took : {time.time() - prompt_all_gather_start_time} to gather prompts',
     )
-    all_prompts = [
-        prompt for batch in all_batched_prompts for prompt in batch
-    ]
+    all_prompts = [prompt for batch in all_batched_prompts for prompt in batch]
 
     if dist.get_global_rank() == 0:
         futs = []
@@ -140,7 +140,7 @@ def vllm_generate(
             for token in prompt.detach().cpu().tolist()
             if token != pad_token_id
         ]
-                    for prompt in all_prompts]
+                       for prompt in all_prompts]
 
         # Generate with vllm
         # Calculate the base batch size
@@ -179,9 +179,7 @@ def vllm_generate(
         # Get all of the ray futures
         for i, result in enumerate(results):
             # Each result is a list of responses this assumes one output per input
-            all_responses.extend([
-                resp.outputs[0].token_ids for resp in result
-            ])
+            all_responses.extend([resp.outputs[0].token_ids for resp in result])
 
         log.info(
             f'took: {time.time() - start_time} to gather futures',
