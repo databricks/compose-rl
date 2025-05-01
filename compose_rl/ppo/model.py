@@ -12,6 +12,7 @@ from composer.models import HuggingFaceModel
 from composer.utils import dist, is_model_fsdp
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
+from llmfoundry.models import ComposerHFCausalLM
 from compose_rl.ppo.modeling_hf import ComposerHFPolicy
 from compose_rl.ppo.modeling_mpt import MPTForPolicy
 from compose_rl.ppo.modeling_utils import composer_ppo_forward, ppo_loss
@@ -226,3 +227,39 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
 
     def set_batch_stats(self, batch_stats: dict[str, Any]):
         self.batch_stats = batch_stats
+
+
+
+class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
+    """HF class wrapper for Critic Free Policy model."""
+
+    def __init__(
+        self,
+        **kwargs: Any,
+    ):
+        super().__init__(**kwargs)
+        self.policy_kl = []
+
+
+    def eval_forward(
+        self,
+        batch: MutableMapping,
+        outputs: MutableMapping,
+    ) -> None:
+        raise ValueError('Eval forward is not implemented for ComposerHFDPOLM.')
+
+    def loss(self, outputs: MutableMapping, batch: MutableMapping) -> dict[str, torch.Tensor]:
+        breakpoint()
+        return_dict, kl_loss = grpo_loss(
+            outputs,
+            batch,
+            self.config.value_clip_range,
+            self.config.policy_clip_ratio,
+            self.config.value_loss_weight,
+            self.compute_kl_loss,  # pyright: ignore
+        )
+
+        self.policy_kl.append(kl_loss)
+
+        return return_dict
+
