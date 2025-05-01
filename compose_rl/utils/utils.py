@@ -971,8 +971,8 @@ def get_entropies_from_logits(logits: torch.Tensor, actions: torch.Tensor):
     # Adding small epsilon to avoid log(0)
     pointwise_entropies = -actions_probs * torch.log(actions_probs + 1e-10)
 
-    # Sum over sequence length (dim=1) to get one entropy value per sequence
-    sequence_entropies = torch.sum(pointwise_entropies, dim=1)
+    # Mean over sequence length (dim=1) to get one entropy value per sequence
+    sequence_entropies = torch.mean(pointwise_entropies, dim=1)
 
     return sequence_entropies
 
