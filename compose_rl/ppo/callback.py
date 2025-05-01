@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import gc
 import logging
 import os
 import socket
@@ -128,22 +127,9 @@ def env_reward(
         cur_device = prompt_tokens.device
         prompt_dtype = prompt_tokens.dtype
 
-        start_gen_time = time.time()
-
         assert 'sequences' in batch, f'sequences is not in batch {batch.keys()=}'
 
         sequences = batch['sequences']
-
-        num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
-
-        log.info(
-            f'It took {time.time() - start_gen_time} to generate {num_tokens_generated} tokens',
-        )
-
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
         generated_len = torch.ones(
             batch_size,
             device=cur_device,
@@ -169,7 +155,10 @@ def env_reward(
             )
 
         # Sanity checking we're adding max_gen_len to prompt_tokens
-        assert prompt_tokens.size(1) + max_gen_len == sequences.size(1)
+        if prompt_tokens.size(1) + max_gen_len != sequences.size(1):
+            raise ValueError(
+                f'Prompts {prompt_tokens.size(1)} + max_gen_len {max_gen_len} != sequences {sequences.size(1)}',
+            )
 
         # Actions are what tokens the current policy would generate.
         actions = sequences[:, -max_gen_len:]
