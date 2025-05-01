@@ -2,17 +2,17 @@ run_name:  # TODO: fill in
 max_seq_len: 2048
 
 variables:
-  # tokenizer_name: meta-llama/Meta-Llama-3.1-8B-Instruct
-  tokenizer_name: meta-llama/Llama-3.2-3B-Instruct
+  tokenizer_name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  # tokenizer_name: meta-llama/Llama-3.2-3B-Instruct
 
-  num_train_gpus: 7
+  # This is needed if you're running locally
+  num_train_gpus: 6
 
   # Number of training nodes
   # Number of inference nodes will be total number of nodes - num_train_nodes
   num_train_nodes: 1
-  # Number of vLLM engines partitioned across inference
-  num_vllm_engines: 1
-  vllm_tensor_parallel_size: 1
+
+  vllm_tensor_parallel_size: 2
 
   eos_token_ids: 
   - 128001
@@ -26,8 +26,8 @@ variables:
       init_device: meta
       use_auth_token: true
       use_flash_attention_2: true
-      # pretrained_model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
-      pretrained_model_name_or_path: meta-llama/Llama-3.2-3B-Instruct
+      pretrained_model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+      # pretrained_model_name_or_path: meta-llama/Llama-3.2-3B-Instruct
 
     precision: amp_bf16
 
@@ -52,7 +52,7 @@ variables:
 
   generation_kwargs:
     top_p: 1.0
-    top_k: 0
+    # top_k: -1
     use_cache: True
     temperature: 1.0
     do_sample: True
@@ -97,7 +97,7 @@ model:
 
 # load_path: # TODO: fill in load path if applicable
 # load_path: oci://mosaicml-internal-checkpoints/bcui/ift/llama8b-sft-l31-405b-dbrx-prompts-5ep-lre-3e-06-nXzzBK/ep5-ba1570/
-load_path: llama8b-model-ift/
+load_path: llama8b-ep5
 load_weights_only: true
 load_ignore_keys:
 # - "state/model.critic_head.*"
@@ -155,7 +155,7 @@ scheduler:
   t_warmup: 0ba
   t_max: 12800ep
 
-global_train_batch_size: 14
+global_train_batch_size: 42
 device_train_microbatch_size: 1
 device_eval_batch_size: 1
 

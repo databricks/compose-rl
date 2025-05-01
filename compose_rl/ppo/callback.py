@@ -415,6 +415,7 @@ class PPOCallback(CallbackWithConfig):
             'vllm_tensor_parallel_size',
             None,
         )
+        
         if self.vllm_tensor_parallel_size is not None:
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
@@ -435,6 +436,12 @@ class PPOCallback(CallbackWithConfig):
 
             inference_nodes = total_num_nodes - num_train_nodes
             inference_gpus = inference_nodes * lws
+
+            if inference_gpus == 0:
+                log.info(f'Manually copmuting inference gpus via nodes led to 0 GPUs. ')
+                inference_gpus = int(os.getenv('NUM_INFERENCE_GPUS', None))
+                log.info(f'Using {inference_gpus=} from NUM_INFERENCE_GPUS env var instead.')
+
             assert inference_gpus % self.vllm_tensor_parallel_size == 0, f' {inference_gpus=} must be divisible by {self.vllm_tensor_parallel_size=}.'
             self.num_vllm_engines = inference_gpus // self.vllm_tensor_parallel_size
 

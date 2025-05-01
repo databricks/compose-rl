@@ -99,174 +99,6 @@ def recv_string(src: int) -> str:
 
     return data_tensor.numpy().tobytes().decode('utf-8')
 
-
-def start_ray_nodes():
-    rank = int(os.getenv('NODE_RANK'))  # type: ignore
-    world_size = int(os.getenv('NUM_NODES'))  # type: ignore
-    local_rank = os.getenv('LOCAL_RANK', None)
-    assert local_rank is not None, 'LOCAL_RANK is usually set via composer'
-    local_rank = int(local_rank)
-
-    train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
-
-    if train_num_nodes is not None and rank != 0:
-        log.info(
-            "On a training node or rank that isn't the master node no need to start ray.",
-        )
-        return
-
-    if local_rank != 0:
-        log.info('Not starting ray on non-master local rank, exiting.')
-        return
-
-    vars_to_check = ['MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'NODE_RANK']
-    for var in vars_to_check:
-        log.warning(f"{var}: {os.environ.get(var, 'Not set')}")
-
-    log.info('Starting gloo backend process.')
-
-    dist.init_process_group(
-        backend='gloo',
-        init_method='env://',
-        world_size=world_size,
-        rank=rank,
-    )
-
-    log.info('Finished setting up gloo backend process.')
-
-    node_rank = os.getenv('NODE_RANK', None)
-    if node_rank is None:
-        raise ValueError('NODE_RANK must be set')
-    node_rank = int(node_rank)
-
-    if node_rank == 0:
-        result = subprocess.run(
-            ['ray', 'start', '--head', '--port=6379'],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            log.debug('Error starting Ray!')
-            log.debug(f'STDOUT: {result.stdout}')
-            log.debug(f'STDERR: {result.stderr}')
-        log.info(repr(result.stdout))
-
-        ip = parse_ray_local_ip(result.stdout)
-        log.info(f'On rank 0 IP is: {ip}')
-
-        # Send the local node IP to other ranks
-        broadcast_string(ip, src_rank=0)
-
-        ray.init()
-        # Wait for all ray clusters to start
-        dist.barrier()
-
-        log.info('Waiting 10 seconds for all ray clusters to start.')
-
-        log.info('On rank 0 printing all possible nodes')
-        for node in ray.nodes():
-            log.info(f"Node: {node['NodeManagerAddress']}")
-            log.info(f"Resources: {node['Resources']}")
-            log.info(f"Alive: {node['Alive']}\n")
-
-    elif node_rank > 0:
-        # Ranks 1..(world_size-1) -> receive message from rank 0
-        incoming_msg = broadcast_string('', src_rank=0)
-        log.info(f'[Rank {rank}] Received message from rank 0: {incoming_msg}')
-
-        start_ray_ip = f'{incoming_msg}:6379'
-        log.info(
-            f'trying to start ray on rank {node_rank} with ip: {start_ray_ip}',
-        )
-
-        # We use worker node as a variable to consume later
-        cmd = [
-            'ray',
-            'start',
-            f'--address={start_ray_ip}',
-            '--resources={\"worker_node\": 8, \"accelerator_type:H100\":8}',
-        ]
-
-        try:
-            result = subprocess.run(
-                cmd,
-                check=True,
-                # capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            log.error(f'error is: {e}')
-            log.error(f'Command failed with exit code {e.returncode}')
-
-        log.info(f'successfully started ray on node rank {node_rank}')
-        dist.barrier()
-
-    else:
-        raise ValueError('NODE_RANK must be 0 or greater than 0')
-
-    log.info('Starting to destroy process group.')
-    dist.destroy_process_group()
-    log.info('Finished destroying process group.')
-    log.info('Finished initializing ray nodes.')
-
-
-def reassign_train_and_inference_ranks(
-    num_train_nodes: int,
-    num_inference_nodes: int,
-):
-    """Reassigns the ranks for training and inference nodes.
-
-    Args:
-        num_train_nodes (int): The number of training nodes
-        num_inference_nodes (int): The number of inference nodes
-    """
-    node_rank = os.getenv('NODE_RANK', None)
-    local_world_size = os.getenv('LOCAL_WORLD_SIZE', None)
-    assert node_rank is not None
-    assert local_world_size is not None
-    init_rank = int(node_rank)
-    local_world_size = int(local_world_size)
-
-    local_rank = os.getenv('LOCAL_RANK', None)
-    assert local_rank is not None, 'LOCAL_RANK is usually set via composer'
-    local_rank = int(local_rank)
-
-    train_world_size = str(num_train_nodes * int(local_world_size))
-
-    if init_rank < num_train_nodes:
-        log.info('Reassinging env vars for training')
-        world_size = os.getenv('WORLD_SIZE', None)
-        master_port = os.getenv('MASTER_PORT', None)
-        assert world_size is not None
-        assert master_port is not None
-
-        os.environ['NUM_NODES'] = str(num_train_nodes)
-        os.environ['TRAIN_NUM_NODES'] = str(num_train_nodes)
-
-        os.environ['WORLD_SIZE'] = train_world_size
-        os.environ['TRAIN_WORLD_SIZE'] = train_world_size
-
-        if init_rank == 0 and local_rank == 0:
-            log.info(
-                f'For node 0 and rank 0 setting world size to {num_inference_nodes} to set up ray.',
-            )
-            os.environ['NUM_NODES'] = str(num_inference_nodes)
-            # Need to set this here to avoid duplication
-            os.environ['TRAIN_MASTER_PORT'] = master_port
-            # TODO: find a more stable way to find these ports.
-            # the open port was found by socket bind...
-            os.environ['MASTER_PORT'] = str(40977)
-
-    else:
-        log.info('Reassigning env vars for inference')
-        os.environ['NODE_RANK'] = str(init_rank - num_train_nodes + 1)
-
-        # We need to account for our master node here for communication
-        os.environ['NUM_NODES'] = str(num_inference_nodes)
-        os.environ['MASTER_PORT'] = str(40977)
-
 def start_ray_nodes(num_inference_gpus):
     local_rank = os.getenv('LOCAL_RANK', None)
     assert local_rank is not None, 'LOCAL_RANK is usually set via composer'
@@ -296,27 +128,21 @@ def start_ray_nodes(num_inference_gpus):
     log.info('done starting ray server')
 
 
-def reassign_train_and_inference_ranks(num_train_gpus, num_inference_gpus):
+def reassign_train_and_inference_gpus(num_train_gpus, num_inference_gpus):
     local_rank = os.getenv('LOCAL_RANK', None)
     assert local_rank is not None, 'LOCAL_RANK is usually set via composer'
     local_rank = int(local_rank)
-
-    # Print the number of visible CUDA devices
-    # print("CUDA visible devices:", torch.cuda.device_count())
-
-    # List each visible device
-    # for i in range(torch.cuda.device_count()):
-        # print(f"Device {i}: {torch.cuda.get_device_name(i)}")
 
     if local_rank < num_train_gpus:
         os.environ['LOCAL_WORLD_SIZE'] = str(num_train_gpus)
         os.environ['WORLD_SIZE'] = str(num_train_gpus)
         os.environ['TRAINING'] = '1'
+        os.environ['NUM_INFERENCE_GPUS'] = str(num_inference_gpus)
     
     else:
         log.info('Reassigning env vars for inference')
         # TODO: figure out if we need to mess around with this more...
-        # We should set the visible 
+        # We should set the visible divices on inference nodes so they only see the inference GPUs
         os.environ["CUDA_VISIBLE_DEVICES"] = f"{os.getenv('LOCAL_RANK')}"
         log.info(f"Set inference visible devices to: {os.environ['CUDA_VISIBLE_DEVICES']}")
         os.environ['LOCAL_WORLD_SIZE'] = str(num_inference_gpus)
@@ -337,10 +163,15 @@ if __name__ == '__main__':
     num_nodes = int(num_nodes)
     assert num_nodes == 1
 
+    # Set the environment variables for the total number of nodes
+    # since NUM_NODES is overridden by train_num_node
+    os.environ['TOTAL_NUM_NODES'] = str(num_nodes)
+    os.environ['TRAIN_NUM_NODES'] = str(num_nodes)
+
     num_train_gpus = yaml_cfg['variables']['num_train_gpus']  # type: ignore
     num_inference_gpus = num_gpus - num_train_gpus
 
-    reassign_train_and_inference_ranks(num_train_gpus, num_inference_gpus)
+    reassign_train_and_inference_gpus(num_train_gpus, num_inference_gpus)
     start_ray_nodes(num_inference_gpus)
 
     sync_actor = None
