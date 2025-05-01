@@ -381,6 +381,7 @@ class PPOCallback(CallbackWithConfig):
         self.wandb_logger = None
         self.mlflow_logger = None
         self.prompts_and_gens = []
+        self.prompt_ids_and_rewards = []
         self.iter_num = 0
         self.train_prompt_loader_state_dict = None
         self.train_prompt_loader = None
@@ -653,6 +654,8 @@ class PPOCallback(CallbackWithConfig):
                 # Determine the number of generating calls we want to make
                 # We can have the generate size be greater than the device train microbatch size
                 num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
+                if num_gen_calls <= 0:
+                    raise ValueError(f'{num_gen_calls=} must be greater than 0')
 
                 gen_batch_partial_outputs = []
                 all_sequences = []
@@ -777,6 +780,14 @@ class PPOCallback(CallbackWithConfig):
             center_reward_mean=self.center_reward_mean,
         )
         env_outs.update(rew_outs)
+        
+        # Keep track of prompt ids and rewards
+        prompt_ids = env_outputs['prompt_id'].detach().cpu().tolist()
+        rewards = env_outputs['rewards'].sum(dim=-1).detach().cpu().tolist()
+        self.prompt_ids_and_rewards.extend(list(zip(prompt_ids, rewards)))
+        print(f"{len(prompt_ids)}")
+        print(f"{len(rewards)}")
+        breakpoint()
 
         # Adding the right_padded_attn_mask to the env_outputs
         env_outs['right_padded_attn_mask'] = torch.logical_not(
@@ -829,9 +840,24 @@ class PPOCallback(CallbackWithConfig):
         return iter_batch
 
     def _log_generations_to_logger(self, state: State):
+        # Gather all prompts, generations, prompt_ids and rewards from all ranks
         prompts_and_gens = list(
             chain(*dist.all_gather_object(self.prompts_and_gens)),
         )
+        prompt_ids_and_rewards = list(
+            chain(*dist.all_gather_object(self.prompt_ids_and_rewards)),
+        )
+        # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation)
+        columns = ['prompt_id', 'reward', 'prompt', 'generation']
+        save_data = [
+            (prompt_id, reward, prompt, generation)
+            for (prompt_id, reward), (prompt, generation) in zip(
+                prompt_ids_and_rewards,
+                prompts_and_gens,
+            )
+        ]
+        # Sort the save_data by reward in descending order
+        save_data = sorted(save_data, key=lambda x: x[1], reverse=True)
 
         if dist.get_global_rank() == 0:
             if self.wandb_logger is not None:
@@ -843,8 +869,8 @@ class PPOCallback(CallbackWithConfig):
                 )
 
                 text_table = wandb.Table(
-                    data=prompts_and_gens,
-                    columns=['prompt', 'generation'],
+                    data=save_data,
+                    columns=columns,
                 )
 
                 artifact.add(text_table, 'predictions')
@@ -854,12 +880,13 @@ class PPOCallback(CallbackWithConfig):
 
             if self.mlflow_logger is not None:
                 self.mlflow_logger.log_table(
-                    columns=['prompt', 'generations'],
-                    rows=prompts_and_gens,
+                    columns=columns,
+                    rows=save_data,
                     name=f'Prompt_generations_{self.iter_num}',
                 )
 
         self.prompts_and_gens = []
+        self.prompt_ids_and_rewards = []
 
     def _update_ift_kl(self):
         local_kl = torch.stack(self.kl_ift)
