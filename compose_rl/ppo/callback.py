@@ -11,7 +11,7 @@ import os
 import socket
 import time
 from itertools import chain
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import ray
 import torch
@@ -31,7 +31,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 import compose_rl.utils as utils
 from compose_rl.ppo.buffer import MinibatchRolloutBuffer
-from compose_rl.ppo.generation_utils import generate
+from compose_rl.ppo.generation_utils import hf_generate, vllm_generate
 from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
 from compose_rl.ppo.reward_manager import (
     ReferenceOutput,
@@ -56,20 +56,18 @@ from compose_rl.utils import (
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 Policy = Union[ComposerHFPolicyModel, ComposerMosaicPolicy]
 
-__all__ = ['PPOCallback', 'env_generate']
+__all__ = ['PPOCallback', 'env_reward']
 
 log = logging.getLogger(__name__)
 
 
-def env_generate(
+def env_reward(
     actor_critic: Policy,
-    vllm_engines: Optional[list],
     reward_manager: RewardManager,
     batch: dict,
     max_gen_len: int,
     precision: Precision,
     device_train_microbatch_size: int,
-    generation_kwargs: dict,
     tokenizer: Tokenizer,
     eos_token_ids: list[int],
     kl_estimator: str,
@@ -79,20 +77,19 @@ def env_generate(
     ReferenceOutput,
     RewardOutput,
 ]:
-    """Run generate from the model.
+    """Run reward on the model generated responses.
 
-    Runs generate over a set of prompts in the batch. It also does extra computation
+    Runs reward over a set of sequences in the batch. It also does extra computation
     that is required for later loss computation.
 
     Args:
-        actor_critic (ComposerMosaicPolicy): Actor critic model to run generate over.
+        actor_critic (ComposerMosaicPolicy): Actor critic model to run reward over.
         reward_manager (RewardManager): Composes the reference IFT model and all reward models.
-        batch (dict): The batch of data to run generate over.
+        batch (dict): The batch of data to run reward over.
         max_gen_len (int): Maximum generation length.
         precision (Precision): Precision to run computation.
         device_train_microbatch_size (int): Device train microbatch size for the training job.
             We need to do all log_prob computation with this in order to maintain numerics.
-        generation_kwargs (dict): Generation keyword arguments.
         tokenizer (Tokenizer): The actor critic's tokenizer.
         eos_token_ids (list[int]): A list of eos token ids.
         kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
@@ -110,8 +107,7 @@ def env_generate(
             then all_rewards["X"] will be an AsyncResult object that will resolve to associated reward tensor.
 
     Note:
-        Use the .get() method on an AsyncResult object (see Returns, above) to resolve it. This method
-        is blocking.
+        Use the .get() method on an AsyncResult object (see Returns, above) to resolve it.
     """
     prompt_tokens = batch['prompt']
 
@@ -124,184 +120,174 @@ def env_generate(
             'Tokenizer does not have a pad token id. Please use a different tokenizer or add a pad token id.',
         )
 
-    with get_precision_context(precision):
+    with get_precision_context(precision), torch.no_grad():
         prompt_len = batch['prompt_len']
         verified_answers = batch.get('verified_answer', None)
         prompt_id = batch['prompt_id']
+        cur_device = prompt_tokens.device
+        prompt_dtype = prompt_tokens.dtype
 
-        with torch.no_grad():
-            cur_device = prompt_tokens.device
-            prompt_dtype = prompt_tokens.dtype
+        start_gen_time = time.time()
 
-            start_gen_time = time.time()
+        assert 'sequences' in batch, f'sequences is not in batch {batch.keys()=}'
 
-            sequences = generate(
-                actor_critic,
-                vllm_engines,
-                max_gen_len,
-                batch,
-                pad_token_id, # type: ignore
-                tokenizer,
-                generation_kwargs,
+        sequences = batch['sequences']
+
+        num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
+
+        log.info(
+            f'It took {time.time() - start_gen_time} to generate {num_tokens_generated} tokens',
+        )
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        generated_len = torch.ones(
+            batch_size,
+            device=cur_device,
+            dtype=prompt_dtype,
+        ) * max_gen_len
+
+        # If all the processes early exit generate, then we need to manually pad everything
+        # we can pad this with pad tokens, since we switch the padding between left and right
+        # padding based on the sequence length + max_sequence_length.
+        if prompt_tokens.size(1) + max_gen_len > sequences.size(1):
+            len_to_pad = max_gen_len - (
+                sequences.size(1) - prompt_tokens.size(1)
             )
 
-            num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
-
-            log.info(
-                f'It took {time.time() - start_gen_time} to generate {num_tokens_generated} tokens',
-            )
-
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-            generated_len = torch.ones(
-                batch_size,
+            extra_padding = torch.ones(
+                (batch_size, len_to_pad),
                 device=cur_device,
                 dtype=prompt_dtype,
-            ) * max_gen_len
-
-            # If all the processes early exit generate, then we need to manually pad everything
-            # we can pad this with pad tokens, since we switch the padding between left and right
-            # padding based on the sequence length + max_sequence_length.
-            if prompt_tokens.size(1) + max_gen_len > sequences.size(1):
-                len_to_pad = max_gen_len - (
-                    sequences.size(1) - prompt_tokens.size(1)
-                )
-
-                extra_padding = torch.ones(
-                    (batch_size, len_to_pad),
-                    device=cur_device,
-                    dtype=prompt_dtype,
-                ) * pad_token_id
-                sequences = torch.cat(
-                    [sequences, extra_padding],  # type: ignore
-                    dim=-1,  # type: ignore
-                )
-
-            # Sanity checking we're adding max_gen_len to prompt_tokens
-            assert prompt_tokens.size(1) + max_gen_len == sequences.size(1)
-
-            # Actions are what tokens the current policy would generate.
-            actions = sequences[:, -max_gen_len:]
-
-            right_padded_obs = switch_left_to_right_padding(
-                sequences,
-                prompt_len,
-                max_gen_len,
-                pad_token_id,  # type: ignore
-            )
-            right_padded_attn_mask = torch.logical_not(
-                torch.eq(right_padded_obs, pad_token_id),  # type: ignore
+            ) * pad_token_id
+            sequences = torch.cat(
+                [sequences, extra_padding],  # type: ignore
+                dim=-1,  # type: ignore
             )
 
-            (
-                right_padded_obs,
-                right_padded_attn_mask,
-                generated_len,
-                action_mask,
-            ) = mask_eos(
-                actions=actions,
-                right_padded_obs=right_padded_obs,
-                right_padded_attn_mask=right_padded_attn_mask,
-                prompt_len=prompt_len,
-                generated_len=generated_len,
+        # Sanity checking we're adding max_gen_len to prompt_tokens
+        assert prompt_tokens.size(1) + max_gen_len == sequences.size(1)
+
+        # Actions are what tokens the current policy would generate.
+        actions = sequences[:, -max_gen_len:]
+
+        right_padded_obs = switch_left_to_right_padding(
+            sequences,
+            prompt_len,
+            max_gen_len,
+            pad_token_id,  # type: ignore
+        )
+        right_padded_attn_mask = torch.logical_not(
+            torch.eq(right_padded_obs, pad_token_id),  # type: ignore
+        )
+
+        (
+            right_padded_obs,
+            right_padded_attn_mask,
+            generated_len,
+            action_mask,
+        ) = mask_eos(
+            actions=actions,
+            right_padded_obs=right_padded_obs,
+            right_padded_attn_mask=right_padded_attn_mask,
+            prompt_len=prompt_len,
+            generated_len=generated_len,
+            max_gen_len=max_gen_len,
+            eos_token_ids=eos_token_ids,  # type: ignore
+            pad_token=pad_token_id,  # type: ignore
+        )
+
+        untokenized_prompt_and_responses = []
+        for i in range(batch_size):
+            prompt = tokenizer.decode(  # type: ignore
+                right_padded_obs[i, :prompt_len[i]])
+            generated_text = tokenizer.decode(  # type:  ignore
+                get_decoded_sequence(actions[i], generated_len[i],
+                                            max_gen_len))
+            untokenized_prompt_and_responses.append((prompt, generated_text),)
+
+        # Making logits [batch_size, generated_len, vocab_size]
+        # We need to recompute the logits here. Otherwise there are numerical differences
+        # We also need to do it on the size of `device_train_microbatch_size` otherwise
+        # there are numerical differences at training time.
+        # log probs will be [batch_size, generated_len]
+        log_probs = []
+        values = []
+
+        input_model_kwargs = {
+            'obs': right_padded_obs,
+            'right_padded_attn_mask': right_padded_attn_mask,
+            'prompt_len': prompt_len,
+            'max_gen_len': max_gen_len,
+            'action_mask': action_mask,
+            'actions': actions,
+        }
+        # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
+        for i in range(batch_size // device_train_microbatch_size):
+            curr_kwargs = {
+                key:
+                    value[i * device_train_microbatch_size:(i + 1) *
+                          device_train_microbatch_size]
+                    if isinstance(value, torch.Tensor) else value
+                for key, value in input_model_kwargs.items()
+            }
+            cur_output = actor_critic(curr_kwargs)
+            cur_logits = cur_output['logits']
+            cur_values = cur_output['values']
+            # need to pull out current actions and prompt len
+            cur_actions = curr_kwargs['actions']
+            cur_prompt_len = curr_kwargs['prompt_len']
+
+            cur_log_probs = get_log_probs(
+                logits=cur_logits,
+                actions=cur_actions,
+                prompt_len=cur_prompt_len,
                 max_gen_len=max_gen_len,
-                eos_token_ids=eos_token_ids,  # type: ignore
-                pad_token=pad_token_id,  # type: ignore
             )
+            log_probs.append(cur_log_probs)
+            values.append(cur_values)
 
-            untokenized_prompt_and_responses = []
-            for i in range(batch_size):
-                prompt = tokenizer.decode(  # type: ignore
-                    right_padded_obs[i, :prompt_len[i]])
-                generated_text = tokenizer.decode(  # type:  ignore
-                    get_decoded_sequence(actions[i], generated_len[i],
-                                               max_gen_len))
-                untokenized_prompt_and_responses.append(
-                    (prompt, generated_text),
-                )
+        device_train_microbatch_log_probs = torch.cat(log_probs)
+        device_train_microbatch_values = torch.cat(values)
 
-            # Making logits [batch_size, generated_len, vocab_size]
-            # We need to recompute the logits here. Otherwise there are numerical differences
-            # We also need to do it on the size of `device_train_microbatch_size` otherwise
-            # there are numerical differences at training time.
-            # log probs will be [batch_size, generated_len]
-            log_probs = []
-            values = []
+        # Need to add in the padding for the value function
+        value_action_mask = torch.cat([
+            action_mask,
+            torch.zeros((batch_size, 1), device=cur_device),
+        ],
+                                      dim=-1)
+        device_train_microbatch_values *= value_action_mask
 
-            input_model_kwargs = {
-                'obs': right_padded_obs,
-                'right_padded_attn_mask': right_padded_attn_mask,
-                'prompt_len': prompt_len,
-                'max_gen_len': max_gen_len,
-                'action_mask': action_mask,
-                'actions': actions,
-            }
-            # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
-            for i in range(batch_size // device_train_microbatch_size):
-                curr_kwargs = {
-                    key:
-                        value[i * device_train_microbatch_size:(i + 1) *
-                              device_train_microbatch_size]
-                        if isinstance(value, torch.Tensor) else value
-                    for key, value in input_model_kwargs.items()
-                }
-                cur_output = actor_critic(curr_kwargs)
-                cur_logits = cur_output['logits']
-                cur_values = cur_output['values']
-                # need to pull out current actions and prompt len
-                cur_actions = curr_kwargs['actions']
-                cur_prompt_len = curr_kwargs['prompt_len']
+        partial_env_output = {
+            'prompt_id': prompt_id,
+            'actions': actions.detach(),
+            'old_log_probs': device_train_microbatch_log_probs.detach(),
+            'obs': right_padded_obs.detach(),
+            'generated_len': generated_len,
+            'action_mask': action_mask,
+            'values': device_train_microbatch_values.detach(),
+        }
 
-                cur_log_probs = get_log_probs(
-                    logits=cur_logits,
-                    actions=cur_actions,
-                    prompt_len=cur_prompt_len,
-                    max_gen_len=max_gen_len,
-                )
-                log_probs.append(cur_log_probs)
-                values.append(cur_values)
+        # Future implementations may change the way reward_seq_len is defined
+        # e.g., if special formatting is applied
+        reward_seq_len = prompt_len + generated_len
 
-            device_train_microbatch_log_probs = torch.cat(log_probs)
-            device_train_microbatch_values = torch.cat(values)
-
-            # Need to add in the padding for the value function
-            value_action_mask = torch.cat([
-                action_mask,
-                torch.zeros((batch_size, 1), device=cur_device),
-            ],
-                                          dim=-1)
-            device_train_microbatch_values *= value_action_mask
-
-            partial_env_output = {
-                'prompt_id': prompt_id,
-                'actions': actions.detach(),
-                'old_log_probs': device_train_microbatch_log_probs.detach(),
-                'obs': right_padded_obs.detach(),
-                'generated_len': generated_len,
-                'action_mask': action_mask,
-                'values': device_train_microbatch_values.detach(),
-            }
-
-            # Future implementations may change the way reward_seq_len is defined
-            # e.g., if special formatting is applied
-            reward_seq_len = prompt_len + generated_len
-
-            ref_output, all_rewards = reward_manager(
-                raw_untokenized_texts=untokenized_prompt_and_responses,
-                right_padded_obses=right_padded_obs,
-                attention_masks=right_padded_attn_mask,
-                seq_lens=reward_seq_len,
-                generated_lens=generated_len,
-                prompt_lens=prompt_len,
-                max_gen_length=max_gen_len,
-                actions=actions,
-                action_log_probs=device_train_microbatch_log_probs,
-                device_train_microbatch_size=device_train_microbatch_size,
-                kl_estimator=kl_estimator,
-                verified_answers=verified_answers,
-            )
+        ref_output, all_rewards = reward_manager(
+            raw_untokenized_texts=untokenized_prompt_and_responses,
+            right_padded_obses=right_padded_obs,
+            attention_masks=right_padded_attn_mask,
+            seq_lens=reward_seq_len,
+            generated_lens=generated_len,
+            prompt_lens=prompt_len,
+            max_gen_length=max_gen_len,
+            actions=actions,
+            action_log_probs=device_train_microbatch_log_probs,
+            device_train_microbatch_size=device_train_microbatch_size,
+            kl_estimator=kl_estimator,
+            verified_answers=verified_answers,
+        )
 
     return (
         partial_env_output,
@@ -648,38 +634,73 @@ class PPOCallback(CallbackWithConfig):
         Args:
             batch (dict): the iteration level batch we want to interact with the environment.
         """
-        # Determine the number of generating calls we want to make
-        # We can have the generate size be greater than the device train microbatch size
-        num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
+        max_gen_len = self.max_gen_len
+        pad_token_id = self.pad_token_idx
+        generation_kwargs = self.generation_kwargs
+        with get_precision_context(self.precision), torch.no_grad():
+            # If vllm engines are available, we use them to generate sequences in one go
+            if self.vllm_engines is not None:
+                sequences = vllm_generate(
+                    vllm_engines=self.vllm_engines,
+                    batch=batch,
+                    max_gen_len=max_gen_len,
+                    generation_kwargs=generation_kwargs,
+                    tokenizer=self.tokenizer,  # type: ignore
+                )
+            else:
+                # Go the HF policy generate route
+                # Need to explicitly minibatch here to avoid memory issues
+                # Determine the number of generating calls we want to make
+                # We can have the generate size be greater than the device train microbatch size
+                num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
 
-        gen_batch_partial_outputs = []
-        for i in range(num_gen_calls):
-            gen_batch = self._extract_minibatch(
-                batch=batch,
-                idx=i,
-                minibatch_size=self.device_generate_batch_size,
-            )
+                gen_batch_partial_outputs = []
+                all_sequences = []
+                for i in range(num_gen_calls):
+                    gen_batch = self._extract_minibatch(
+                        batch=batch,
+                        idx=i,
+                        minibatch_size=self.device_generate_batch_size,
+                    )
 
-            env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_generate(
-                actor_critic=self.actor_critic,  # pyright: ignore
-                vllm_engines=self.vllm_engines,
-                reward_manager=self.reward_manager,
-                batch=gen_batch,
-                max_gen_len=self.max_gen_len,
-                precision=self.precision,
-                device_train_microbatch_size=self.device_train_microbatch_size,
-                generation_kwargs=self.generation_kwargs,
-                tokenizer=self.tokenizer,  # type: ignore
-                eos_token_ids=self.eos_token_ids,  # type: ignore
-                kl_estimator=self.kl_estimator,
-            )
+                    gen_sequences = hf_generate(
+                        actor_critic=self.actor_critic,
+                        max_gen_len=max_gen_len,
+                        batch=gen_batch,
+                        pad_token_id=pad_token_id, # type: ignore
+                        generation_kwargs=generation_kwargs,
+                    )
 
-            self.prompts_and_gens.extend(prompts_and_gens)
+                    all_sequences.append(gen_sequences)
+                # Add right padding to all sequences and concatenate them
+                max_len = max([seq.shape[1] for seq in all_sequences])
+                padded_sequences = []
+                for sequence in all_sequences:
+                    padded_sequence = add_right_padding(
+                        sequence,
+                        max_len,
+                        self.pad_token_idx,  # type: ignore
+                    )
+                    padded_sequences.append(padded_sequence)
+                sequences = torch.cat(padded_sequences, dim=0)
+        # Add the prepared sequences to the batch again
+        batch['sequences'] = sequences
 
-            gen_batch_partial_outputs.append(
-                (env_outputs, ref_outputs, all_rewards_dict),
-            )
+        env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
+            actor_critic=self.actor_critic,  # pyright: ignore
+            reward_manager=self.reward_manager,
+            batch=batch,
+            max_gen_len=self.max_gen_len,
+            precision=self.precision,
+            device_train_microbatch_size=self.device_train_microbatch_size,
+            tokenizer=self.tokenizer,  # type: ignore
+            eos_token_ids=self.eos_token_ids,  # type: ignore
+            kl_estimator=self.kl_estimator,
+        )
 
+        self.prompts_and_gens.extend(prompts_and_gens)
+
+        gen_batch_partial_outputs = (env_outputs, ref_outputs, all_rewards_dict)
         # For every partial output we want to resolve them together
         # And compute the global per iteration batch advantage's mean and variance
         resolved_outputs = self._resolve_outputs(
@@ -734,46 +755,34 @@ class PPOCallback(CallbackWithConfig):
     def _resolve_outputs(
         self,
         iter_batch: dict[str, torch.Tensor],
-        partial_outputs: list[tuple[dict, ReferenceOutput, RewardOutput]],
+        partial_outputs: tuple[dict, ReferenceOutput, RewardOutput],
     ) -> dict[str, torch.Tensor]:
         """Resolve env/reference/reward outputs into a PPO minibatch.
 
         Args:
             iter_batch (dict): The batch for the current iteration.
-            partial_outputs (list): A list of (env_output, reference_output, reward_output) tuples,
-                one tuple for each generate batch size. This tuple is created from `env_generate`.
+            partial_outputs (tuple): A tuple of (env_output, reference_output, reward_output),
+                one tuple for entire ppo iter batch. This tuple is created from `env_reward`.
 
         Returns:
             output_minibatch (dict): The final minibatch from the environment, with all AsyncResult
                 objects resolved and outputs processed for PPO training.
         """
-        outputs = []
-        for env_outs, ref_outs, rew_dict in partial_outputs:
-            rew_outs = self.reward_manager.resolve_outputs(
-                ref_output=ref_outs,
-                reward_output=rew_dict,
-                kl_ctl=self.kl_ctl,
-                action_mask=env_outs['action_mask'],
-                center_reward_mean=self.center_reward_mean,
-            )
-            env_outs.update(rew_outs)
-            outputs.append(env_outs)
+        env_outs, ref_outs, rew_dict = partial_outputs
+        rew_outs = self.reward_manager.resolve_outputs(
+            ref_output=ref_outs,
+            reward_output=rew_dict,
+            kl_ctl=self.kl_ctl,
+            action_mask=env_outs['action_mask'],
+            center_reward_mean=self.center_reward_mean,
+        )
+        env_outs.update(rew_outs)
 
-        env_outputs = {}
-        # Repadding all observations, right padded attention masks to the same length for composer.
-        max_len = max([output['obs'].shape[-1] for output in outputs])
-        for output in outputs:
-            output['obs'] = add_right_padding(
-                output['obs'],
-                max_len,
-                self.pad_token_idx,  # type: ignore
-            )
-            output['right_padded_attn_mask'] = torch.logical_not(
-                torch.eq(output['obs'], self.pad_token_idx),  # type: ignore
-            )
-
-        for key in outputs[0].keys():
-            env_outputs[key] = torch.cat([output[key] for output in outputs])
+        # Adding the right_padded_attn_mask to the env_outputs
+        env_outs['right_padded_attn_mask'] = torch.logical_not(
+            torch.eq(env_outs['obs'], self.pad_token_idx),  # type: ignore
+        )
+        env_outputs = env_outs
 
         # Now that rewards are resolved, we can compute advantages
         env_outputs['advantages'] = compute_advantages(
