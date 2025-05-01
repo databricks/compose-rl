@@ -103,7 +103,7 @@ def get_log_probs(
         - max_gen_len (int): maximum generation length.
 
     Returns:
-        - log_probs (torch.Tensor): the log probs of the actions. Size (bs, gen_len)
+        log_probs (torch.Tensor): the log probs of the actions. Size (bs, gen_len)
     """
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
     return get_log_probs_from_logits(gen_logits, actions)
@@ -124,7 +124,7 @@ def get_entropies(
         - max_gen_len (int): maximum generation length.
 
     Returns:
-        - entropies (torch.Tensor): the entropies of the sequence. Size (bs)
+        entropies (torch.Tensor): the entropies of the sequence. Size (bs)
     """
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
     return get_entropies_from_logits(gen_logits, actions)
@@ -138,7 +138,7 @@ def switch_left_to_right_padding(
 ) -> torch.Tensor:
     """Switches left padding to right padding.
 
-    Inputs:
+    Args:
         - sequences (torch.Tensor): The sequences we want to swap padding (of dimension seq_len + max_gen_len).
         - seq_len (torch.Tensor): the input prompt lengths.
         - max_gen_len (int): the maximum generation length.
@@ -156,7 +156,7 @@ def remove_left_padding(
 ) -> list[torch.Tensor]:
     """Removes left padding from a set of sequences.
 
-    Inputs:
+    Args:
         - sequences (torch.Tensor): the sequences to remove left padding from.
         - seq_len (torch.Tensor): the input prompt lengths.
         - max_gen_len (int): the maximum generation length.
@@ -176,7 +176,7 @@ def add_right_padding(
 ) -> torch.Tensor:
     """Right pad a list of sequences to a given length.
 
-    Inputs:
+    Args:
         - unpadded_sequences (list[torch.Tensor]): a list of unpadded sequences.
         - max_len (int): the maximum length we want the sequences to be padded.
         - pad_token (int): the pad token id that we want to pad sequences.
@@ -198,7 +198,7 @@ def get_batched_generated_values(
 ) -> torch.Tensor:
     """From a set of batched prompts + max_gen_len, return the generated values.
 
-    Inputs:
+    Args:
         - batched_values (torch.Tensor): The batched generated values.
         - prompt_len (torch.Tensor): A tensor where each entry is the prompt length.
         - max_gen_len (int): the maximum generated length.
@@ -290,7 +290,7 @@ def compute_advantages(
 
     Note: this function assumes that we have right padded the values with zeros.
 
-    Inputs:
+    Args:
         - rewards (torch.Tensor): The total rewards (environment + non-environment rewards)
         - values (torch.Tensor): The values for the predicted generations per state.
         - gamma (float): The discount factor.
@@ -388,7 +388,7 @@ def mask_eos(
 ):
     """Mask EOS tokens in a given sequence and returns appropriate values.
 
-    Inputs:
+    Args:
         - actions (torch.Tensor): the actions taken (tokens generated).
         - right_padded_obs (torch.Tensor): the right padded observation.
         - right_padded_attn_mask (torch.Tensor): the right padded attention mask.
