@@ -43,11 +43,12 @@ class LLMRayActor:
     ) -> None:
         import vllm
 
-        # a hack to make the script work.
-        # stop ray from manipulating *_VISIBLE_DEVICES
-        # at the top-level when the distributed_executor_backend is ray.
-        os.environ.pop('CUDA_VISIBLE_DEVICES', None)
-        os.environ.pop('ROCR_VISIBLE_DEVICES', None)
+        if kwargs.get('distributed_executor_backend') == 'ray':
+            # a hack to make the script work.
+            # stop ray from manipulating *_VISIBLE_DEVICES
+            # at the top-level when the distributed_executor_backend is ray.
+            os.environ.pop('CUDA_VISIBLE_DEVICES', None)
+            os.environ.pop('ROCR_VISIBLE_DEVICES', None)
 
         num_gpus = kwargs.pop('num_gpus')
         bundle_indices = kwargs.pop('bundle_indices', None)

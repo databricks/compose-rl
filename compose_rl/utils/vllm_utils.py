@@ -204,7 +204,7 @@ def create_vllm_engines(
         'CPU': 1,
         'worker_node': 1,
     }] * tensor_parallel_size * num_engines
-    pg = placement_group(bundles)  # type: ignore
+    pg = placement_group(bundles, strategy='PACK')  # type: ignore
 
     try:
         ray.get(pg.ready(), timeout=300)
@@ -212,6 +212,10 @@ def create_vllm_engines(
         log.error('Placement group failed')
         log.error(f'error is: {e}')
         raise e
+
+    distributed_executor_backend = 'ray'
+    if tensor_parallel_size == 1:
+        distributed_executor_backend = 'uni'
 
     num_gpus = int(tensor_parallel_size == 1)
 
@@ -246,6 +250,7 @@ def create_vllm_engines(
                 enforce_eager=enforce_eager,
                 dtype='bfloat16',
                 seed=seed + i,
+                distributed_executor_backend=distributed_executor_backend,
                 enable_prefix_caching=enable_prefix_caching,
                 max_model_len=max_model_len,
                 gpu_memory_utilization=vllm_gpu_memory_utilization,
