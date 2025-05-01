@@ -129,7 +129,6 @@ def env_reward(
         assert 'sequences' in batch, f'sequences is not in batch {batch.keys()=}'
 
         sequences = batch['sequences']
-
         generated_len = torch.ones(
             batch_size,
             device=cur_device,

@@ -245,9 +245,7 @@ def vllm_generate(
 
     # Construct full sequences from the prompt and padded responses
     sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
-
     num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
-
     log.info(
         f'It took {time.time() - start_gen_time} to generate {num_tokens_generated} tokens',
     )
