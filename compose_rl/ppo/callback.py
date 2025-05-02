@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import gc
 import logging
 import os
 import socket
@@ -46,6 +45,7 @@ from compose_rl.utils import (
     create_vllm_engines,
     dist_compute_masked_mean_and_var,
     get_decoded_sequence,
+    get_entropies,
     get_log_probs,
     init_process_group,
     mask_eos,
@@ -127,22 +127,9 @@ def env_reward(
         cur_device = prompt_tokens.device
         prompt_dtype = prompt_tokens.dtype
 
-        start_gen_time = time.time()
-
         assert 'sequences' in batch, f'sequences is not in batch {batch.keys()=}'
 
         sequences = batch['sequences']
-
-        num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
-
-        log.info(
-            f'It took {time.time() - start_gen_time} to generate {num_tokens_generated} tokens',
-        )
-
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
         generated_len = torch.ones(
             batch_size,
             device=cur_device,
@@ -168,7 +155,10 @@ def env_reward(
             )
 
         # Sanity checking we're adding max_gen_len to prompt_tokens
-        assert prompt_tokens.size(1) + max_gen_len == sequences.size(1)
+        if prompt_tokens.size(1) + max_gen_len != sequences.size(1):
+            raise ValueError(
+                f'Prompts {prompt_tokens.size(1)} + max_gen_len {max_gen_len} != sequences {sequences.size(1)}',
+            )
 
         # Actions are what tokens the current policy would generate.
         actions = sequences[:, -max_gen_len:]
@@ -214,6 +204,7 @@ def env_reward(
         # there are numerical differences at training time.
         # log probs will be [batch_size, generated_len]
         log_probs = []
+        entropies = []
         values = []
 
         input_model_kwargs = {
@@ -246,10 +237,18 @@ def env_reward(
                 prompt_len=cur_prompt_len,
                 max_gen_len=max_gen_len,
             )
+            cur_entropies = get_entropies(
+                logits=cur_logits,
+                actions=cur_actions,
+                prompt_len=cur_prompt_len,
+                max_gen_len=max_gen_len,
+            )
             log_probs.append(cur_log_probs)
+            entropies.append(cur_entropies)
             values.append(cur_values)
 
         device_train_microbatch_log_probs = torch.cat(log_probs)
+        device_train_microbatch_entropies = torch.cat(entropies)
         device_train_microbatch_values = torch.cat(values)
 
         # Need to add in the padding for the value function
@@ -264,6 +263,7 @@ def env_reward(
             'prompt_id': prompt_id,
             'actions': actions.detach(),
             'old_log_probs': device_train_microbatch_log_probs.detach(),
+            'old_entropies': device_train_microbatch_entropies.detach(),
             'obs': right_padded_obs.detach(),
             'generated_len': generated_len,
             'action_mask': action_mask,
@@ -381,6 +381,7 @@ class PPOCallback(CallbackWithConfig):
         self.wandb_logger = None
         self.mlflow_logger = None
         self.prompts_and_gens = []
+        self.prompt_ids_and_rewards = []
         self.iter_num = 0
         self.train_prompt_loader_state_dict = None
         self.train_prompt_loader = None
@@ -430,6 +431,11 @@ class PPOCallback(CallbackWithConfig):
 
             self.vllm_sync_backend = var_config.get('vllm_sync_backend', 'nccl')
             self.test_prompt = 'Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions.'
+        else:
+            # HF generate route extra checks
+            num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
+            if num_gen_calls <= 0:
+                raise ValueError(f'{num_gen_calls=} must be greater than 0')
 
     def init(self, state: State, logger: Logger):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
@@ -778,33 +784,37 @@ class PPOCallback(CallbackWithConfig):
         )
         env_outs.update(rew_outs)
 
+        # Keep track of prompt ids and rewards
+        prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
+        rewards = env_outs['rewards'].sum(dim=-1).detach().cpu().tolist()
+        self.prompt_ids_and_rewards.extend(list(zip(prompt_ids, rewards)))
+
         # Adding the right_padded_attn_mask to the env_outputs
         env_outs['right_padded_attn_mask'] = torch.logical_not(
             torch.eq(env_outs['obs'], self.pad_token_idx),  # type: ignore
         )
-        env_outputs = env_outs
 
         # Now that rewards are resolved, we can compute advantages
-        env_outputs['advantages'] = compute_advantages(
-            rewards=env_outputs['rewards'],
-            values=env_outputs['values'],
+        env_outs['advantages'] = compute_advantages(
+            rewards=env_outs['rewards'],
+            values=env_outs['values'],
             gamma=self.gamma,
             lambda_gae=self.lambda_gae,
         )
 
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            env_outputs['advantages'],
-            env_outputs['action_mask'],
+            env_outs['advantages'],
+            env_outs['action_mask'],
         )
 
         mean_ift = masked_mean(
-            env_outputs['ift_kl'],
-            env_outputs['action_mask'],
+            env_outs['ift_kl'],
+            env_outs['action_mask'],
         )
 
         self.kl_ift.append(mean_ift.cpu())
 
-        iter_batch.update(env_outputs)
+        iter_batch.update(env_outs)
 
         iter_batch.update({
             'max_gen_len':
@@ -818,7 +828,7 @@ class PPOCallback(CallbackWithConfig):
                 torch.ones(self.iter_batch_size) * self.kl_ctl.value,
             'reward_std':
                 torch.ones(self.iter_batch_size) *
-                env_outputs['rewards'].std().to('cpu'),
+                env_outs['rewards'].std().to('cpu'),
         })
 
         # Moving minibatches to CPU to not take additional GPU memory
@@ -829,9 +839,22 @@ class PPOCallback(CallbackWithConfig):
         return iter_batch
 
     def _log_generations_to_logger(self, state: State):
+        # Gather all prompts, generations, prompt_ids and rewards from all ranks
         prompts_and_gens = list(
             chain(*dist.all_gather_object(self.prompts_and_gens)),
         )
+        prompt_ids_and_rewards = list(
+            chain(*dist.all_gather_object(self.prompt_ids_and_rewards)),
+        )
+        # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation)
+        columns = ['prompt_id', 'reward', 'prompt', 'generation']
+        save_data = [[prompt_id, reward, prompt, generation]
+                     for (prompt_id, reward), (prompt, generation) in zip(
+                         prompt_ids_and_rewards,
+                         prompts_and_gens,
+                     )]
+        # Sort the save_data by reward in descending order
+        save_data = sorted(save_data, key=lambda x: x[1], reverse=True)
 
         if dist.get_global_rank() == 0:
             if self.wandb_logger is not None:
@@ -843,8 +866,8 @@ class PPOCallback(CallbackWithConfig):
                 )
 
                 text_table = wandb.Table(
-                    data=prompts_and_gens,
-                    columns=['prompt', 'generation'],
+                    data=save_data,
+                    columns=columns,
                 )
 
                 artifact.add(text_table, 'predictions')
@@ -854,12 +877,13 @@ class PPOCallback(CallbackWithConfig):
 
             if self.mlflow_logger is not None:
                 self.mlflow_logger.log_table(
-                    columns=['prompt', 'generations'],
-                    rows=prompts_and_gens,
+                    columns=columns,
+                    rows=save_data,
                     name=f'Prompt_generations_{self.iter_num}',
                 )
 
         self.prompts_and_gens = []
+        self.prompt_ids_and_rewards = []
 
     def _update_ift_kl(self):
         local_kl = torch.stack(self.kl_ift)

@@ -105,7 +105,10 @@ def vllm_generate(
         sequences (tensor): Tensor containing the prompt and generated sequences.
             The shape of the tensor is [batch_size, prompt_len + max_gen_len].
     """
-    assert type(vllm_engines) is list, 'vllm_engines must be a list'
+    if type(vllm_engines) != list:
+        raise TypeError(
+            f'vllm_engines must be a list. Instead got {type(vllm_engines)=}',
+        )
     # 1. Gather all prompts from all ranks
     # 2. Run generate over all prompts in one go
     # 3. Scatter the generated responses back to the correct rank
@@ -125,12 +128,13 @@ def vllm_generate(
     )
     all_prompts = [prompt for batch in all_batched_prompts for prompt in batch]
 
+    start_gen_time = time.time()
     if dist.get_global_rank() == 0:
         futs = []
         sampling_params = {
             'temperature': generation_kwargs.get('temperature', 1.0),
             'top_p': generation_kwargs.get('top_p', 1.0),
-            'top_k': generation_kwargs.get('top_k', 50),
+            'top_k': generation_kwargs.get('top_k', -1),
             'max_tokens': max_gen_len,
         }
 
@@ -241,4 +245,8 @@ def vllm_generate(
 
     # Construct full sequences from the prompt and padded responses
     sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
+    num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
+    log.info(
+        f'It took {time.time() - start_gen_time} to generate {num_tokens_generated} tokens',
+    )
     return sequences
