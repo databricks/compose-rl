@@ -87,8 +87,13 @@ def approx_kl(log_p: torch.Tensor,
     ratio = (log_p - log_q).clamp(min=-40.0, max=40.0)
 
     approx_kl_k1 = -ratio
+    # The k2_loss is approximately equivalent to the one-step KL divergence penalty with the k1 estimator
+    # used in https://arxiv.org/pdf/2310.10505.
     approx_kl_k2 = 0.5 * (ratio**2)
+    # The k3 estimator is the non negative kl approximation in http://joschu.net/blog/kl-approx.html
     approx_kl_k3 = torch.expm1(ratio) - ratio
+    # This is taken from https://hongyuzang.notion.site/The-critical-implementation-detail-of-KL-loss-in-GRPO-1ae3fe2c1ff9809a9307c5402e190373
+    # This is specifically for off-policy learning and can be useful for async training.
     approx_kl_k3_offpolicy = 1.0 - torch.exp(ratio)
 
     kl_dict = {
