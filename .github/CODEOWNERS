@@ -1,5 +1,5 @@
 # Require admin approval to modify all files in the root of the repository
-/* @bcui-db
+/* @bcui-db @dakinggg
 
 # Require team approval for code changes
 /compose_rl/ @bcui-db @dakinggg @gupta-abhay @abaheti95
