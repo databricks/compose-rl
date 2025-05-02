@@ -181,6 +181,7 @@ def ppo_loss(
 
     online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
         'old_log_probs']
+    old_entropies = batch['old_entropies']
 
     adv_masked_mean = batch['adv_masked_mean']
     adv_masked_var = batch['adv_masked_var']
@@ -243,7 +244,8 @@ def ppo_loss(
         'policy_loss/ratio': utils.masked_mean(ratio, batch['action_mask']),
         'value_loss/values': utils.masked_mean(values, batch['action_mask']),
         'value_loss/vpred': utils.masked_mean(v_preds, batch['action_mask']),
-        'length/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
+        'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
+        'gen/entropy': old_entropies,
     }
 
     for key, value in batch.items():

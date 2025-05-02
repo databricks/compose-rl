@@ -135,7 +135,7 @@ class WorkerWrap:
         log.info(f'init process group for: {torch.distributed.get_rank()}')
         log.info(
             f'init_process_group: master_address={master_address}, master_port={master_port}, '
-            f'rank={rank}, world_size={world_size}, group_name={group_name}'
+            f'rank={rank}, world_size={world_size}, group_name={group_name}',
         )
 
     def update_weight(
