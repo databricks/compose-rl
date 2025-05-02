@@ -40,6 +40,7 @@ class LLMRayActor:
 
         self.__version__ = vllm.__version__
         assert self.__version__ >= '0.4.1', 'Compose RL only supports vLLM >= 0.4.1'
+        print(f"VERY VERY IMPORTANT: vLLM version is {self.__version__=}")
 
         self.use_gpu_executor = kwargs['tensor_parallel_size'] == 1
         log.info(f'kwargs are: {kwargs}')
@@ -76,6 +77,8 @@ class LLMRayActor:
 
                 RayWorkerWrapperPath.RayWorkerWrapper = RayWorkerWrapper
 
+        print(f"VERY VERY IMPORTANT: vllm.LLM {args=}")
+        print(f"VERY VERY IMPORTANT: vllm.LLM {kwargs=}")
         self.llm = vllm.LLM(*args, **kwargs)
 
     def generate(self, *args: Any, **kwargs: Any):
