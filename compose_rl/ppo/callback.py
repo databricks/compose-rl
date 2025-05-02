@@ -71,7 +71,7 @@ def env_reward(
     tokenizer: Tokenizer,
     eos_token_ids: list[int],
     kl_estimator: Optional[str] = 'k1',
-    kl_clip_range: Optional[float] = None,
+    kl_clip_range: Optional[float] = 40.0,
 ) -> tuple[
     dict[str, torch.Tensor],
     list[tuple[str, str]],
@@ -322,13 +322,28 @@ class PPOCallback(CallbackWithConfig):
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
 
         # Which kl estimator to use
-        self.kl_estimator = train_config['model'].get('kl_estimator', 'k1')
-        if self.kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
+        kl_estimator = train_config['model'].get('kl_estimator', 'k1')
+        if kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
             raise ValueError(
                 f'Invalid kl estimator: {self.kl_estimator}. ' +
                 'Valid options are: k1, k2, k3, k3_offpolicy.',
             )
-        self.kl_clip_range = train_config['model'].get('kl_clip_range', None)
+        self.kl_estimator = kl_estimator
+
+        kl_clip_range = train_config['model'].get('kl_clip_range', 40.0)
+        if kl_clip_range <= 0:
+            raise ValueError(
+                f'Invalid kl clip range: {self.kl_clip_range}. ' +
+                'Must be greater than 0.',
+            )
+        # check for precision and clip range
+        precision = train_config['precision']
+        if precision != 'fp32':
+            if kl_clip_range > 50.0:
+                log.warning(
+                    f'Clip value of {kl_clip_range=} will not be effective with {precision=} as range for tensors is too small',
+                )
+        self.kl_clip_range = kl_clip_range
 
         # Generation keyword arguments.
         self.generation_kwargs = var_config.get('generation_kwargs')

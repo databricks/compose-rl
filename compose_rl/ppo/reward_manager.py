@@ -303,7 +303,7 @@ class RewardManager:
         action_log_probs: torch.Tensor,
         device_train_microbatch_size: int,
         kl_estimator: Optional[str] = 'k1',
-        kl_clip_range: Optional[float] = None,
+        kl_clip_range: Optional[float] = 40.0,
         verified_answers: Optional[list[str]] = None,
     ) -> tuple[ReferenceOutput, RewardOutput]:
         """Collect rewards for generations.
@@ -490,7 +490,7 @@ class RewardManager:
         batch: MutableMapping,
         device_train_microbatch_size: int,
         kl_estimator: Optional[str] = 'k1',
-        kl_clip_range: Optional[float] = None,
+        kl_clip_range: Optional[float] = 40.0,
     ) -> ReferenceOutput:
         """Computes the reference KL for a batch of data.
 
