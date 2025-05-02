@@ -112,11 +112,9 @@ def env_reward(
         Use the .get() method on an AsyncResult object (see Returns, above) to resolve it.
     """
     prompt_tokens = batch['prompt']
-
     batch_size, _ = prompt_tokens.shape
 
     pad_token_id = tokenizer.pad_token_id
-
     if pad_token_id is None:
         raise ValueError(
             'Tokenizer does not have a pad token id. Please use a different tokenizer or add a pad token id.',
@@ -125,6 +123,7 @@ def env_reward(
     with get_precision_context(precision), torch.no_grad():
         prompt_len = batch['prompt_len']
         verified_answers = batch.get('verified_answer', None)
+        metadata = batch.get('metadata', None)
         prompt_id = batch['prompt_id']
         cur_device = prompt_tokens.device
         prompt_dtype = prompt_tokens.dtype
@@ -290,6 +289,7 @@ def env_reward(
             kl_estimator=kl_estimator,
             kl_clip_range=kl_clip_range,
             verified_answers=verified_answers,
+            metadata=metadata,
         )
 
     return (
@@ -603,7 +603,12 @@ class PPOCallback(CallbackWithConfig):
                 # Explode the batch into multiple batches for each generation
                 for _ in range(self.generations_per_prompt):
                     # For keys that do not require additional processing
-                    if key in ['prompt_len', 'verified_answer', 'prompt_id']:
+                    if key in [
+                        'prompt_len',
+                        'verified_answer',
+                        'prompt_id',
+                        'metadata',
+                    ]:
                         curr_values.append(batch[key])
                         continue
 
@@ -631,7 +636,7 @@ class PPOCallback(CallbackWithConfig):
             if isinstance(curr_values[0], torch.Tensor):
                 ret_batch[key] = torch.cat(curr_values)
             else:
-                if key == 'verified_answer':
+                if key in ['verified_answer', 'metadata']:
                     ret_batch[key] = list(utils.flatten(curr_values))
                 else:
                     # this is an edge case that we will not hit currently, but just handling it as needed

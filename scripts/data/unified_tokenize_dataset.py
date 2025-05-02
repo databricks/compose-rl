@@ -43,7 +43,8 @@ class UnifiedTokenizedDataset(IterableDataset):
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
         dataset_type: Literal['preference', 'single_prompt',
-                              'verifiable_answers'],
+                              'verifiable_answers',
+                              'verifiable_answers_with_metadata'],
         subset: str | None = None,
         token: str | None = None,
     ):
@@ -77,6 +78,12 @@ class UnifiedTokenizedDataset(IterableDataset):
                     yield result
             elif self.dataset_type == 'verifiable_answers':
                 result = self._process_verifiable_answer_sample(sample)
+                if result is not None:
+                    yield result
+            elif self.dataset_type == 'verifiable_answers_with_metadata':
+                result = self._process_verifiable_answer_with_metadata_sample(
+                    sample,
+                )
                 if result is not None:
                     yield result
             elif self.dataset_type == 'classifier':
@@ -172,7 +179,7 @@ class UnifiedTokenizedDataset(IterableDataset):
     def _process_verifiable_answer_sample(self, sample: Any):
         """Process a prompt sample and extract the answer.
 
-        This function is currently hard-coded for the GSM8K dataset.
+        This function is currently hard-coded for the GSM8K / MATH datasets.
 
         Args:
             sample (Any): a sample from the dataset
@@ -212,6 +219,24 @@ class UnifiedTokenizedDataset(IterableDataset):
             'verified_answer': verified_answer,
         }
 
+    def _process_verifiable_answer_with_metadata_sample(self, sample: Any):
+        """Process a prompt sample with metadataand extract the answer.
+
+        Args:
+            sample (Any): a sample from the dataset
+
+        Returns:
+            dict: a dictionary containing the prompt, verified answer, and metadata
+        """
+        metadata = sample.get('metadata', None)
+        if metadata is None:
+            log.warning(f'No metadata found for sample: {sample}')
+            return None
+
+        sample = self._process_verifiable_answer_sample(sample)
+        sample['metadata'] = metadata
+        return sample
+
     def _check_for_encoding(self, sample: str) -> bool:
         """Check if a sample is encodable by streaming.
 
@@ -229,12 +254,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         except UnicodeEncodeError:
             return False
 
-        if _sample != sample:
-            log.warning(f'Encoding error for sample: {sample}')
-            return False
-
-        if _sample == '':
-            log.warning(f'Encoding error for sample: {sample}')
+        if _sample != sample or _sample == '':
             return False
 
         return True
@@ -247,7 +267,8 @@ def main(
     hashes: list[str],
     splits: list[str],
     tokenizer_name: str,
-    dataset_type: Literal['preference', 'single_prompt', 'verifiable_answers'],
+    dataset_type: Literal['preference', 'single_prompt', 'verifiable_answers',
+                          'verifiable_answers_with_metadata'],
     max_length: int = 2048,
     subset: str | None = None,
     token: str | None = None,
@@ -263,6 +284,11 @@ def main(
         'verifiable_answers': {
             'prompt': 'bytes',
             'verified_answer': 'str',
+        },
+        'verifiable_answers_with_metadata': {
+            'prompt': 'bytes',
+            'verified_answer': 'str',
+            'metadata': 'str',
         },
         'classifier': {
             'input': 'bytes',
@@ -338,6 +364,7 @@ if __name__ == '__main__':
             'single_prompt',
             'classifier',
             'verifiable_answers',
+            'verifiable_answers_with_metadata',
         ],
         required=True,
         help='Type of dataset to process',
