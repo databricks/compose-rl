@@ -2,9 +2,9 @@
 /* @bcui-db @dakinggg
 
 # Require team approval for code changes
-/compose_rl/ @bcui-db @dakinggg @gupta-abhay @abaheti95
-/scripts/ @bcui-db @dakinggg @gupta-abhay @abaheti95
-/tests/ @bcui-db @dakinggg @gupta-abhay @abaheti95
+/compose_rl/ @bcui-db @dakinggg @gupta-abhay @abaheti95 @vchiley
+/scripts/ @bcui-db @dakinggg @gupta-abhay @abaheti95 @vchiley
+/tests/ @bcui-db @dakinggg @gupta-abhay @abaheti95 @vchiley
 
 # Require admin approval to change the CI build configuration
 /.github/ @bcui-db @dakinggg
