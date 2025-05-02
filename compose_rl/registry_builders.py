@@ -24,14 +24,14 @@ Tokenizer = Optional[Union[PreTrainedTokenizer, PreTrainedTokenizerFast]]
 
 def build_kl_controller(
     name: str,
-    kl_config: dict[Any, Any],
+    kl_config: dict[str, Any],
     device: Optional[str] = None,
 ) -> BaseKLController:
     """Builds a load planner from the registry.
 
     Args:
         name (str): Name of the load planner to build.
-        kl_config: dict[Any, Any]: The config for the kl controller class.
+        kl_config: dict[str, Any]: Additional keyword arguments.
         device: Optional[torch.device]: The device to use for the kl controller.
 
     Returns:
@@ -62,7 +62,7 @@ def build_reward(
     Args:
         name (str): Name of the reward model to build.
         tokenizer: Tokenizer: The tokenizer to use for the reward model.
-        kwargs: dict[Any, Any]: Additional keyword arguments.
+        kwargs: dict[str, Any]: Additional keyword arguments.
 
     Returns:
         BaseReward: The reward model.

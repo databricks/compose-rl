@@ -13,7 +13,7 @@ _rewards_description = (
 
     Args:
         tokenizer: Tokenizer: The tokenizer being used.
-        kwargs: dict[Any, Any]: Additional keyword arguments.
+        kwargs: dict[str, Any]: Additional keyword arguments.
 
     Returns:
         BaseReward: The reward class.
