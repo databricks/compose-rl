@@ -19,7 +19,7 @@ def reward() -> ShortResponseReward:
         'len_threshold': 5,
     }
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    return ShortResponseReward(tokenizer, **config)
+    return ShortResponseReward(tokenizer=tokenizer, **config)
 
 
 @pytest.mark.parametrize(

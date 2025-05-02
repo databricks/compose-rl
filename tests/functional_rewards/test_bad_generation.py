@@ -26,7 +26,7 @@ def reward() -> BadGenerationEndReward:
         'additional_special_tokens': ['<|im_end|>'],
     }
     tokenizer.add_special_tokens(special_tokens_dict)
-    return BadGenerationEndReward(tokenizer, **config)
+    return BadGenerationEndReward(tokenizer=tokenizer, **config)
 
 
 @pytest.mark.parametrize(

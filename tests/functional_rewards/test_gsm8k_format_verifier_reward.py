@@ -14,9 +14,8 @@ from compose_rl.reward_learning import GSM8KFormatVeriferReward
 
 @pytest.fixture
 def reward() -> GSM8KFormatVeriferReward:
-    config: dict[str, Any] = {'reward': 2.0}
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    return GSM8KFormatVeriferReward(tokenizer, **config)
+    return GSM8KFormatVeriferReward(reward=2.0, tokenizer=tokenizer)
 
 
 def test_call_base_verifer_invalid_input(
