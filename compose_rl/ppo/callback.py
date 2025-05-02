@@ -10,7 +10,7 @@ import os
 import socket
 import time
 from itertools import chain
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import ray
 import torch
@@ -70,7 +70,8 @@ def env_reward(
     device_train_microbatch_size: int,
     tokenizer: Tokenizer,
     eos_token_ids: list[int],
-    kl_estimator: str,
+    kl_estimator: Optional[str] = 'k1',
+    kl_clip_range: Optional[float] = None,
 ) -> tuple[
     dict[str, torch.Tensor],
     list[tuple[str, str]],
@@ -93,6 +94,7 @@ def env_reward(
         tokenizer (Tokenizer): The actor critic's tokenizer.
         eos_token_ids (list[int]): A list of eos token ids.
         kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
+        kl_clip_range (float): The clip range for the KL divergence.
 
     Returns:
         partial_env_output (dict[str, tensor]): Partially complete dictionary of return elements suitable
@@ -286,6 +288,7 @@ def env_reward(
             action_log_probs=device_train_microbatch_log_probs,
             device_train_microbatch_size=device_train_microbatch_size,
             kl_estimator=kl_estimator,
+            kl_clip_range=kl_clip_range,
             verified_answers=verified_answers,
         )
 
@@ -319,17 +322,13 @@ class PPOCallback(CallbackWithConfig):
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
 
         # Which kl estimator to use
-        self.kl_estimator = train_config.get('model',
-                                             {}).get('kl_estimator', 'k1')
-        if self.kl_estimator is None:
-            raise ValueError(
-                'kl_estimator must be specified in the model section of the train_config',
-            )
+        self.kl_estimator = train_config['model'].get('kl_estimator', 'k1')
         if self.kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
             raise ValueError(
                 f'Invalid kl estimator: {self.kl_estimator}. ' +
                 'Valid options are: k1, k2, k3, k3_offpolicy.',
             )
+        self.kl_clip_range = train_config['model'].get('kl_clip_range', None)
 
         # Generation keyword arguments.
         self.generation_kwargs = var_config.get('generation_kwargs')
@@ -708,6 +707,7 @@ class PPOCallback(CallbackWithConfig):
             tokenizer=self.tokenizer,  # type: ignore
             eos_token_ids=self.eos_token_ids,  # type: ignore
             kl_estimator=self.kl_estimator,
+            kl_clip_range=self.kl_clip_range,
         )
 
         self.prompts_and_gens.extend(prompts_and_gens)

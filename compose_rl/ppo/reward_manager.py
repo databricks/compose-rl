@@ -302,7 +302,8 @@ class RewardManager:
         actions: torch.Tensor,
         action_log_probs: torch.Tensor,
         device_train_microbatch_size: int,
-        kl_estimator: str,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = None,
         verified_answers: Optional[list[str]] = None,
     ) -> tuple[ReferenceOutput, RewardOutput]:
         """Collect rewards for generations.
@@ -326,6 +327,7 @@ class RewardManager:
             action_log_probs (tensor): The log probability of generating each action.
             device_train_microbatch_size (int): The device train microbatch size, which we need to compute log_probs otherwise we see numerical differences.
             kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
+            kl_clip_range (float): The clip range for the KL divergence.
             verified_answers (Optional[list[str]]): A list of answers for verifiable rewards.
 
         Returns:
@@ -418,6 +420,7 @@ class RewardManager:
             batch,
             device_train_microbatch_size,
             kl_estimator,
+            kl_clip_range,
         )
 
         return ref_output, computed_rewards
@@ -486,7 +489,8 @@ class RewardManager:
         self,
         batch: MutableMapping,
         device_train_microbatch_size: int,
-        kl_estimator: str,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = None,
     ) -> ReferenceOutput:
         """Computes the reference KL for a batch of data.
 
@@ -494,6 +498,7 @@ class RewardManager:
             batch (MutableMapping): the batch of data to compute the reference KL.
             device_train_microbatch_size (int): The device train microbatch size.
             kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3', 'k3_offpolicy'.
+            kl_clip_range (float): The clip range for the KL divergence.
         """
         batch_size = batch['input_ids'].size(0)
         kl = []
@@ -517,8 +522,9 @@ class RewardManager:
             kl_dict = approx_kl(
                 log_p=curr_ref_log_probs,
                 log_q=curr_batch['action_log_probs'],
+                kl_clip_range=kl_clip_range,
             )
-            curr_kl = kl_dict[kl_estimator]
+            curr_kl = kl_dict[kl_estimator]  # pyright: ignore
 
             kl.append(curr_kl)
             ref_model_log_probs.append(curr_ref_log_probs)

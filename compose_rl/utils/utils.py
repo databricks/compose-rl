@@ -83,6 +83,7 @@ def approx_kl(
     Args:
         log_p (torch.Tensor): log probabilities for the distribution p.
         log_q (torch.Tensor): log probabilities for the distribution q.
+        kl_clip_range (float): The clip range for diff of logprobs.
 
     Returns:
         kl_dict (dict[str, torch.Tensor]): a dictionary of the different KL divergence estimators.
