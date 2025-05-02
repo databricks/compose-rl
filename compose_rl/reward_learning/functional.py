@@ -22,6 +22,11 @@ from compose_rl.reward_learning.base_reward import Reward, Tokenizer
 
 
 class IncreasingNumbersReward(Reward):
+    """Reward based on the number of generated increasing numbers.
+
+    Args:
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
@@ -88,6 +93,13 @@ class IncreasingNumbersReward(Reward):
 
 
 class ShortResponseReward(Reward):
+    """Reward based on the length of the generated response.
+
+    Args:
+        reward (float): The reward to apply.
+        len_threshold (int): The length threshold to apply the reward.
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
@@ -128,6 +140,14 @@ class ShortResponseReward(Reward):
 
 
 class BadGenerationEndReward(Reward):
+    """Reward based on the end of the generated response.
+
+    Args:
+        reward (float): The reward to apply.
+        eos_penalty (float): The penalty to apply if the response does not end with an EOS.
+        extra_special_tokens (Optional[list[str]]): The extra special tokens to check for.
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
@@ -196,6 +216,12 @@ class BadGenerationEndReward(Reward):
 
 
 class OutputLengthReward(Reward):
+    """Reward based on the length of the generated response.
+
+    Args:
+        max_gen_len (int): The maximum length of the generated response.
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
@@ -230,6 +256,13 @@ class OutputLengthReward(Reward):
 
 
 class BaseVerifierReward(Reward):
+    """Base class for verifier rewards.
+
+    Args:
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+        reward (float): The reward to apply. Default is 1.0.
+    """
+
     # This can be run async
     BLOCKING = False
 

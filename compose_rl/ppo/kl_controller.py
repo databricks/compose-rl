@@ -11,6 +11,12 @@ class AdaptiveKLController(BaseKLController):
 
     https://arxiv.org/abs/1909.08593 (Sec 2.2)
     KL = clip((kl_curr / target) - 1, -n, n)
+
+    Args:
+        init_kl_coef (float): The initial KL coefficient.
+        target (float): The target KL coefficient.
+        horizon (int): The horizon of the KL controller.
+        device (str): The device to use for the KL controller. Default is `cpu`.
     """
 
     def __init__(
@@ -49,7 +55,12 @@ class AdaptiveKLController(BaseKLController):
 
 
 class FixedKLController(BaseKLController):
-    """Fixed KL controller that always returns same value."""
+    """Fixed KL controller that always returns same value.
+
+    Args:
+        init_kl_coef (float): The initial KL coefficient.
+        device (str): The device to use for the KL controller. Default is `cpu`.
+    """
 
     def __init__(self, init_kl_coef: float, device: str = 'cpu'):
         self._value = init_kl_coef
@@ -73,6 +84,13 @@ class KLPIDController(BaseKLController):
     technique via Lagrangian multiplier. This is approximated via KL penalties
     in rewards (for now).
     KL = KL + -kl_lr * ((kl_curr - target) * trajectory_len)
+
+    Args:
+        init_kl_coef (float): The initial KL coefficient.
+        target (float): The target KL coefficient.
+        horizon (int): The horizon of the KL controller.
+        kl_lr (float): The learning rate of the KL controller.
+        device (str): The device to use for the KL controller. Default is `cpu`.
     """
 
     def __init__(
@@ -126,6 +144,13 @@ class BallKLController(BaseKLController):
     constrain policy to being on `surface' of a Ball (loss surface) but this
     allows for policy to be anywhere inside `volume' of said Ball
     KL = clamp(KL + -kl_lr * ((kl_curr - target) * trajectory_len))
+
+    Args:
+        init_kl_coef (float): The initial KL coefficient.
+        target (float): The target KL coefficient.
+        horizon (int): The horizon of the KL controller.
+        kl_lr (float): The learning rate of the KL controller.
+        device (str): The device to use for the KL controller. Default is `cpu`.
     """
 
     def __init__(
