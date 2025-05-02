@@ -7,4 +7,4 @@
 /tests/ @bcui-db @dakinggg @gupta-abhay @abaheti95
 
 # Require admin approval to change the CI build configuration
-/.github/ @bcui-db
+/.github/ @bcui-db @dakinggg
