@@ -114,7 +114,7 @@ class RewardManager:
                 model = build_reward(
                     name=reward_type,
                     tokenizer=self.tokenizer,
-                    kwargs={'cfg': reward_config},
+                    kwargs=reward_config,
                 )
                 self.functional_rewards.append(reward_name)
 
@@ -127,7 +127,7 @@ class RewardManager:
                     model = build_reward(
                         name=reward_type,
                         tokenizer=self.tokenizer,
-                        kwargs=reward_config.get('config', {}),
+                        kwargs=reward_config,
                     )
                     self.inference_rewards.append(reward_name)
 

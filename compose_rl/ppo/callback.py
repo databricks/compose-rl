@@ -378,7 +378,7 @@ class PPOCallback(CallbackWithConfig):
         kl_ctl_name = var_config['kl_controller'].pop('kl_ctl_type')
         self.kl_ctl = build_kl_controller(
             name=kl_ctl_name,
-            kl_config=var_config['kl_controller'],
+            kwargs=var_config['kl_controller'],
         )
 
         self.kl_ift = []

@@ -1,7 +1,6 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-import numpy as np
 import torch
 
 from compose_rl.interfaces.base_kl_controller import BaseKLController
@@ -14,15 +13,25 @@ class AdaptiveKLController(BaseKLController):
     KL = clip((kl_curr / target) - 1, -n, n)
     """
 
-    def __init__(self, kl_config: dict, device: str = 'cpu'):
-        super().__init__(kl_config=kl_config, device=device)
-        self._value = kl_config['init_kl_coef']
-        self._target = kl_config['target']
-        self._horizon = kl_config['horizon']
+    def __init__(
+        self,
+        init_kl_coef: float,
+        target: float,
+        horizon: int,
+        device: str = 'cpu',
+    ):
+        self._value = init_kl_coef
+        self._target = target
+        self._horizon = horizon
+        self.device = device
 
     def update(self, current: torch.Tensor, n_steps: int):
         target = self._target
-        proportional_error = np.clip(current / target - 1, -0.2, 0.2)
+        proportional_error = torch.clamp(
+            current / target - 1,
+            min=-0.2,
+            max=0.2,
+        )
         # We need to force cast mult to be a float otherwise it will break
         # PyTorch 2.4 checkpointing.
         mult = float(1 + proportional_error * n_steps / self._horizon)
@@ -42,9 +51,9 @@ class AdaptiveKLController(BaseKLController):
 class FixedKLController(BaseKLController):
     """Fixed KL controller that always returns same value."""
 
-    def __init__(self, kl_config: dict, device: str = 'cpu'):
-        super().__init__(kl_config=kl_config, device=device)
-        self._value = kl_config['init_kl_coef']
+    def __init__(self, init_kl_coef: float, device: str = 'cpu'):
+        self._value = init_kl_coef
+        self.device = device
 
     def update(self, current: torch.Tensor, n_steps: int):
         return
@@ -66,15 +75,23 @@ class KLPIDController(BaseKLController):
     KL = KL + -kl_lr * ((kl_curr - target) * trajectory_len)
     """
 
-    def __init__(self, kl_config: dict, device: str = 'cpu'):
-        super().__init__(kl_config=kl_config, device=device)
-        self._value: torch.Tensor = torch.tensor([kl_config['init_kl_coef']],
+    def __init__(
+        self,
+        init_kl_coef: float,
+        target: float,
+        horizon: int,
+        kl_lr: float,
+        device: str = 'cpu',
+    ):
+        super().__init__(device=device)
+        self._value: torch.Tensor = torch.tensor([init_kl_coef],
                                                  requires_grad=True,
                                                  device=self.device)
-        self._target = kl_config['target']
-        self._horizon = kl_config['horizon']
-        self._optim = torch.optim.Adam([self._value], lr=kl_config['kl_lr'])
-        self.kl_lr = kl_config['kl_lr']
+        self._target = target
+        self._horizon = horizon
+        self._optim = torch.optim.Adam([self._value], lr=kl_lr)
+        self.kl_lr = kl_lr
+        self.device = device
 
     def update(self, current: torch.Tensor, n_steps: int):
         self.device = current.device
@@ -111,15 +128,23 @@ class BallKLController(BaseKLController):
     KL = clamp(KL + -kl_lr * ((kl_curr - target) * trajectory_len))
     """
 
-    def __init__(self, kl_config: dict, device: str = 'cpu'):
-        super().__init__(kl_config=kl_config, device=device)
-        self._value: torch.Tensor = torch.tensor([kl_config['init_kl_coef']],
+    def __init__(
+        self,
+        init_kl_coef: float,
+        target: float,
+        horizon: int,
+        kl_lr: float,
+        device: str = 'cpu',
+    ):
+        super().__init__(device=device)
+        self._value: torch.Tensor = torch.tensor([init_kl_coef],
                                                  requires_grad=True,
                                                  device=self.device)
-        self._target = kl_config['target']
-        self._horizon = kl_config['horizon']
-        self._optim = torch.optim.Adam([self._value], lr=kl_config['kl_lr'])
-        self.kl_lr = kl_config['kl_lr']
+        self._target = target
+        self._horizon = horizon
+        self._optim = torch.optim.Adam([self._value], lr=kl_lr)
+        self.kl_lr = kl_lr
+        self.device = device
 
     def update(self, current: torch.Tensor, n_steps: int):
         self.device = current.device

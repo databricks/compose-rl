@@ -22,8 +22,8 @@ class BaseReward(ABC):
             will reference this attribute.
 
     Args:
-        cfg: the config for the reward class.
         tokenizer: the tokenizer being used.
+        *args: additional arguments.
         **kwargs: additional keyword arguments.
     """
 
@@ -32,12 +32,12 @@ class BaseReward(ABC):
 
     def __init__(
         self,
-        cfg: dict[Any, Any],
         tokenizer: Tokenizer,
+        *args: Any,
         **kwargs: Any,
     ) -> None:
-        self.cfg = cfg
         self.tokenizer = tokenizer
+        pass
 
     def validate_config(self) -> None:
         """Validates the config of the reward class.

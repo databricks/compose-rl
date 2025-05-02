@@ -24,7 +24,7 @@ Tokenizer = Optional[Union[PreTrainedTokenizer, PreTrainedTokenizerFast]]
 
 def build_kl_controller(
     name: str,
-    kl_config: dict[str, Any],
+    kwargs: dict[str, Any],
     device: Optional[str] = None,
 ) -> BaseKLController:
     """Builds a load planner from the registry.
@@ -37,11 +37,13 @@ def build_kl_controller(
     Returns:
         BaseKLController: The kl controller.
     """
+    if 'device' in kwargs:
+        raise ValueError(
+            f'`device` is a reserved keyword for kl controllers. Please remove it from the kwargs.',
+        )
+
     _device = device if device is not None else 'cpu'
-    kwargs = {
-        'kl_config': kl_config,
-        'device': _device,
-    }
+    kwargs['device'] = _device
 
     return construct_from_registry(
         name=name,
@@ -67,14 +69,13 @@ def build_reward(
     Returns:
         BaseReward: The reward model.
     """
-    if name in registry.rewards:
-        if kwargs is None:
-            kwargs = {}
-        if 'tokenizer' in kwargs:
-            raise ValueError(
-                f'`tokenizer` is a reserved keyword for rewards. Please remove it from the kwargs.',
-            )
-        kwargs['tokenizer'] = copy.deepcopy(tokenizer)
+    if kwargs is None:
+        kwargs = {}
+    if 'tokenizer' in kwargs:
+        raise ValueError(
+            f'`tokenizer` is a reserved keyword for rewards. Please remove it from the kwargs.',
+        )
+    kwargs['tokenizer'] = copy.deepcopy(tokenizer)
 
     return construct_from_registry(
         name=name,

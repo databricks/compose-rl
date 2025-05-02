@@ -1,18 +1,26 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
+from typing import Any
 
 import torch
 
 __all__ = ['BaseKLController']
 
 
-class BaseKLController():
-    """Base KL Controller class."""
+class BaseKLController(ABC):
+    """Abstract base class for KL controller classes.
 
-    def __init__(self, kl_config: dict, device: str):
-        self.device = device
+    Args:
+        device: the device to run the KL controller on.
+        *args: additional arguments.
+        **kwargs: additional keyword arguments.
+    """
+
+    def __init__(self, device: str, *args: Any, **kwargs: Any):
+        del device, args, kwargs  # unsued here
+        pass
 
     @abstractmethod
     def update(self, current: torch.Tensor, n_steps: int):

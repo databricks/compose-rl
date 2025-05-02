@@ -18,11 +18,7 @@ def reward() -> MATHVerifierReward:
         'reward': 10.0,
     }
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    return MATHVerifierReward(config, tokenizer)
-
-
-def test_validate_config(reward: MATHVerifierReward) -> None:
-    reward.validate_config()
+    return MATHVerifierReward(tokenizer, **config)
 
 
 def test_call_base_verifer_invalid_input(reward: MATHVerifierReward) -> None:
