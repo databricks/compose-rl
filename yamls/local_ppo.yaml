@@ -43,7 +43,6 @@ variables:
   # RL parameters
   gamma: 1.0
   lambda_gae: 0.95
-  kl_estimator: k1
 
   device_generate_batch_size: 32
 
@@ -84,6 +83,8 @@ model:
 
     joint_actor_critic: true
     compute_kl_loss: true
+    kl_estimator: k1
+    kl_clip_range: 40.0
 
 # load_path: # TODO: fill in load path if applicable
 # load_weights_only: true
