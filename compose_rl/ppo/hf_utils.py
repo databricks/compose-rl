@@ -158,6 +158,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
         target_kl: float = 0.1,
         policy_clip_ratio: float = 0.15,
         compute_kl_loss: bool = True,
+        kl_estimator: str = 'k1',
         config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
         cache_dir: Optional[Union[str, os.PathLike]] = None,
         ignore_mismatched_sizes: bool = False,
@@ -220,6 +221,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
             target_kl=target_kl,
             policy_clip_ratio=policy_clip_ratio,
             compute_kl_loss=compute_kl_loss,
+            kl_estimator=kl_estimator,
         )
 
         model = cls(policy_config)

@@ -70,7 +70,8 @@ def clear_mb_load_balancing_loss(
         clear_load_balancing_loss()
 
 
-def approx_kl(log_p: torch.Tensor, log_q: torch.Tensor) -> torch.Tensor:
+def approx_kl(log_p: torch.Tensor,
+              log_q: torch.Tensor) -> dict[str, torch.Tensor]:
     """Approximates the KL divergence between two distributions P, Q.
 
     Approximates the KL Divergence between P, Q given the log probabilities,
@@ -83,9 +84,20 @@ def approx_kl(log_p: torch.Tensor, log_q: torch.Tensor) -> torch.Tensor:
         log_p (torch.Tensor): log probabilities for the distribution p.
         log_q (torch.Tensor): log probabilities for the distribution q.
     """
-    ratio = log_p - log_q
-    approx_kl = (ratio.exp() - 1) - ratio
-    return approx_kl
+    ratio = (log_p - log_q).clamp(min=-40.0, max=40.0)
+
+    approx_kl_k1 = -ratio
+    approx_kl_k2 = 0.5 * (ratio**2)
+    approx_kl_k3 = torch.expm1(ratio) - ratio
+    approx_kl_k3_offpolicy = 1.0 - torch.exp(ratio)
+
+    kl_dict = {
+        'k1': approx_kl_k1,
+        'k2': approx_kl_k2,
+        'k3': approx_kl_k3,
+        'k3_offpolicy': approx_kl_k3_offpolicy,
+    }
+    return kl_dict
 
 
 def get_log_probs(
