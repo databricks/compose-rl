@@ -130,7 +130,8 @@ def ppo_loss(
     policy_clip_ratio: float,
     value_loss_weight: float,
     add_direct_kl_loss: bool = False,
-    kl_estimator: str = 'k1',
+    kl_estimator: Optional[str] = 'k1',
+    kl_clip_range: Optional[float] = 40.0,
 ) -> tuple[MutableMapping, torch.Tensor]:
     """Compute the PPO loss.
 
@@ -142,6 +143,7 @@ def ppo_loss(
         value_loss_weight (float): The value loss weight.
         add_direct_kl_loss (bool): Whether to add the KL loss directly to the loss. Default: ``False``.
         kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
+        kl_clip_range (float): The clip range for the KL divergence. Default: ``40.0``.
     """
     # v_preds: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
     # values: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
@@ -206,17 +208,19 @@ def ppo_loss(
     policy_kl_dict = utils.approx_kl(
         log_p=online_log_probs,
         log_q=old_log_probs,
+        kl_clip_range=kl_clip_range,
     )
     policy_kl = utils.masked_mean(
-        policy_kl_dict[kl_estimator],
+        policy_kl_dict[kl_estimator], # pyright: ignore
         batch['action_mask'],
     )
     online_ift_kl_dict = utils.approx_kl(
         log_p=batch['ift_log_probs'],
         log_q=outputs['online_log_probs'],
+        kl_clip_range=kl_clip_range,
     )
     online_ift_kl = utils.masked_mean(
-        online_ift_kl_dict[kl_estimator],
+        online_ift_kl_dict[kl_estimator], # pyright: ignore
         batch['action_mask'],
     )
 

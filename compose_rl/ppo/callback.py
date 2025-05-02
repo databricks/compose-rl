@@ -317,8 +317,14 @@ class PPOCallback(CallbackWithConfig):
         self.gamma = var_config.get('gamma', 1.0)
         # Value used in the generalized advantage estimate calculation.
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
+
         # Which kl estimator to use
-        self.kl_estimator = var_config.get('kl_estimator', 'k1')
+        self.kl_estimator = train_config.get('model',
+                                             {}).get('kl_estimator', 'k1')
+        if self.kl_estimator is None:
+            raise ValueError(
+                'kl_estimator must be specified in the model section of the train_config',
+            )
         if self.kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
             raise ValueError(
                 f'Invalid kl estimator: {self.kl_estimator}. ' +

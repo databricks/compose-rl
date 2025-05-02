@@ -70,21 +70,27 @@ def clear_mb_load_balancing_loss(
         clear_load_balancing_loss()
 
 
-def approx_kl(log_p: torch.Tensor,
-              log_q: torch.Tensor) -> dict[str, torch.Tensor]:
+def approx_kl(
+    log_p: torch.Tensor,
+    log_q: torch.Tensor,
+    kl_clip_range: Optional[float] = 40.0,
+) -> dict[str, torch.Tensor]:
     """Approximates the KL divergence between two distributions P, Q.
 
     Approximates the KL Divergence between P, Q given the log probabilities,
-    log_p and log_q. Taken from: http://joschu.net/blog/kl-approx.html.
-
-    The estimator is unbiased and lower variance than if we were to apporximate
-    it by just `-ratio.`
+    log_p and log_q.
 
     Args:
         log_p (torch.Tensor): log probabilities for the distribution p.
         log_q (torch.Tensor): log probabilities for the distribution q.
+
+    Returns:
+        kl_dict (dict[str, torch.Tensor]): a dictionary of the different KL divergence estimators.
+            The keys are 'k1', 'k2', 'k3', and 'k3_offpolicy'.
     """
-    ratio = (log_p - log_q).clamp(min=-40.0, max=40.0)
+    ratio = log_p - log_q
+    if kl_clip_range is not None:
+        ratio = ratio.clamp(min=-kl_clip_range, max=kl_clip_range)
 
     approx_kl_k1 = -ratio
     # The k2_loss is approximately equivalent to the one-step KL divergence penalty with the k1 estimator
