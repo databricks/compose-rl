@@ -207,8 +207,10 @@ def ppo_loss(
         log_p=online_log_probs,
         log_q=old_log_probs,
     )
-    # harcoding this for now, need to confirm with bcui
-    policy_kl = utils.masked_mean(policy_kl_dict['k3'], batch['action_mask'])
+    policy_kl = utils.masked_mean(
+        policy_kl_dict[kl_estimator],
+        batch['action_mask'],
+    )
     online_ift_kl_dict = utils.approx_kl(
         log_p=batch['ift_log_probs'],
         log_q=outputs['online_log_probs'],
