@@ -29,6 +29,7 @@ from compose_rl.reward_learning import (
     RewardModel,
 )
 from compose_rl.utils import (
+    approx_kl,
     batch_process_fine_granularities,
     get_log_probs,
     scatter_gather_rewards,
@@ -301,7 +302,8 @@ class RewardManager:
         actions: torch.Tensor,
         action_log_probs: torch.Tensor,
         device_train_microbatch_size: int,
-        kl_estimator: str,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = 40.0,
         verified_answers: Optional[list[str]] = None,
     ) -> tuple[ReferenceOutput, RewardOutput]:
         """Collect rewards for generations.
@@ -325,6 +327,7 @@ class RewardManager:
             action_log_probs (tensor): The log probability of generating each action.
             device_train_microbatch_size (int): The device train microbatch size, which we need to compute log_probs otherwise we see numerical differences.
             kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
+            kl_clip_range (float): The clip range for the KL divergence.
             verified_answers (Optional[list[str]]): A list of answers for verifiable rewards.
 
         Returns:
@@ -417,6 +420,7 @@ class RewardManager:
             batch,
             device_train_microbatch_size,
             kl_estimator,
+            kl_clip_range,
         )
 
         return ref_output, computed_rewards
@@ -485,7 +489,8 @@ class RewardManager:
         self,
         batch: MutableMapping,
         device_train_microbatch_size: int,
-        kl_estimator: str,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = 40.0,
     ) -> ReferenceOutput:
         """Computes the reference KL for a batch of data.
 
@@ -493,6 +498,7 @@ class RewardManager:
             batch (MutableMapping): the batch of data to compute the reference KL.
             device_train_microbatch_size (int): The device train microbatch size.
             kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3', 'k3_offpolicy'.
+            kl_clip_range (float): The clip range for the KL divergence.
         """
         batch_size = batch['input_ids'].size(0)
         kl = []
@@ -513,28 +519,12 @@ class RewardManager:
                 max_gen_len=curr_batch['max_gen_len'],
             )
 
-            logprob_diff = (
-                curr_batch['action_log_probs'] - curr_ref_log_probs
-            ).clamp(min=-40.0, max=40.0)
-            approxkl_k1 = logprob_diff
-            approxkl_k2 = 0.5 * (logprob_diff**2)
-            approxkl_k3 = torch.expm1(-logprob_diff) + logprob_diff
-            approxkl_k3_offpolicy = 1.0 - torch.exp(-logprob_diff)
-
-            curr_kl = 0.0
-            if kl_estimator == 'k1':
-                curr_kl = approxkl_k1
-            elif kl_estimator == 'k2':
-                # The k2_loss is approximately equivalent to the one-step KL divergence penalty with the k1 estimator
-                # used in https://arxiv.org/pdf/2310.10505.
-                curr_kl = approxkl_k2
-            elif kl_estimator == 'k3':
-                # The k3 estimator is the non negative kl approximation in http://joschu.net/blog/kl-approx.html
-                curr_kl = approxkl_k3
-            elif kl_estimator == 'k3_offpolicy':
-                # This is taken from https://hongyuzang.notion.site/The-critical-implementation-detail-of-KL-loss-in-GRPO-1ae3fe2c1ff9809a9307c5402e190373
-                # This is specifically for off-policy learning and can be useful for async training.
-                curr_kl = approxkl_k3_offpolicy
+            kl_dict = approx_kl(
+                log_p=curr_ref_log_probs,
+                log_q=curr_batch['action_log_probs'],
+                kl_clip_range=kl_clip_range,
+            )
+            curr_kl = kl_dict[kl_estimator]  # pyright: ignore
 
             kl.append(curr_kl)
             ref_model_log_probs.append(curr_ref_log_probs)

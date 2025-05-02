@@ -130,6 +130,8 @@ def ppo_loss(
     policy_clip_ratio: float,
     value_loss_weight: float,
     add_direct_kl_loss: bool = False,
+    kl_estimator: Optional[str] = 'k1',
+    kl_clip_range: Optional[float] = 40.0,
 ) -> tuple[MutableMapping, torch.Tensor]:
     """Compute the PPO loss.
 
@@ -140,6 +142,8 @@ def ppo_loss(
         policy_clip_ratio (float): The policy clip ratio.
         value_loss_weight (float): The value loss weight.
         add_direct_kl_loss (bool): Whether to add the KL loss directly to the loss. Default: ``False``.
+        kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
+        kl_clip_range (float): The clip range for the KL divergence. Default: ``40.0``.
     """
     # v_preds: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
     # values: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
@@ -201,17 +205,26 @@ def ppo_loss(
     )
     advantages = advantages.detach()
 
+    policy_kl_dict = utils.approx_kl(
+        log_p=online_log_probs,
+        log_q=old_log_probs,
+        kl_clip_range=kl_clip_range,
+    )
     policy_kl = utils.masked_mean(
-        utils.approx_kl(online_log_probs, old_log_probs),
+        policy_kl_dict[kl_estimator], # pyright: ignore
         batch['action_mask'],
     )
+    online_ift_kl_dict = utils.approx_kl(
+        log_p=batch['ift_log_probs'],
+        log_q=outputs['online_log_probs'],
+        kl_clip_range=kl_clip_range,
+    )
     online_ift_kl = utils.masked_mean(
-        outputs['online_log_probs'] - batch['ift_log_probs'],
+        online_ift_kl_dict[kl_estimator], # pyright: ignore
         batch['action_mask'],
     )
 
     ratio = torch.exp(online_log_probs - old_log_probs)
-
     policy_loss_1 = -advantages * ratio
     policy_loss_2 = -advantages * torch.clamp(
         ratio,
@@ -224,19 +237,27 @@ def ppo_loss(
         torch.gt(policy_loss_1, policy_loss_2).double(),
         batch['action_mask'],
     )
-
     policy_loss = utils.masked_mean(policy_loss, batch['action_mask'])
-
     val_error = utils.masked_mean((v_preds - returns)**2, batch['action_mask'])
+
+    policy_kl_logging_dict = {
+        f'kl/policy_kl_{k}_estimate': v for k, v in policy_kl_dict.items()
+    }
+    online_ift_kl_logging_dict = {
+        f'kl/online_ift_kl_{k}_estimate': v
+        for k, v in online_ift_kl_dict.items()
+    }
 
     return_dict = {
         'loss/value_loss': value_loss,
         'loss/policy_loss': policy_loss,
         'kl/policy_kl': policy_kl,
+        'kl/online_ift_kl': online_ift_kl,
         'kl/ift_kl_scalar': batch['ift_kl_scalar'],
+        **policy_kl_logging_dict,
+        **online_ift_kl_logging_dict,
         'value_loss/clip_frac': value_clip_frac,
         'policy_loss/clip_frac': policy_clip_frac,
-        'kl/online_ift_kl': online_ift_kl,
         'value_loss/returns_mean': returns_mean,
         'value_loss/returns_var': returns_var,
         'value_loss/value_error': val_error,

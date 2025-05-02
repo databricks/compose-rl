@@ -23,6 +23,8 @@ class MPTPolicyConfig(MPTConfig):
         target_kl: float = 0.1,
         policy_clip_ratio: float = 0.15,
         compute_kl_loss: bool = True,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = 40.0,
         **kwargs: Any,
     ):
         """Config Class for MPTPolicy.
@@ -37,6 +39,8 @@ class MPTPolicyConfig(MPTConfig):
             policy_clip_ratio (float): Clipping range for the policy.
             compute_kl_loss (bool): Whether to compute the KL divergence loss in the policy as a distillaiton loss.
                 Otherwise we will compute it as an auxiliary reward.
+            kl_estimator (str): The KL estimator to use.
+            kl_clip_range (float): The clip range for the KL divergence.
             **kwargs (Any): Additional keyword arguments.
         """
         if not joint_actor_critic:
@@ -51,7 +55,8 @@ class MPTPolicyConfig(MPTConfig):
         self.target_kl = target_kl
         self.policy_clip_ratio = policy_clip_ratio
         self.compute_kl_loss = compute_kl_loss
-
+        self.kl_estimator = kl_estimator
+        self.kl_clip_range = kl_clip_range
         super().__init__(**kwargs)
 
 
@@ -72,6 +77,8 @@ class HFPolicyConfig(PretrainedConfig):
         target_kl: float = 0.1,
         policy_clip_ratio: float = 0.15,
         compute_kl_loss: bool = True,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = 40.0,
         **kwargs: Any,
     ):
         """Config Class for HFPolicy."""
@@ -104,3 +111,5 @@ class HFPolicyConfig(PretrainedConfig):
         self.target_kl = target_kl
         self.policy_clip_ratio = policy_clip_ratio
         self.compute_kl_loss = compute_kl_loss
+        self.kl_estimator = kl_estimator
+        self.kl_clip_range = kl_clip_range

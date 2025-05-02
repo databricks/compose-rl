@@ -93,6 +93,8 @@ class ComposerMosaicPolicy(HuggingFaceModel):
             self.config.policy_clip_ratio,
             self.config.value_loss_weight,
             self.compute_kl_loss,  # pyright: ignore
+            self.config.kl_estimator,
+            self.config.kl_clip_range,
         )
 
         self.policy_kl.append(kl_loss)
@@ -201,6 +203,8 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
             self.config.policy_clip_ratio,
             self.config.value_loss_weight,
             self.compute_kl_loss,  # pyright: ignore
+            self.config.kl_estimator,
+            self.config.kl_clip_range,
         )
 
         self.policy_kl.append(kl_loss)
