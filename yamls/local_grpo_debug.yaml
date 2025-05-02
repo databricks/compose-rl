@@ -74,16 +74,15 @@ model:
   <<: *base_model
   name: hf_critic_free_lm
 
-  config_overrides:
-    critic_dropout: 0.0
-    value_clip_range: 0.2
-    value_loss_weight: 0.2
-    target_kl: 0.1
+  # config_overrides:
+    # critic_dropout: 0.0
+    # value_clip_range: 0.2
+    # value_loss_weight: 0.2
+    # target_kl: 0.1
 
-    policy_clip_ratio: 0.15
+  policy_clip_ratio: 0.15
 
-    joint_actor_critic: true
-    compute_kl_loss: true
+    # compute_kl_loss: true
 # load_path: # TODO: fill in load path if applicable
 # load_weights_only: true
 # load_ignore_keys:
