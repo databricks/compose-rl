@@ -18,6 +18,7 @@
 # Modified version from https://github.com/OpenRLHF/OpenRLHF and The AllenAI Team.
 
 import logging
+import os
 from typing import Any, Union
 
 import ray
@@ -35,46 +36,35 @@ log = logging.getLogger(__name__)
 @ray.remote
 class LLMRayActor:
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         import vllm
 
-        self.__version__ = vllm.__version__
-        assert self.__version__ >= '0.4.1', 'Compose RL only supports vLLM >= 0.4.1'
+        noset_visible_devices = kwargs.pop('noset_visible_devices')
 
-        self.use_gpu_executor = kwargs['tensor_parallel_size'] == 1
-        log.info(f'kwargs are: {kwargs}')
+        if kwargs.get('distributed_executor_backend') == 'ray':
+            # a hack to make the script work.
+            # stop ray from manipulating *_VISIBLE_DEVICES
+            # at the top-level when the distributed_executor_backend is ray.
+            os.environ.pop('CUDA_VISIBLE_DEVICES', None)
+            os.environ.pop('ROCR_VISIBLE_DEVICES', None)
+        elif noset_visible_devices:
+            # We need to set CUDA_VISIBLE_DEVICES to the ray assigned GPU
+            # when the distributed_executor_backend is not ray and
+            # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set.
+            os.environ['CUDA_VISIBLE_DEVICES'] = str(ray.get_gpu_ids()[0])
 
-        # See https://github.com/vllm-project/vllm/blob/main/vllm/executor/gpu_executor.py
-        if self.use_gpu_executor:
-            vllm.worker.worker.Worker = WorkerWrap  # type: ignore
-        else:
-
-            # This exists elsewhere but is an unsupported kwarg here?
-            # RayGPUExecutor
-            # See the patch https://github.com/vllm-project/vllm/commit/479d69fad0538f04cb22bf13e76ff91cfeb8a4e5
-            # kwargs['worker_use_ray'] = True
-
-            if vllm.__version__ > '0.4.1':
-                RayWorkerWrapperPath = vllm.executor.ray_utils  # type: ignore
-            else:
-                RayWorkerWrapperPath = vllm.engine.ray_utils  # type: ignore
-
-            if vllm.__version__ > '0.6.4.post1':
-                # https://github.com/vllm-project/vllm/pull/10555
-                kwargs['worker_cls'] = 'compose_rl.utils.vllm_utils.WorkerWrap'
-            else:
-                RayWorkerWrapperPath = vllm.engine.ray_utils  # type: ignore
-
-                class RayWorkerWrapper(RayWorkerWrapperPath.RayWorkerWrapper):
-
-                    def __init__(self, *args: Any, **kwargs: Any) -> None:
-                        kwargs['worker_module_name'
-                              ] = 'compose_rl.utils.vllm_utils'
-                        kwargs['worker_class_name'
-                              ] = 'compose_rl.utils.vllm_utils.WorkerWrap'
-                        super().__init__(*args, **kwargs)
-
-                RayWorkerWrapperPath.RayWorkerWrapper = RayWorkerWrapper
+        num_gpus = kwargs.pop('num_gpus')
+        bundle_indices = kwargs.pop('bundle_indices', None)
+        if bundle_indices is not None:
+            os.environ['VLLM_RAY_PER_WORKER_GPUS'] = str(num_gpus)
+            os.environ['VLLM_RAY_BUNDLE_INDICES'] = ','.join(
+                map(str, bundle_indices),
+            )
+            log.info(f'creating LLM with bundle_indices={bundle_indices}')
 
         self.llm = vllm.LLM(*args, **kwargs)
 
@@ -100,25 +90,17 @@ class LLMRayActor:
         group_name: str,
         backend: str,
     ):
-        if self.use_gpu_executor:
-            return self.llm.llm_engine.model_executor.driver_worker.init_process_group( # type: ignore
+        return self.llm.collective_rpc(
+            'init_process_group',
+            args=(
                 master_address,
                 master_port,
                 rank_offset,
                 world_size,
                 group_name,
                 backend,
-            )
-        else:
-            return self.llm.llm_engine.model_executor._run_workers( # type: ignore
-                'init_process_group',
-                master_address,
-                master_port,
-                rank_offset,
-                world_size,
-                group_name,
-                backend,
-            )
+            ),
+        )
 
     def update_weight(
         self,
@@ -127,27 +109,7 @@ class LLMRayActor:
         shape: Union[tuple[int, ...], list[int]],
         empty_cache: bool = False,
     ):
-        self.stop_remote_worker_execution_loop()
-
-        if self.use_gpu_executor:
-            return self.llm.llm_engine.model_executor.driver_worker.update_weight( # type: ignore
-                name,
-                dtype,
-                shape,
-                empty_cache,
-            )
-        else:
-            return self.llm.llm_engine.model_executor._run_workers( # type: ignore
-                'update_weight',
-                name,
-                dtype,
-                shape,
-                empty_cache,
-            )
-
-    def stop_remote_worker_execution_loop(self):
-        # Fix error for using 2 communication group
-        # https://github.com/vllm-project/vllm/commit/eb6d3c264d0cd8e44dec16bca7947fbe96415ce9#diff-e1ad69e38e033accddfa5480ec808c4740eb39244d1ef51cc3407e20dde8cfd4
-        if self.__version__ > '0.4.2':
-            self.llm.llm_engine.model_executor.stop_remote_worker_execution_loop(
-            )
+        return self.llm.collective_rpc(
+            'update_weight',
+            args=(name, dtype, shape, empty_cache),
+        )
