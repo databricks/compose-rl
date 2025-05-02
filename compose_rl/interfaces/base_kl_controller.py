@@ -6,6 +6,8 @@ from abc import abstractmethod
 import torch
 
 __all__ = ['BaseKLController']
+
+
 class BaseKLController():
     """Base KL Controller class."""
 
