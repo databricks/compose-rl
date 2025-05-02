@@ -23,8 +23,8 @@ from compose_rl.ppo.modeling_hf import ComposerHFPolicy
 from compose_rl.ppo.modeling_mpt import MPTForPolicy
 from compose_rl.ppo.modeling_utils import composer_ppo_forward, ppo_loss
 from compose_rl.ppo.policy_configuration import (
-    HFCriticFreeConfig,
-    HFPolicyConfig,
+    # HFCriticFreeConfig,
+    # HFPolicyConfig,
     MPTPolicyConfig,
 )
 from compose_rl.utils import (
@@ -259,56 +259,6 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         outputs: MutableMapping,
     ) -> None:
         raise ValueError('Eval forward is not implemented for ComposerHFDPOLM.')
-
-    # @classmethod
-    # def build_config(
-    #     cls,
-    #     pretrained_model_name_or_path: str,
-    #     trust_remote_code: bool,
-    #     use_auth_token: bool,
-    #     attn_implementation: str,
-    #     config_overrides: dict[str, Any],
-    # ) -> PretrainedConfig:
-
-    #     # base_config = AutoConfig.from_pretrained(
-    #     #     pretrained_model_name_or_path,
-    #     #     trust_remote_code=trust_remote_code,
-    #     #     token=use_auth_token,
-    #     #     attn_implementation=attn_implementation,
-    #     #     use_cache=
-    #     #     False,  # Necessary due to https://github.com/huggingface/transformers/issues/28056
-    #     #     torch_dtype=config_overrides.get('torch_dtype', 'float32'),
-    #     # )
-
-    #     # print ("base config type is: ", base_config, type(base_config))
-
-    #     # pretrain_cfg = {
-    #     #     'trust_remote_code': trust_remote_code,
-    #     #     'token': use_auth_token,
-    #     # }
-
-    #     # config = HFPolicyConfig(
-    #     #     base_model=pretrained_model_name_or_path,
-    #     #     base_config=base_config,
-    #     #     hidden_size=base_config.hidden_size,
-    #     #     vocab_size=base_config.vocab_size,
-    #     #     pretrain_cfg=pretrain_cfg,
-    #     # )
-
-    #     config = HFCriticFreeConfig.from_pretrained(
-    #         pretrained_model_name_or_path,
-    #         trust_remote_code=trust_remote_code,
-    #         token=use_auth_token,
-    #         attn_implementation=attn_implementation,
-    #         use_cache=
-    #         False,  # Necessary due to https://github.com/huggingface/transformers/issues/28056
-    #         torch_dtype=config_overrides.get('torch_dtype', 'float32'),
-    #         policy_clip_ratio=config_overrides.get('policy_clip_ratio', 0.15),
-    #     )
-
-    #     set_config_overrides(config, config_overrides)
-
-    #     return config
 
     def loss(self, outputs: MutableMapping,
              batch: MutableMapping) -> dict[str, torch.Tensor]:

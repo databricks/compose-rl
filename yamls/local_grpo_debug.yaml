@@ -181,7 +181,7 @@ callbacks:
 
   ppo: {}
 
-save_folder: /tmp/ppo_models   # TODO: fill in with an appropriate value
+save_folder: /tmp/critic_free_models   # TODO: fill in with an appropriate value
 # only_composer_checkpoint: true
 # save_weights_only: false
 
