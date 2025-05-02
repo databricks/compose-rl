@@ -6,7 +6,7 @@
 import logging
 import re
 from abc import abstractmethod
-from typing import MutableMapping
+from typing import MutableMapping, Optional
 
 import torch
 
@@ -137,7 +137,7 @@ class BadGenerationEndReward(Reward):
         self,
         reward: float,
         eos_penalty: float,
-        extra_special_tokens: list[str],
+        extra_special_tokens: Optional[list[str]],
         tokenizer: Tokenizer,
     ):
         super().__init__(tokenizer)
@@ -145,7 +145,9 @@ class BadGenerationEndReward(Reward):
         self.eos_penalty = eos_penalty
 
         # Extra special tokens for any other formats with pseudo EOS alternatives like ChatML
-        self.extra_special_tokens = [str(tok) for tok in extra_special_tokens]
+        self.extra_special_tokens = [
+            str(tok) for tok in extra_special_tokens
+        ] if extra_special_tokens is not None else []
         self.extra_special_token_ids = []
         if self.extra_special_tokens != []:
             self.extra_special_token_ids.extend([
