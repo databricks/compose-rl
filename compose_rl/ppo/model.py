@@ -10,13 +10,14 @@ from typing import Any, MutableMapping, Optional, Union
 import torch
 from composer.models import HuggingFaceModel
 from composer.utils import dist, is_model_fsdp
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast, PretrainedConfig, AutoConfig
 
 from llmfoundry.models import ComposerHFCausalLM
+from llmfoundry.utils.config_utils import set_config_overrides  # type: ignore
 from compose_rl.ppo.modeling_hf import ComposerHFPolicy
 from compose_rl.ppo.modeling_mpt import MPTForPolicy
 from compose_rl.ppo.modeling_utils import composer_ppo_forward, ppo_loss
-from compose_rl.ppo.policy_configuration import MPTPolicyConfig
+from compose_rl.ppo.policy_configuration import MPTPolicyConfig, HFPolicyConfig
 from compose_rl.utils import (
     clear_mb_load_balancing_loss,
     get_mb_load_balancing_loss,
@@ -248,7 +249,46 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
     ) -> None:
         raise ValueError('Eval forward is not implemented for ComposerHFDPOLM.')
 
+    @classmethod
+    def build_config(
+        cls,
+        pretrained_model_name_or_path: str,
+        trust_remote_code: bool,
+        use_auth_token: bool,
+        attn_implementation: str,
+        config_overrides: dict[str, Any],
+    ) -> PretrainedConfig:
+
+        base_config = AutoConfig.from_pretrained(
+            pretrained_model_name_or_path,
+            trust_remote_code=trust_remote_code,
+            token=use_auth_token,
+            attn_implementation=attn_implementation,
+            use_cache=
+            False,  # Necessary due to https://github.com/huggingface/transformers/issues/28056
+            torch_dtype=config_overrides.get('torch_dtype', 'float32'),
+        )
+
+        pretrain_cfg = {
+            'trust_remote_code': trust_remote_code,
+            'token': use_auth_token,
+        }
+
+        config = HFPolicyConfig(
+            base_model=pretrained_model_name_or_path,
+            base_config=base_config,
+            hidden_size=base_config.hidden_size,
+            vocab_size=base_config.vocab_size,
+            pretrain_cfg=pretrain_cfg,
+        )
+
+        set_config_overrides(config, config_overrides)
+
+        return config
+
     def loss(self, outputs: MutableMapping, batch: MutableMapping) -> dict[str, torch.Tensor]:
+        print(f'{self.config=}')
+        print(f'{self.model.config=}')
         breakpoint()
         return_dict, kl_loss = grpo_loss(
             outputs,
