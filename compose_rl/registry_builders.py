@@ -80,7 +80,6 @@ def build_reward(
     return construct_from_registry(
         name=name,
         registry=registry.rewards,
-        partial_function=True,
         pre_validation_function=BaseReward,
         post_validation_function=None,
         kwargs=kwargs,

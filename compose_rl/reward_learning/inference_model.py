@@ -26,10 +26,10 @@ class InferenceRewardModel(RewardModel):
     def __init__(
         self,
         deployment: str,
-        max_retries: int,
-        timeout: Optional[int],
-        threshold: Optional[float],
         tokenizer: Tokenizer,
+        max_retries: int = 5,
+        timeout: Optional[int] = None,
+        threshold: Optional[float] = None,
     ):
         super().__init__(tokenizer)
         self.deployment_name = get_remote_name(deployment)

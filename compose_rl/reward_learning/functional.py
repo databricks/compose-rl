@@ -26,9 +26,8 @@ class IncreasingNumbersReward(Reward):
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, reward: float, tokenizer: Tokenizer):
+    def __init__(self, tokenizer: Tokenizer):
         super().__init__(tokenizer)
-        self.reward = reward
 
     @staticmethod
     def is_number(text: str):
@@ -234,7 +233,7 @@ class BaseVerifierReward(Reward):
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, reward: float, tokenizer: Tokenizer):
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
         super().__init__(tokenizer)
         self.reward = reward
 
@@ -326,8 +325,8 @@ class BaseVerifierReward(Reward):
 
 class GSM8KAnswerVeriferReward(BaseVerifierReward):
 
-    def __init__(self, reward: float, tokenizer: Tokenizer):
-        super().__init__(reward, tokenizer)
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer, reward)
 
     def extract_solution(self, text: str) -> str:
         """Extract numerical solution from GSM8K-style responses.
@@ -363,8 +362,8 @@ class GSM8KAnswerVeriferReward(BaseVerifierReward):
 
 class GSM8KFormatVeriferReward(BaseVerifierReward):
 
-    def __init__(self, reward: float, tokenizer: Tokenizer):
-        super().__init__(reward, tokenizer)
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer, reward)
 
     def needs_extraction(self) -> bool:
         """Indicate that this verifier doesn't need extraction."""
@@ -382,8 +381,8 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
 
 class MATHVerifierReward(BaseVerifierReward):
 
-    def __init__(self, reward: float, tokenizer: Tokenizer):
-        super().__init__(reward, tokenizer)
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer, reward)
 
     def extract_solution(self, text: str) -> str:
         """Extract numerical solution from GSM8K-style responses.
