@@ -19,6 +19,7 @@
 # and The AllenAI Team.
 
 import logging
+import os
 import time
 from datetime import timedelta
 from typing import Optional, Union
@@ -107,80 +108,71 @@ def init_process_group(
     return pg
 
 
-try:
-    # In some cases e.g. CI/CD, vLLM is not installed on cpu
-    from vllm.worker.worker import Worker
+class WorkerWrap:
 
-    class WorkerWrap(Worker):  # type: ignore
+    def init_process_group(
+        self,
+        master_address: str,
+        master_port: str,
+        rank_offset: int,
+        world_size: int,
+        group_name: str,
+        backend: str,
+    ):
+        """Init torch process group for model weights update."""
+        assert torch.distributed.is_initialized(
+        ), 'default torch process group must be initialized'
+        assert group_name != '', 'group name must not be empty'
 
-        def init_process_group(
-            self,
-            master_address: str,
-            master_port: str,
-            rank_offset: int,
-            world_size: int,
-            group_name: str,
-            backend: str,
-        ):
-            """Init torch process group for model weights update."""
-            assert torch.distributed.is_initialized(
-            ), 'default torch process group must be initialized'
-            assert group_name != '', 'group name must not be empty'
+        rank = torch.distributed.get_rank() + rank_offset
+        self._model_update_group = init_process_group( # type: ignore
+            backend=backend,
+            init_method=f'tcp://{master_address}:{master_port}',
+            world_size=world_size,
+            rank=rank,
+            group_name=group_name,
+        )
+        log.info(f'init process group for: {torch.distributed.get_rank()}')
+        log.info(
+            f'init_process_group: master_address={master_address}, master_port={master_port}, ',
+            f'rank={rank}, world_size={world_size}, group_name={group_name}',
+        )
 
-            rank = torch.distributed.get_rank() + rank_offset
-            self._model_update_group = init_process_group( # type: ignore
-                backend=backend,
-                init_method=f'tcp://{master_address}:{master_port}',
-                world_size=world_size,
-                rank=rank,
-                group_name=group_name,
-            )
-            self.rank = rank
-            log.info(f'init process group for: {torch.distributed.get_rank()}')
-            log.info(
-                f'init_process_group: master_address={master_address}, master_port={master_port}, ',
-                f'rank={rank}, world_size={world_size}, group_name={group_name}',
-            )
+    def update_weight(
+        self,
+        name: str,
+        dtype: torch.dtype,
+        shape: Union[tuple[int, ...], list[int], torch.Size],
+        empty_cache: bool = False,
+    ):
+        """Broadcast weights to vllm workers from source rank 0 actor model.
 
-        def update_weight(
-            self,
-            name: str,
-            dtype: torch.dtype,
-            shape: Union[tuple[int, ...], list[int], torch.Size],
-            empty_cache: bool = False,
-        ):
-            """Broadcast weights to vllm workers from source rank 0 actor model.
+        Args:
+            name (str): Name of the weight to be updated
+            dtype (torch.dtype): Data type of the weight
+            shape (Union[Tuple[int, ...], List[int], torch.Size]): Shape of the weight
+            empty_cache (bool): Whether to empty cache after updating weights
+        """
+        weight = torch.empty(shape, dtype=dtype, device='cuda')
+        torch.distributed.broadcast(
+            weight,
+            0,
+            group=self._model_update_group,
+        )
 
-            Args:
-                name (str): Name of the weight to be updated
-                dtype (torch.dtype): Data type of the weight
-                shape (Union[Tuple[int, ...], List[int], torch.Size]): Shape of the weight
-                empty_cache (bool): Whether to empty cache after updating weights
-            """
-            weight = torch.empty(shape, dtype=dtype, device='cuda')
-            torch.distributed.broadcast(
-                weight,
-                0,
-                group=self._model_update_group,
-            )
+        # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
+        # We will need to cast the weight type to the model_config type
+        if weight.dtype != self.model_config.dtype:  # type: ignore
+            weight = weight.to(self.model_config.dtype)  # type: ignore
 
-            # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
-            # We will need to cast the weight type to the model_config type
-            if weight.dtype != self.model_config.dtype:
-                weight = weight.to(self.model_config.dtype)
+        self.model_runner.model.load_weights( # type: ignore
+            weights=[(name, weight)],
+        )  # type: ignore
 
-            self.model_runner.model.load_weights(
-                weights=[(name, weight)],
-            )  # type: ignore
+        del weight
 
-            del weight
-
-            if empty_cache:
-                torch.cuda.empty_cache()
-
-except:
-    log.error('vLLM is not installed. WorkerWrap is not available.')
-    pass
+        if empty_cache:
+            torch.cuda.empty_cache()
 
 
 def create_vllm_engines(
@@ -192,6 +184,7 @@ def create_vllm_engines(
     seed: int,
     enable_prefix_caching: bool,
     max_model_len: int,
+    vllm_gpu_memory_utilization: float = 0.9,
 ):
     """Creates vllm engines.
 
@@ -204,51 +197,70 @@ def create_vllm_engines(
         seed (int): Seed for random number generation
         enable_prefix_caching (bool): Whether to enable prefix caching
         max_model_len (int): Maximum model length
+        vllm_gpu_memory_utilization (float): GPU memory utilization for vllm
     """
+    bundles = [{
+        'GPU': 1,
+        'CPU': 1,
+        'worker_node': 1,
+    }] * tensor_parallel_size * num_engines
+    pg = placement_group(bundles, strategy='PACK')  # type: ignore
+
+    try:
+        ray.get(pg.ready(), timeout=300)
+    except GetTimeoutError as e:
+        log.error('Placement group failed')
+        log.error(f'error is: {e}')
+        raise e
+
+    distributed_executor_backend = 'ray'
+    if tensor_parallel_size == 1:
+        distributed_executor_backend = 'uni'
+
+    num_gpus = int(tensor_parallel_size == 1)
+
     vllm_engines = []
     for i in range(num_engines):
-        # When tensor_parallel_size=1, vLLM init model in LLMEngine directly, assign 1 GPU for it.
-        num_gpus = int(tensor_parallel_size == 1)
-        scheduling_strategy = None
-
+        bundle_indices = None
         if tensor_parallel_size > 1:
-            # This code will only allocate resources on worker nodes
-            bundles = [{
-                'GPU': 1,
-                'CPU': 1,
-                'worker_node': 1,
-            }] * tensor_parallel_size
-            pg = placement_group(bundles)  # type: ignore
-
-            try:
-                ray.get(pg.ready(), timeout=300)
-            except GetTimeoutError as e:
-                log.error('Placement group failed')
-                log.error(f'error is: {e}')
-                raise e
-
-            scheduling_strategy = PlacementGroupSchedulingStrategy(
-                placement_group=pg,
-                placement_group_capture_child_tasks=True,
-                placement_group_bundle_index=0,
+            bundle_indices = list(
+                range(i * tensor_parallel_size, (i + 1) * tensor_parallel_size),
             )
+
+        scheduling_strategy = PlacementGroupSchedulingStrategy(
+            placement_group=pg,
+            placement_group_capture_child_tasks=True,
+            placement_group_bundle_index=i * tensor_parallel_size,
+        )
+
         log.info(f'vllm: {num_gpus=}, {num_engines=}')
+
         vllm_engines.append(
             LLMRayActor.options(
-                num_cpus=1,
+                num_cpus=num_gpus,
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,
             ).remote(
-                pretrain, # type: ignore
-                revision=revision,
-                tokenizer_revision=revision,
-                trust_remote_code=True,
-                tensor_parallel_size=tensor_parallel_size,
-                enforce_eager=enforce_eager,
-                dtype='bfloat16',
-                seed=seed + i,
-                enable_prefix_caching=enable_prefix_caching,
-                max_model_len=max_model_len,
+                model=pretrain,  # type: ignore
+                revision=revision,  # type: ignore
+                tokenizer_revision=revision,  # type: ignore
+                trust_remote_code=True,  # type: ignore
+                worker_extension_cls= # type: ignore
+                'compose_rl.utils.vllm_utils.WorkerWrap',
+                tensor_parallel_size=tensor_parallel_size,  # type: ignore
+                enforce_eager=enforce_eager,  # type: ignore
+                dtype='bfloat16',  # type: ignore
+                seed=seed + i,  # type: ignore
+                distributed_executor_backend= # type: ignore
+                distributed_executor_backend,
+                enable_prefix_caching=enable_prefix_caching,  # type: ignore
+                max_model_len=max_model_len,  # type: ignore
+                gpu_memory_utilization= # type: ignore
+                vllm_gpu_memory_utilization,
+                bundle_indices=bundle_indices,  # type: ignore
+                num_gpus=1,  # type: ignore
+                noset_visible_devices= # type: ignore
+                ray_noset_visible_devices(),
             ),
         )
 
@@ -447,3 +459,26 @@ def broadcast_to_vllm(
     log.info(f'ray refs took: {time.time() - start_time}')
     log.info(f'update time is: {update_time}')
     log.info(f'number of parameters updated is: {count}')
+
+
+def ray_noset_visible_devices(env_vars: os._Environ = os.environ):
+    # Refer to
+    # https://github.com/ray-project/ray/blob/161849364a784442cc659fb9780f1a6adee85fce/python/ray/_private/accelerators/nvidia_gpu.py#L95-L96
+    # https://github.com/ray-project/ray/blob/161849364a784442cc659fb9780f1a6adee85fce/python/ray/_private/accelerators/amd_gpu.py#L102-L103
+    # https://github.com/ray-project/ray/blob/161849364a784442cc659fb9780f1a6adee85fce/python/ray/_private/accelerators/npu.py#L94-L95
+    # https://github.com/ray-project/ray/blob/161849364a784442cc659fb9780f1a6adee85fce/python/ray/_private/accelerators/hpu.py#L116-L117
+    # https://github.com/ray-project/ray/blob/161849364a784442cc659fb9780f1a6adee85fce/python/ray/_private/accelerators/neuron.py#L108-L109
+    # https://github.com/ray-project/ray/blob/161849364a784442cc659fb9780f1a6adee85fce/python/ray/_private/accelerators/tpu.py#L171-L172
+    # https://github.com/ray-project/ray/blob/161849364a784442cc659fb9780f1a6adee85fce/python/ray/_private/accelerators/intel_gpu.py#L97-L98
+    NOSET_VISIBLE_DEVICES_ENV_VARS_LIST = [
+        'RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES',
+        'RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES',
+        'RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES',
+        'RAY_EXPERIMENTAL_NOSET_HABANA_VISIBLE_MODULES',
+        'RAY_EXPERIMENTAL_NOSET_NEURON_RT_VISIBLE_CORES',
+        'RAY_EXPERIMENTAL_NOSET_TPU_VISIBLE_CHIPS',
+        'RAY_EXPERIMENTAL_NOSET_ONEAPI_DEVICE_SELECTOR',
+    ]
+    return any(
+        env_vars.get(env_var) for env_var in NOSET_VISIBLE_DEVICES_ENV_VARS_LIST
+    )
