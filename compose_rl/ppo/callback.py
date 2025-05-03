@@ -923,7 +923,7 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines = create_vllm_engines(
                 num_engines=self.num_vllm_engines,
                 tensor_parallel_size=self.vllm_tensor_parallel_size,
-                enforce_eager=True,
+                enforce_eager=False,
                 pretrain=self.vllm_model_name,
                 revision=None,
                 seed=1,

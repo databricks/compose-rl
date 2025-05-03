@@ -237,7 +237,7 @@ def create_vllm_engines(
 
         vllm_engines.append(
             LLMRayActor.options(
-                num_cpus=num_gpus,
+                num_cpus=10,
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,
             ).remote(
