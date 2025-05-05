@@ -250,7 +250,8 @@ def create_vllm_engines(
                 tensor_parallel_size=tensor_parallel_size,  # type: ignore
                 enforce_eager=enforce_eager,  # type: ignore
                 dtype='bfloat16',  # type: ignore
-                seed=seed + i,  # type: ignore
+                # seed=seed + i,  # type: ignore
+                seed=None,
                 distributed_executor_backend= # type: ignore
                 distributed_executor_backend,
                 enable_prefix_caching=enable_prefix_caching,  # type: ignore
