@@ -244,15 +244,26 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
 
     def __init__(
         self,
+        advantage_normalization: bool = True,
+        length_normalization: bool = True,
         policy_clip_ratio: float = 0.15,
+        compute_kl_loss: bool = True,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self.policy_kl = []
 
+        self.advantage_normalization = advantage_normalization
+        self.length_normalization = length_normalization
         self.policy_clip_ratio = policy_clip_ratio
-        print('policy clip ratio is: ', self.policy_clip_ratio)
+        self.compute_kl_loss = compute_kl_loss
 
+    def forward(self, batch: MutableMapping):
+        print(f"In Critic Free forward, {type(self.model)=}")
+        print(f"In Critic Free forward, {self.model.config=}")
+        ret_val = composer_ppo_forward(batch, self.model)
+        return ret_val
+    
     def eval_forward(
         self,
         batch: MutableMapping,
@@ -264,6 +275,10 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
              batch: MutableMapping) -> dict[str, torch.Tensor]:
         print(f'{self.config=}')
         print(f'{self.model.config=}')
+        print(f"In Critic Free loss, {self.advantage_normalization=}")
+        print(f"In Critic Free loss, {self.length_normalization=}")
+        print(f"In Critic Free loss, {self.policy_clip_ratio=}")
+        print(f"In Critic Free loss, {self.compute_kl_loss=}")
         breakpoint()
         return_dict, kl_loss = grpo_loss(
             outputs,

@@ -105,8 +105,12 @@ def composer_ppo_forward(
     model_forward_kwargs['max_gen_len'] = batch['max_gen_len']
 
     actor_output = model(batch['obs'], **model_forward_kwargs)
-
-    values = actor_output.values
+    # print(f"In composer ppo forward, {type(actor_output)=}")
+    # print(f"In composer ppo forward, {actor_output.keys()=}")
+    # print(f"In composer ppo forward, {hasattr(actor_output, 'values')}")
+    # print(f"In composer ppo forward, {actor_output.values=}")
+    # print(f"In composer ppo forward, {('values' in actor_output)=}")
+    
     logits = actor_output.logits
 
     log_prob_outputs = utils.get_log_probs(
@@ -115,12 +119,24 @@ def composer_ppo_forward(
         batch['prompt_len'],
         batch['max_gen_len'],
     )
+    print(f"In composer ppo forward, {logits.shape=}")
+    print(f"In composer ppo forward, {batch['actions'].shape=}")
+    print(f"In composer ppo forward, {batch['prompt_len']=}")
+    print(f"In composer ppo forward, {batch['max_gen_len']=}")
+    print(f"In composer ppo forward, {log_prob_outputs.shape=}")
 
-    return {
+    return_dict = {
         'online_log_probs': log_prob_outputs,
         'logits': logits,
-        'values': values,
     }
+
+    if 'values' in actor_output:
+        values = actor_output.values
+        return_dict['values'] = values
+    else:
+        print(f"In composer ppo forward, No values found in actor output")
+    
+    return return_dict
 
 
 def ppo_loss(

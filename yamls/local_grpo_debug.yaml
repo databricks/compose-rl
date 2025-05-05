@@ -73,14 +73,16 @@ variables:
 model:
   <<: *base_model
   name: hf_critic_free_lm
+  advantage_normalization: false
+  length_normalization: false
+  policy_clip_ratio: 0.87
+  compute_kl_loss: false
 
   # config_overrides:
     # critic_dropout: 0.0
     # value_clip_range: 0.2
     # value_loss_weight: 0.2
     # target_kl: 0.1
-
-  policy_clip_ratio: 0.15
 
     # compute_kl_loss: true
 # load_path: # TODO: fill in load path if applicable

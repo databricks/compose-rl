@@ -226,9 +226,11 @@ def env_reward(
                     if isinstance(value, torch.Tensor) else value
                 for key, value in input_model_kwargs.items()
             }
+            print(f"In Env Reward: {type(actor_critic)=}")
+            print(f"In Env Reward: {type(actor_critic.model)=}")
             cur_output = actor_critic(curr_kwargs)
             cur_logits = cur_output['logits']
-            cur_values = cur_output['values']
+            print(f"In Env Reward: {cur_output.keys()=}")
             # need to pull out current actions and prompt len
             cur_actions = curr_kwargs['actions']
             cur_prompt_len = curr_kwargs['prompt_len']
@@ -247,19 +249,13 @@ def env_reward(
             )
             log_probs.append(cur_log_probs)
             entropies.append(cur_entropies)
-            values.append(cur_values)
+            # Ignore values when the model doesn't have a value head
+            if 'values' in cur_output:
+                cur_values = cur_output['values']
+                values.append(cur_values)
 
         device_train_microbatch_log_probs = torch.cat(log_probs)
         device_train_microbatch_entropies = torch.cat(entropies)
-        device_train_microbatch_values = torch.cat(values)
-
-        # Need to add in the padding for the value function
-        value_action_mask = torch.cat([
-            action_mask,
-            torch.zeros((batch_size, 1), device=cur_device),
-        ],
-                                      dim=-1)
-        device_train_microbatch_values *= value_action_mask
 
         partial_env_output = {
             'prompt_id': prompt_id,
@@ -269,9 +265,18 @@ def env_reward(
             'obs': right_padded_obs.detach(),
             'generated_len': generated_len,
             'action_mask': action_mask,
-            'values': device_train_microbatch_values.detach(),
         }
+        if len(values) > 0:
+            device_train_microbatch_values = torch.cat(values)
 
+            # Need to add in the padding for the value function
+            value_action_mask = torch.cat([
+                action_mask,
+                torch.zeros((batch_size, 1), device=cur_device),
+            ],
+                                        dim=-1)
+            device_train_microbatch_values *= value_action_mask
+            partial_env_output['values'] = device_train_microbatch_values.detach()
         # Future implementations may change the way reward_seq_len is defined
         # e.g., if special formatting is applied
         reward_seq_len = prompt_len + generated_len
@@ -328,6 +333,9 @@ class PPOCallback(CallbackWithConfig):
                 f'Invalid kl estimator: {self.kl_estimator}. ' +
                 'Valid options are: k1, k2, k3, k3_offpolicy.',
             )
+        # Other algo specific hparams
+        # Advantage normalization for GRPO. Defaults to True.
+        self.advantage_normalization = var_config.get('advantage_normalization', True)
         self.kl_estimator = kl_estimator
 
         kl_clip_range = train_config['model'].get('kl_clip_range', 40.0)
@@ -816,17 +824,60 @@ class PPOCallback(CallbackWithConfig):
         )
 
         # Now that rewards are resolved, we can compute advantages
-        env_outs['advantages'] = compute_advantages(
-            rewards=env_outs['rewards'],
-            values=env_outs['values'],
-            gamma=self.gamma,
-            lambda_gae=self.lambda_gae,
-        )
+        if 'values' in env_outs:
+            env_outs['advantages'] = compute_advantages(
+                rewards=env_outs['rewards'],
+                values=env_outs['values'],
+                gamma=self.gamma,
+                lambda_gae=self.lambda_gae,
+            )
+            batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
+                env_outs['advantages'],
+                env_outs['action_mask'],
+            )
+        else:
+            # compute GRPO advantages
+            prompt_id = env_outs['prompt_id']
+            rewards = env_outs['rewards']
 
-        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            env_outs['advantages'],
-            env_outs['action_mask'],
-        )
+            # Flatten the rewards by summing on sequence length/action_mask
+            rewards = utils.masked_sum(rewards, env_outs['action_mask'], dim=-1)
+
+            # Get unique prompt IDs and their indices
+            unique_prompt_ids, inverse_indices = torch.unique(prompt_id, return_inverse=True)
+
+            # Use scatter to compute means and standard deviations
+            # First, we'll create a tensor to track counts, sums, and sum of squares
+            n_unique = len(unique_prompt_ids)
+            counts = torch.zeros(n_unique, device=prompt_id.device)
+            sums = torch.zeros(n_unique, device=prompt_id.device)
+            sum_squares = torch.zeros(n_unique, device=prompt_id.device)
+
+            # Use scatter_add to accumulate values
+            counts.scatter_add_(0, inverse_indices, torch.ones_like(rewards))
+            sums.scatter_add_(0, inverse_indices, rewards)
+            sum_squares.scatter_add_(0, inverse_indices, rewards**2)
+
+            # Compute means and standard deviations
+            means = sums / counts
+            variances = (sum_squares / counts) - (means**2)
+            stds = torch.sqrt(variances)
+
+            # Map back to original tensor shape
+            mean_rewards = means[inverse_indices]
+            std_rewards = stds[inverse_indices]
+
+            # Borrowing this logic from TRL: https://github.com/huggingface/trl/blob/c82f626f94a83986fd1b28091fac3a0100b51c68/trl/trainer/grpo_trainer.py#L1057C52-L1057C52
+            grpo_advantage = (rewards - mean_rewards)
+            # Only normalize the advantage if flag is set
+            if self.advantage_normalization:
+                grpo_advantage /= (std_rewards + 1e-4)
+
+            env_outs["grpo_rewards"] = rewards
+            env_outs["advantages"] = grpo_advantage
+            batch_adv_mean = grpo_advantage.mean()
+            batch_adv_var = grpo_advantage.var()
+
 
         mean_ift = masked_mean(
             env_outs['ift_kl'],
