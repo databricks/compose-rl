@@ -334,6 +334,16 @@ class PPOCallback(CallbackWithConfig):
                 'Valid options are: k1, k2, k3, k3_offpolicy.',
             )
         # Other algo specific hparams
+        # Find if we are using a critic free model or not
+        if train_config['model']['name'] == 'hf_critic_free_lm':
+            self.critic_free_model = True
+        elif train_config['model']['name'] == 'hf_ppo_lm':
+            self.critic_free_model = False
+        else:
+            raise ValueError(
+                f"Invalid model name: {train_config['model']['name']}. Only hf_critic_free_lm and hf_ppo_lm are supported.",
+            )
+
         # Advantage normalization for GRPO. Defaults to True.
         self.advantage_normalization = var_config.get('advantage_normalization', True)
         self.kl_estimator = kl_estimator
@@ -824,7 +834,7 @@ class PPOCallback(CallbackWithConfig):
         )
 
         # Now that rewards are resolved, we can compute advantages
-        if 'values' in env_outs:
+        if not self.critic_free_model:
             env_outs['advantages'] = compute_advantages(
                 rewards=env_outs['rewards'],
                 values=env_outs['values'],
