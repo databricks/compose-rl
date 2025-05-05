@@ -80,9 +80,10 @@ class LLMRayActor:
             *args,
             **kwargs,
         )
-    
+
     def chat(self, *args: Any, **kwargs: Any):
-        print ("chat args are: ", args)
+        print('chat args are: ', args)
+        print ("tokenizer in chat is: ", self.llm.get_tokenizer())
         log.info(f'Chat kwargs are: {kwargs}')
         sampling_params = None
         if 'sampling_params' in kwargs:
@@ -93,7 +94,7 @@ class LLMRayActor:
             *args,
             **kwargs,
             sampling_params=sampling_params,
-        ) 
+        )
 
     def init_process_group(
         self,
