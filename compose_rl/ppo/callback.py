@@ -326,13 +326,6 @@ class PPOCallback(CallbackWithConfig):
         # Value used in the generalized advantage estimate calculation.
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
 
-        # Which kl estimator to use
-        kl_estimator = train_config['model'].get('kl_estimator', 'k1')
-        if kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
-            raise ValueError(
-                f'Invalid kl estimator: {self.kl_estimator}. ' +
-                'Valid options are: k1, k2, k3, k3_offpolicy.',
-            )
         # Other algo specific hparams
         # Find if we are using a critic free model or not
         if train_config['model']['name'] == 'hf_critic_free_lm':
@@ -344,8 +337,13 @@ class PPOCallback(CallbackWithConfig):
                 f"Invalid model name: {train_config['model']['name']}. Only hf_critic_free_lm and hf_ppo_lm are supported.",
             )
 
-        # Advantage normalization for GRPO. Defaults to True.
-        self.advantage_normalization = var_config.get('advantage_normalization', True)
+        # Which kl estimator to use
+        kl_estimator = train_config['model'].get('kl_estimator', 'k1')
+        if kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
+            raise ValueError(
+                f'Invalid kl estimator: {self.kl_estimator}. ' +
+                'Valid options are: k1, k2, k3, k3_offpolicy.',
+            )
         self.kl_estimator = kl_estimator
 
         kl_clip_range = train_config['model'].get('kl_clip_range', 40.0)
@@ -880,7 +878,7 @@ class PPOCallback(CallbackWithConfig):
             # Borrowing this logic from TRL: https://github.com/huggingface/trl/blob/c82f626f94a83986fd1b28091fac3a0100b51c68/trl/trainer/grpo_trainer.py#L1057C52-L1057C52
             grpo_advantage = (rewards - mean_rewards)
             # Only normalize the advantage if flag is set
-            if self.advantage_normalization:
+            if self.actor_critic.advantage_normalization:
                 grpo_advantage /= (std_rewards + 1e-4)
 
             env_outs["grpo_rewards"] = rewards

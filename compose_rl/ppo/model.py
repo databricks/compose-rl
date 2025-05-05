@@ -21,7 +21,7 @@ from transformers import (
 
 from compose_rl.ppo.modeling_hf import ComposerHFPolicy
 from compose_rl.ppo.modeling_mpt import MPTForPolicy
-from compose_rl.ppo.modeling_utils import composer_ppo_forward, ppo_loss
+from compose_rl.ppo.modeling_utils import composer_ppo_forward, ppo_loss, online_rl_loss
 from compose_rl.ppo.policy_configuration import (
     # HFCriticFreeConfig,
     # HFPolicyConfig,
@@ -247,7 +247,11 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         advantage_normalization: bool = True,
         length_normalization: bool = True,
         policy_clip_ratio: float = 0.15,
+        policy_clip_high_ratio: float | None = None,
+        length_normalize_policy_loss: bool = True,
         compute_kl_loss: bool = True,
+        kl_estimator: str = 'k1',
+        kl_clip_range: float = 40.0,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
@@ -256,7 +260,11 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         self.advantage_normalization = advantage_normalization
         self.length_normalization = length_normalization
         self.policy_clip_ratio = policy_clip_ratio
+        self.policy_clip_high_ratio = policy_clip_high_ratio
+        self.length_normalize_policy_loss = length_normalize_policy_loss
         self.compute_kl_loss = compute_kl_loss
+        self.kl_estimator = kl_estimator
+        self.kl_clip_range = kl_clip_range
 
     def forward(self, batch: MutableMapping):
         print(f"In Critic Free forward, {type(self.model)=}")
@@ -264,31 +272,31 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         ret_val = composer_ppo_forward(batch, self.model)
         return ret_val
     
-    def eval_forward(
-        self,
-        batch: MutableMapping,
-        outputs: MutableMapping,
-    ) -> None:
-        raise ValueError('Eval forward is not implemented for ComposerHFDPOLM.')
+    def eval_forward(self, batch: MutableMapping, outputs: MutableMapping):
+        raise ValueError(
+            'Eval forward is not supported for HF Critic Free Policy.',
+        )
 
     def loss(self, outputs: MutableMapping,
              batch: MutableMapping) -> dict[str, torch.Tensor]:
-        print(f'{self.config=}')
-        print(f'{self.model.config=}')
         print(f"In Critic Free loss, {self.advantage_normalization=}")
         print(f"In Critic Free loss, {self.length_normalization=}")
         print(f"In Critic Free loss, {self.policy_clip_ratio=}")
         print(f"In Critic Free loss, {self.compute_kl_loss=}")
-        breakpoint()
-        return_dict, kl_loss = grpo_loss(
-            outputs,
-            batch,
-            self.config.value_clip_range,
-            self.config.policy_clip_ratio,
-            self.config.value_loss_weight,
-            self.compute_kl_loss,  # pyright: ignore
+        print(f"In Critic Free loss, {self.kl_estimator=}")
+        print(f"In Critic Free loss, {self.kl_clip_range=}")
+        return_dict, kl_loss = online_rl_loss(
+            outputs=outputs,
+            batch=batch,
+            critic_free=True,
+            policy_clip_ratio=self.policy_clip_ratio,
+            policy_clip_high_ratio=self.policy_clip_high_ratio,
+            length_normalize_policy_loss=self.length_normalize_policy_loss,
+            add_direct_kl_loss=self.compute_kl_loss,
+            kl_estimator=self.kl_estimator,
+            kl_clip_range=self.kl_clip_range,
         )
 
         self.policy_kl.append(kl_loss)
-
+        print(f"In Critic Free loss, Reached till return dict")
         return return_dict
