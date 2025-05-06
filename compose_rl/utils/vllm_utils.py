@@ -180,6 +180,8 @@ class WorkerWrap:
 
         if not loaded_weights:
             print ("failed to load weights for: ", name)
+        else:
+            print ("loaded weights for: ", name)
 
         del weight
 
