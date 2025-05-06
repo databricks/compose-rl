@@ -115,6 +115,9 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             torch_dtype=config_overrides.get('torch_dtype', 'float32'),
         )
 
+        print ("using base config", base_config)
+        print ("config overrides is: ", config_overrides)
+
         pretrain_cfg = {
             'trust_remote_code': trust_remote_code,
             'token': use_auth_token,
