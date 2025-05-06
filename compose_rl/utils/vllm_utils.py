@@ -138,6 +138,13 @@ class WorkerWrap:
             f'rank={rank}, world_size={world_size}, group_name={group_name}',
         )
 
+        self._orig_param_dtypes = {
+            name: param.dtype
+            for name, param in self.model_runner.model.named_parameters()
+        }
+
+        print('original param dypes are: ', self._orig_param_dtypes)
+
     def update_weight(
         self,
         name: str,
