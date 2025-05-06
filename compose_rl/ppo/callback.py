@@ -897,7 +897,6 @@ class PPOCallback(CallbackWithConfig):
             if self.actor_critic.normalize_advantage:
                 grpo_advantage /= (std_rewards + 1e-4)
 
-            env_outs['grpo_rewards'] = rewards
             env_outs['advantages'] = grpo_advantage
             batch_adv_mean = grpo_advantage.mean()
             batch_adv_var = grpo_advantage.var()
