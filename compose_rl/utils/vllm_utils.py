@@ -167,7 +167,7 @@ class WorkerWrap:
             group=self._model_update_group,
         )
 
-        compare_weight(name, weight)
+        self.compare_weight(name, weight)
 
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
@@ -182,7 +182,7 @@ class WorkerWrap:
 
         if empty_cache:
             torch.cuda.empty_cache()
-    
+
     def compare_weight(
         self,
         name: str,
@@ -200,14 +200,14 @@ class WorkerWrap:
         if name not in state_dict:
             log.warning(f'weight {name} not in state dict')
             return
-        
+
         model_weight = state_dict[name]
-            
+
         # 2) cast your tensor to the model’s dtype if needed
         if new_weight.dtype != model_weight.dtype:
-            print (f"casting weight to model dtype for {name}")
+            print(f"casting weight to model dtype for {name}")
             new_weight = new_weight.to(model_weight.dtype)
-        
+
         # 3) move both to CPU so we don’t accidentally compare GPU <> GPU
         mw_cpu = model_weight.detach().cpu()
         nw_cpu = new_weight.detach().cpu()
@@ -216,11 +216,13 @@ class WorkerWrap:
         if torch.equal(mw_cpu, nw_cpu):
             # print(f"[{name}] exactly equal")
             return True
-        
+
         # 6) “close” test + error stats
         is_close = torch.allclose(mw_cpu, nw_cpu, atol=atol, rtol=rtol)
         diff = (mw_cpu - nw_cpu).abs()
-        print(f"[{name}] allclose={is_close}  max_diff={diff.max():.3e}  mean_diff={diff.mean():.3e}")
+        print(
+            f"[{name}] allclose={is_close}  max_diff={diff.max():.3e}  mean_diff={diff.mean():.3e}"
+        )
         # return is_close
 
 
