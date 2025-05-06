@@ -18,7 +18,10 @@ from transformers import (
 
 from compose_rl.ppo.modeling_hf import ComposerHFPolicy
 from compose_rl.ppo.modeling_mpt import MPTForPolicy
-from compose_rl.ppo.modeling_utils import composer_online_rl_forward, online_rl_loss
+from compose_rl.ppo.modeling_utils import (
+    composer_online_rl_forward,
+    online_rl_loss,
+)
 from compose_rl.ppo.policy_configuration import MPTPolicyConfig
 from compose_rl.utils import (
     clear_mb_load_balancing_loss,
@@ -237,6 +240,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
     """HF class wrapper for Critic Free Policy model."""
     default_train_metrics: tuple = ()
     default_eval_metrics: tuple = ()
+
     def __init__(
         self,
         normalize_advantage: bool = True,
@@ -262,16 +266,19 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         self.kl_clip_range = kl_clip_range
 
     def forward(self, batch: MutableMapping):
-        ret_val = composer_online_rl_forward(batch, self.model, critic_free=True)
+        ret_val = composer_online_rl_forward(
+            batch,
+            self.model,
+            critic_free=True,
+        )
         return ret_val
-    
+
     def eval_forward(self, batch: MutableMapping, outputs: MutableMapping):
         raise ValueError(
             'Eval forward is not supported for HF Critic Free Policy.',
         )
 
-    def loss(self, outputs: MutableMapping,
-             batch: MutableMapping) -> dict[str, torch.Tensor]:
+    def loss(self, outputs: MutableMapping, batch: MutableMapping):
         return_dict, kl_loss = online_rl_loss(
             outputs=outputs,
             batch=batch,

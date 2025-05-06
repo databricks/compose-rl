@@ -107,7 +107,7 @@ def composer_online_rl_forward(
     model_forward_kwargs['max_gen_len'] = batch['max_gen_len']
 
     actor_output = model(batch['obs'], **model_forward_kwargs)
-    
+
     logits = actor_output.logits
 
     log_prob_outputs = utils.get_log_probs(
@@ -200,7 +200,8 @@ def online_rl_loss(
             batch['action_mask'],
         )
 
-        val_error = utils.masked_mean((v_preds - returns)**2, batch['action_mask'])
+        val_error = utils.masked_mean((v_preds - returns)**2,
+                                      batch['action_mask'])
 
         adv_masked_mean = batch['adv_masked_mean']
         adv_masked_var = batch['adv_masked_var']
@@ -276,7 +277,6 @@ def online_rl_loss(
         policy_loss = utils.masked_mean(policy_loss, batch['action_mask'])
     else:
         policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
-    
 
     policy_kl_logging_dict = {
         f'kl/policy_kl_{k}_estimate': v for k, v in policy_kl_dict.items()
@@ -300,20 +300,33 @@ def online_rl_loss(
     }
     if not critic_free:
         return_dict.update({
-            'advantages/mean': utils.masked_mean(advantages, batch['action_mask']),
-            'loss/value_loss': value_loss,
-            'value_loss/values': utils.masked_mean(values, batch['action_mask']),
-            'value_loss/vpred': utils.masked_mean(v_preds, batch['action_mask']),
-            'value_loss/clip_frac': value_clip_frac,
-            'value_loss/returns_mean': returns_mean,
-            'value_loss/returns_var': returns_var,
-            'value_loss/value_error': val_error,
+            'advantages/mean':
+                utils.masked_mean(advantages, batch['action_mask']),
+            'loss/value_loss':
+                value_loss,
+            'value_loss/values':
+                utils.masked_mean(
+                    values,  # pyright: ignore
+                    batch['action_mask'],
+                ),
+            'value_loss/vpred':
+                utils.masked_mean(
+                    v_preds,  # pyright: ignore
+                    batch['action_mask'],
+                ),
+            'value_loss/clip_frac':
+                value_clip_frac,
+            'value_loss/returns_mean':
+                returns_mean,
+            'value_loss/returns_var':
+                returns_var,
+            'value_loss/value_error':
+                val_error,
         })
     else:
         return_dict.update({
             'advantages/mean': advantages.mean(),
         })
-
 
     for key, value in batch.items():
         # This logic handles reward logging a little differently than other quantities.
@@ -352,7 +365,8 @@ def online_rl_loss(
     return_dict['total'] = policy_loss
     if not critic_free:
         # Add value loss to total loss
-        return_dict['total'] += value_loss_weight * value_loss
+        return_dict['total'
+                   ] += value_loss_weight * value_loss  # pyright: ignore
 
     # If we want to directly minimize the KL Divergence, we can do so here
     # and it will not include the KL in the reward.
@@ -367,6 +381,3 @@ def online_rl_loss(
         return_dict['total'] += outputs['lbl']
 
     return return_dict, policy_kl.detach().cpu()
-
-
-

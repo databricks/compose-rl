@@ -272,9 +272,10 @@ def env_reward(
                 action_mask,
                 torch.zeros((batch_size, 1), device=cur_device),
             ],
-                                        dim=-1)
+                                          dim=-1)
             device_train_microbatch_values *= value_action_mask
-            partial_env_output['values'] = device_train_microbatch_values.detach()
+            partial_env_output['values'
+                              ] = device_train_microbatch_values.detach()
         # Future implementations may change the way reward_seq_len is defined
         # e.g., if special formatting is applied
         reward_seq_len = prompt_len + generated_len
@@ -339,7 +340,7 @@ class PPOCallback(CallbackWithConfig):
         if 'kl_estimator' not in train_config['model']:
             # Check in model's config_overrides
             kl_estimator = train_config['model']['config_overrides'].get(
-                'kl_estimator', 
+                'kl_estimator',
                 'k1',
             )
         else:
@@ -864,7 +865,10 @@ class PPOCallback(CallbackWithConfig):
             rewards = utils.masked_sum(rewards, env_outs['action_mask'], dim=-1)
 
             # Get unique prompt IDs and their indices
-            unique_prompt_ids, inverse_indices = torch.unique(prompt_id, return_inverse=True)
+            unique_prompt_ids, inverse_indices = torch.unique(
+                prompt_id,
+                return_inverse=True,
+            )
 
             # Use scatter to compute means and standard deviations
             # First, we'll create a tensor to track counts, sums, and sum of squares
@@ -893,11 +897,10 @@ class PPOCallback(CallbackWithConfig):
             if self.actor_critic.normalize_advantage:
                 grpo_advantage /= (std_rewards + 1e-4)
 
-            env_outs["grpo_rewards"] = rewards
-            env_outs["advantages"] = grpo_advantage
+            env_outs['grpo_rewards'] = rewards
+            env_outs['advantages'] = grpo_advantage
             batch_adv_mean = grpo_advantage.mean()
             batch_adv_var = grpo_advantage.var()
-
 
         mean_ift = masked_mean(
             env_outs['ift_kl'],
