@@ -226,11 +226,9 @@ def env_reward(
                     if isinstance(value, torch.Tensor) else value
                 for key, value in input_model_kwargs.items()
             }
-            # print(f"In Env Reward: {type(actor_critic)=}")
-            # print(f"In Env Reward: {type(actor_critic.model)=}")
+
             cur_output = actor_critic(curr_kwargs)
             cur_logits = cur_output['logits']
-            # print(f"In Env Reward: {cur_output.keys()=}")
             # need to pull out current actions and prompt len
             cur_actions = curr_kwargs['actions']
             cur_prompt_len = curr_kwargs['prompt_len']
@@ -338,18 +336,32 @@ class PPOCallback(CallbackWithConfig):
             )
 
         # Which kl estimator to use
-        kl_estimator = train_config['model'].get('kl_estimator', 'k1')
+        if 'kl_estimator' not in train_config['model']:
+            # Check in model's config_overrides
+            kl_estimator = train_config['model']['config_overrides'].get(
+                'kl_estimator', 
+                'k1',
+            )
+        else:
+            kl_estimator = train_config['model'].get('kl_estimator', 'k1')
         if kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
             raise ValueError(
-                f'Invalid kl estimator: {self.kl_estimator}. ' +
+                f'Invalid kl estimator: {kl_estimator}. ' +
                 'Valid options are: k1, k2, k3, k3_offpolicy.',
             )
         self.kl_estimator = kl_estimator
 
-        kl_clip_range = train_config['model'].get('kl_clip_range', 40.0)
+        if 'kl_clip_range' not in train_config['model']:
+            # Check in model's config_overrides
+            kl_clip_range = train_config['model']['config_overrides'].get(
+                'kl_clip_range',
+                40.0,
+            )
+        else:
+            kl_clip_range = train_config['model'].get('kl_clip_range', 40.0)
         if kl_clip_range <= 0:
             raise ValueError(
-                f'Invalid kl clip range: {self.kl_clip_range}. ' +
+                f'Invalid kl clip range: {kl_clip_range}. ' +
                 'Must be greater than 0.',
             )
         # check for precision and clip range
@@ -875,7 +887,7 @@ class PPOCallback(CallbackWithConfig):
             mean_rewards = means[inverse_indices]
             std_rewards = stds[inverse_indices]
 
-            # Borrowing this logic from TRL: https://github.com/huggingface/trl/blob/c82f626f94a83986fd1b28091fac3a0100b51c68/trl/trainer/grpo_trainer.py#L1057C52-L1057C52
+            # Calculate GRPO advantage
             grpo_advantage = (rewards - mean_rewards)
             # Only normalize the advantage if flag is set
             if self.actor_critic.advantage_normalization:

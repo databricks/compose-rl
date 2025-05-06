@@ -84,8 +84,8 @@ model:
   length_normalization: false
   policy_clip_ratio: 0.87
   compute_kl_loss: true
-  # kl_estimator: k3
-  # kl_clip_range: 40.0
+  kl_estimator: k5
+  kl_clip_range: -1
 
   # config_overrides:
     # critic_dropout: 0.0
@@ -192,7 +192,7 @@ callbacks:
 
   ppo: {}
 
-save_folder: /tmp/critic_free_models2   # TODO: fill in with an appropriate value
+save_folder: /tmp/critic_free_models   # TODO: fill in with an appropriate value
 # only_composer_checkpoint: true
 # save_weights_only: false
 
