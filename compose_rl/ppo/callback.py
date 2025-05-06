@@ -527,10 +527,10 @@ class PPOCallback(CallbackWithConfig):
         batch = state.device.batch_to_device(batch)
 
         if self.vllm_engines is not None:
-            log.warning(
-                f"Temporarily skipping weight updates to {len(self.vllm_engines)} vllm engines.",
-            )
-            # self._update_inference_model(batch)
+            # log.warning(
+            # f"Temporarily skipping weight updates to {len(self.vllm_engines)} vllm engines.",
+            # )
+            self._update_inference_model(batch)
 
         self._interact_with_env(batch)
         # Reset and initialize state train dataloader
@@ -923,7 +923,7 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines = create_vllm_engines(
                 num_engines=self.num_vllm_engines,
                 tensor_parallel_size=self.vllm_tensor_parallel_size,
-                enforce_eager=False,
+                enforce_eager=True,
                 pretrain=self.vllm_model_name,
                 revision=None,
                 seed=1,
