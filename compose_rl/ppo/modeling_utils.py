@@ -240,19 +240,31 @@ def online_rl_loss(
         log_q=old_log_probs,
         kl_clip_range=kl_clip_range,
     )
-    policy_kl = utils.masked_mean(
-        policy_kl_dict[kl_estimator], # pyright: ignore
-        batch['action_mask'],
-    )
     online_ift_kl_dict = utils.approx_kl(
         log_p=batch['ift_log_probs'],
         log_q=outputs['online_log_probs'],
         kl_clip_range=kl_clip_range,
     )
-    online_ift_kl = utils.masked_mean(
-        online_ift_kl_dict[kl_estimator], # pyright: ignore
-        batch['action_mask'],
-    )
+
+    # Normalize the KL divergence by the length depending on the flag
+    if length_normalize_policy_loss:
+        policy_kl = utils.masked_mean(
+            policy_kl_dict[kl_estimator], # pyright: ignore
+            batch['action_mask'],
+        )
+        online_ift_kl = utils.masked_mean(
+            online_ift_kl_dict[kl_estimator], # pyright: ignore
+            batch['action_mask'],
+        )
+    else:
+        policy_kl = utils.masked_sum(
+            policy_kl_dict[kl_estimator], # pyright: ignore
+            batch['action_mask'],
+        )
+        online_ift_kl = utils.masked_sum(
+            online_ift_kl_dict[kl_estimator], # pyright: ignore
+            batch['action_mask'],
+        )
 
     ratio = torch.exp(online_log_probs - old_log_probs)
     policy_loss_1 = -advantages * ratio
