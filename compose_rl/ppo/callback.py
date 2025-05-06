@@ -226,11 +226,11 @@ def env_reward(
                     if isinstance(value, torch.Tensor) else value
                 for key, value in input_model_kwargs.items()
             }
-            print(f"In Env Reward: {type(actor_critic)=}")
-            print(f"In Env Reward: {type(actor_critic.model)=}")
+            # print(f"In Env Reward: {type(actor_critic)=}")
+            # print(f"In Env Reward: {type(actor_critic.model)=}")
             cur_output = actor_critic(curr_kwargs)
             cur_logits = cur_output['logits']
-            print(f"In Env Reward: {cur_output.keys()=}")
+            # print(f"In Env Reward: {cur_output.keys()=}")
             # need to pull out current actions and prompt len
             cur_actions = curr_kwargs['actions']
             cur_prompt_len = curr_kwargs['prompt_len']

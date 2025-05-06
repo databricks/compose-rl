@@ -241,7 +241,8 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
 
 class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
     """HF class wrapper for Critic Free Policy model."""
-
+    default_train_metrics: tuple = ()
+    default_eval_metrics: tuple = ()
     def __init__(
         self,
         advantage_normalization: bool = True,
@@ -250,6 +251,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         policy_clip_high_ratio: float | None = None,
         length_normalize_policy_loss: bool = True,
         compute_kl_loss: bool = True,
+        target_kl: float = 0.1,
         kl_estimator: str = 'k1',
         kl_clip_range: float = 40.0,
         **kwargs: Any,
@@ -263,12 +265,13 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         self.policy_clip_high_ratio = policy_clip_high_ratio
         self.length_normalize_policy_loss = length_normalize_policy_loss
         self.compute_kl_loss = compute_kl_loss
+        self.target_kl = target_kl
         self.kl_estimator = kl_estimator
         self.kl_clip_range = kl_clip_range
 
     def forward(self, batch: MutableMapping):
-        print(f"In Critic Free forward, {type(self.model)=}")
-        print(f"In Critic Free forward, {self.model.config=}")
+        # print(f"In Critic Free forward, {type(self.model)=}")
+        # print(f"In Critic Free forward, {self.model.config=}")
         ret_val = composer_ppo_forward(batch, self.model)
         return ret_val
     
@@ -279,12 +282,12 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
 
     def loss(self, outputs: MutableMapping,
              batch: MutableMapping) -> dict[str, torch.Tensor]:
-        print(f"In Critic Free loss, {self.advantage_normalization=}")
-        print(f"In Critic Free loss, {self.length_normalization=}")
-        print(f"In Critic Free loss, {self.policy_clip_ratio=}")
-        print(f"In Critic Free loss, {self.compute_kl_loss=}")
-        print(f"In Critic Free loss, {self.kl_estimator=}")
-        print(f"In Critic Free loss, {self.kl_clip_range=}")
+        # print(f"In Critic Free loss, {self.advantage_normalization=}")
+        # print(f"In Critic Free loss, {self.length_normalization=}")
+        # print(f"In Critic Free loss, {self.policy_clip_ratio=}")
+        # print(f"In Critic Free loss, {self.compute_kl_loss=}")
+        # print(f"In Critic Free loss, {self.kl_estimator=}")
+        # print(f"In Critic Free loss, {self.kl_clip_range=}")
         return_dict, kl_loss = online_rl_loss(
             outputs=outputs,
             batch=batch,
@@ -298,5 +301,21 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         )
 
         self.policy_kl.append(kl_loss)
-        print(f"In Critic Free loss, Reached till return dict")
+        # print(f"In Critic Free loss, Reached till return dict")
         return return_dict
+
+    def determine_early_stop(self):
+        local_policy_kl = torch.stack(self.policy_kl)
+        avg_policy_kl = torch.mean(
+            torch.cat(dist.all_gather_object(local_policy_kl)),
+        )
+        early_stop = False
+        log.info(f'average policy kl is: {avg_policy_kl}')
+        if avg_policy_kl > self.target_kl * 1.5:  # pyright: ignore
+            early_stop = True
+            log.info(f'Early stopping actor critic with kl: {avg_policy_kl}')
+        self.policy_kl = []
+        return early_stop
+
+    def set_batch_stats(self, batch_stats: dict[str, Any]):
+        self.batch_stats = batch_stats

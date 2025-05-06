@@ -119,11 +119,11 @@ def composer_ppo_forward(
         batch['prompt_len'],
         batch['max_gen_len'],
     )
-    print(f"In composer ppo forward, {logits.shape=}")
-    print(f"In composer ppo forward, {batch['actions'].shape=}")
-    print(f"In composer ppo forward, {batch['prompt_len']=}")
-    print(f"In composer ppo forward, {batch['max_gen_len']=}")
-    print(f"In composer ppo forward, {log_prob_outputs.shape=}")
+    # print(f"In composer ppo forward, {logits.shape=}")
+    # print(f"In composer ppo forward, {batch['actions'].shape=}")
+    # print(f"In composer ppo forward, {batch['prompt_len']=}")
+    # print(f"In composer ppo forward, {batch['max_gen_len']=}")
+    # print(f"In composer ppo forward, {log_prob_outputs.shape=}")
 
     return_dict = {
         'online_log_probs': log_prob_outputs,
@@ -133,8 +133,8 @@ def composer_ppo_forward(
     if 'values' in actor_output:
         values = actor_output.values
         return_dict['values'] = values
-    else:
-        print(f"In composer ppo forward, No values found in actor output")
+    # else:
+    #     print(f"In composer ppo forward, No values found in actor output")
     
     return return_dict
 
