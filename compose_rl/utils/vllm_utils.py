@@ -133,10 +133,10 @@ class WorkerWrap:
             group_name=group_name,
         )
         log.info(f'init process group for: {torch.distributed.get_rank()}')
-        log.info(
-            f'init_process_group: master_address={master_address}, master_port={master_port}, ',
-            f'rank={rank}, world_size={world_size}, group_name={group_name}',
-        )
+        # log.info(
+            # f'init_process_group: master_address={master_address}, master_port={master_port}, '
+            # f'rank={rank}, world_size={world_size}, group_name={group_name}',
+        # )
 
         # self._orig_param_dtypes = {
         #     name: param.dtype
@@ -167,16 +167,19 @@ class WorkerWrap:
             group=self._model_update_group,
         )
 
-        self.compare_weight(name, weight)
-
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
         if weight.dtype != self.model_config.dtype:  # type: ignore
             weight = weight.to(self.model_config.dtype)  # type: ignore
+        
+        self.compare_weight(name, weight)
 
-        self.model_runner.model.load_weights( # type: ignore
+        loaded_weights = self.model_runner.model.load_weights( # type: ignore
             weights=[(name, weight)],
         )  # type: ignore
+
+        if not loaded_weights:
+            print ("failed to load weights for: ", name)
 
         del weight
 
