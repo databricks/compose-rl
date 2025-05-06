@@ -138,12 +138,12 @@ class WorkerWrap:
             f'rank={rank}, world_size={world_size}, group_name={group_name}',
         )
 
-        self._orig_param_dtypes = {
-            name: param.dtype
-            for name, param in self.model_runner.model.named_parameters()
-        }
+        # self._orig_param_dtypes = {
+        #     name: param.dtype
+        #     for name, param in self.model_runner.model.named_parameters()
+        # }
 
-        print('original param dypes are: ', self._orig_param_dtypes)
+        # print('original param dypes are: ', self._orig_param_dtypes)
 
     def update_weight(
         self,
@@ -167,6 +167,8 @@ class WorkerWrap:
             group=self._model_update_group,
         )
 
+        compare_weight(name, weight)
+
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
         if weight.dtype != self.model_config.dtype:  # type: ignore
@@ -180,6 +182,46 @@ class WorkerWrap:
 
         if empty_cache:
             torch.cuda.empty_cache()
+    
+    def compare_weight(
+        self,
+        name: str,
+        new_weight: torch.Tensor,
+        atol: float = 1e-6,
+        rtol: float = 1e-5,
+    ):
+        """Compare the weight with the original weight.
+
+        Args:
+            name (str): Name of the weight to be compared
+            weight (torch.Tensor): Weight to be compared
+        """
+        state_dict = self.model_runner.model.state_dict()  # type: ignore
+        if name not in state_dict:
+            log.warning(f'weight {name} not in state dict')
+            return
+        
+        model_weight = state_dict[name]
+            
+        # 2) cast your tensor to the model’s dtype if needed
+        if new_weight.dtype != model_weight.dtype:
+            print (f"casting weight to model dtype for {name}")
+            new_weight = new_weight.to(model_weight.dtype)
+        
+        # 3) move both to CPU so we don’t accidentally compare GPU <> GPU
+        mw_cpu = model_weight.detach().cpu()
+        nw_cpu = new_weight.detach().cpu()
+
+        # 5) exact-equality test
+        if torch.equal(mw_cpu, nw_cpu):
+            # print(f"[{name}] exactly equal")
+            return True
+        
+        # 6) “close” test + error stats
+        is_close = torch.allclose(mw_cpu, nw_cpu, atol=atol, rtol=rtol)
+        diff = (mw_cpu - nw_cpu).abs()
+        print(f"[{name}] allclose={is_close}  max_diff={diff.max():.3e}  mean_diff={diff.mean():.3e}")
+        # return is_close
 
 
 def create_vllm_engines(
