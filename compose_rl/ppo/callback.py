@@ -890,7 +890,7 @@ class PPOCallback(CallbackWithConfig):
             # Calculate GRPO advantage
             grpo_advantage = (rewards - mean_rewards)
             # Only normalize the advantage if flag is set
-            if self.actor_critic.advantage_normalization:
+            if self.actor_critic.normalize_advantage:
                 grpo_advantage /= (std_rewards + 1e-4)
 
             env_outs["grpo_rewards"] = rewards

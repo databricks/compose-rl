@@ -80,24 +80,17 @@ variables:
 model:
   <<: *base_model
   name: hf_critic_free_lm
-  advantage_normalization: false
-  length_normalization: false
-  policy_clip_ratio: 0.87
+  normalize_advantage: false
+  length_normalize_policy_loss: false
+  policy_clip_ratio: 0.15
+  policy_clip_high_ratio: 0.28
   compute_kl_loss: true
-  kl_estimator: k5
-  kl_clip_range: -1
+  target_kl: 0.1
+  kl_estimator: k1
+  kl_clip_range: 40.0
 
-  # config_overrides:
-    # critic_dropout: 0.0
-    # value_clip_range: 0.2
-    # value_loss_weight: 0.2
-    # target_kl: 0.1
-
-    # compute_kl_loss: true
 # load_path: # TODO: fill in load path if applicable
 # load_weights_only: true
-# load_ignore_keys:
-# - "state/model/model.critic_head.*"
 # load_strict_model_weights: false
 
 autoresume: true
@@ -122,11 +115,8 @@ tokenizer:
 train_loader:
   name: prompt
   dataset:
-    local: /tmp/train_orl999/
+    # local: # local path
     split: train
-    # remote: s3://data-force-one-datasets/brandon/data/tl_dr_summarization_llama8b_50words/
-    # remote: dbfs:/Volumes/datasets/abhaygupta/rlvr/train/math_orl_8k/
-    remote: dbfs:/Volumes/datasets/abhaygupta/rlvr/train/gsm8k_orl_8b_2k/
     # remote: #
     shuffle: true
     max_gen_len: ${variables.max_gen_len}

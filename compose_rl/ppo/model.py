@@ -239,11 +239,10 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
     default_eval_metrics: tuple = ()
     def __init__(
         self,
-        advantage_normalization: bool = True,
-        length_normalization: bool = True,
+        normalize_advantage: bool = True,
+        length_normalize_policy_loss: bool = True,
         policy_clip_ratio: float = 0.15,
         policy_clip_high_ratio: float | None = None,
-        length_normalize_policy_loss: bool = True,
         compute_kl_loss: bool = True,
         target_kl: float = 0.1,
         kl_estimator: str = 'k1',
@@ -253,11 +252,10 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         super().__init__(**kwargs)
         self.policy_kl = []
 
-        self.advantage_normalization = advantage_normalization
-        self.length_normalization = length_normalization
+        self.normalize_advantage = normalize_advantage
+        self.length_normalize_policy_loss = length_normalize_policy_loss
         self.policy_clip_ratio = policy_clip_ratio
         self.policy_clip_high_ratio = policy_clip_high_ratio
-        self.length_normalize_policy_loss = length_normalize_policy_loss
         self.compute_kl_loss = compute_kl_loss
         self.target_kl = target_kl
         self.kl_estimator = kl_estimator
