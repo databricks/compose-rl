@@ -362,7 +362,7 @@ def broadcast_to_vllm(
     else:
         # Directly use the model params
         count, num_params = 0, len(
-            list(model.model.named_parameters()),
+            list(model.model.named_parameters()),  # type: ignore
         )
     refss = []
     # This is needed to get the correct model device
