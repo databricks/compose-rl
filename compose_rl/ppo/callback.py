@@ -328,9 +328,9 @@ class PPOCallback(CallbackWithConfig):
         # Other algo specific hparams
         # Find if we are using a critic free model or not
         if train_config['model']['name'] == 'hf_critic_free_lm':
-            self.critic_free_model = True
+            self.critic_free = True
         elif train_config['model']['name'] == 'hf_ppo_lm':
-            self.critic_free_model = False
+            self.critic_free = False
         else:
             raise ValueError(
                 f"Invalid model name: {train_config['model']['name']}. Only hf_critic_free_lm and hf_ppo_lm are supported.",
@@ -845,7 +845,7 @@ class PPOCallback(CallbackWithConfig):
         )
 
         # Now that rewards are resolved, we can compute advantages
-        if not self.critic_free_model:
+        if not self.critic_free:
             env_outs['advantages'] = compute_advantages(
                 rewards=env_outs['rewards'],
                 values=env_outs['values'],
@@ -1062,6 +1062,7 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines,
             self.model_update_group,
             batch,
+            critic_free=self.critic_free,
         )
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')

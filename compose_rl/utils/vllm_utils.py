@@ -341,6 +341,7 @@ def broadcast_to_vllm(
     vllm_engines: list,
     model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
+    critic_free: bool = False,
 ):
     """Broadcast model weights to all vllm engines.
 
@@ -349,12 +350,20 @@ def broadcast_to_vllm(
         vllm_engines (list): List of vllm engines
         model_update_group (torch.distributed.ProcessGroup): The process group for model updates
         batch (dict[str, torch.Tensor]): The batch to use for the forward pass
+        critic_free (bool): Whether using critic free model for training
     """
     # avoid OOM
     torch.cuda.empty_cache()
-    count, num_params = 0, len(
-        list(model.model.lm_backbone.named_parameters()),  # type: ignore
-    )
+    if not critic_free:
+        # Extract the lm_backbone params from the model
+        count, num_params = 0, len(
+            list(model.model.lm_backbone.named_parameters()),  # type: ignore
+        )
+    else:
+        # Directly use the model params
+        count, num_params = 0, len(
+            list(model.model.named_parameters()),
+        )
     refss = []
     # This is needed to get the correct model device
     cur_device = batch['prompt'].device
