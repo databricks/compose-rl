@@ -82,9 +82,9 @@ class LLMRayActor:
         )
 
     def chat(self, *args: Any, **kwargs: Any):
-        print('chat args are: ', args)
-        print ("tokenizer in chat is: ", self.llm.get_tokenizer())
-        log.info(f'Chat kwargs are: {kwargs}')
+        # print('chat args are: ', args)
+        # print ("tokenizer in chat is: ", self.llm.get_tokenizer())
+        # log.info(f'Chat kwargs are: {kwargs}')
         sampling_params = None
         if 'sampling_params' in kwargs:
             sampling_params = SamplingParams(**kwargs.pop('sampling_params'))
