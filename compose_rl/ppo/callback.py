@@ -337,6 +337,7 @@ class PPOCallback(CallbackWithConfig):
 
         # Which kl estimator to use
         if 'kl_estimator' not in train_config['model']:
+            # TODO: Modify PPO to nuke config_overrides in the future
             # Check in model's config_overrides
             kl_estimator = train_config['model']['config_overrides'].get(
                 'kl_estimator',
@@ -352,6 +353,7 @@ class PPOCallback(CallbackWithConfig):
         self.kl_estimator = kl_estimator
 
         if 'kl_clip_range' not in train_config['model']:
+            # TODO: Modify PPO to nuke config_overrides in the future
             # Check in model's config_overrides
             kl_clip_range = train_config['model']['config_overrides'].get(
                 'kl_clip_range',
