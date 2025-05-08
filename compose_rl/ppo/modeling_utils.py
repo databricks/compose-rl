@@ -302,59 +302,55 @@ def online_rl_loss(
     #     for k, v in online_ift_kl_dict.items()
     # }
     policy_token_kl_logging_dict = {
-        f'token_kl/policy_token_kl_{k}_estimate': utils.masked_mean(
-            v,
-            batch['action_mask'],
-        )
-        for k, v in policy_kl_dict.items()
+        f'token_kl/policy_token_kl_{k}_estimate':
+            utils.masked_mean(
+                v,
+                batch['action_mask'],
+            ) for k, v in policy_kl_dict.items()
     }
     policy_seq_kl_logging_dict = {
-        f'seq_kl/policy_seq_kl_{k}_estimate': utils.masked_sum(
-            v,
-            batch['action_mask'],
-        )
-        for k, v in policy_kl_dict.items()
+        f'seq_kl/policy_seq_kl_{k}_estimate':
+            utils.masked_sum(
+                v,
+                batch['action_mask'],
+            ) for k, v in policy_kl_dict.items()
     }
     online_ift_token_kl_logging_dict = {
-        f'token_kl/online_ift_token_kl_{k}_estimate': utils.masked_mean(
-            v,
-            batch['action_mask'],
-        )
-        for k, v in online_ift_kl_dict.items()
+        f'token_kl/online_ift_token_kl_{k}_estimate':
+            utils.masked_mean(
+                v,
+                batch['action_mask'],
+            ) for k, v in online_ift_kl_dict.items()
     }
     online_ift_seq_kl_logging_dict = {
-        f'seq_kl/online_ift_seq_kl_{k}_estimate': utils.masked_sum(
-            v,
-            batch['action_mask'],
-        )
-        for k, v in online_ift_kl_dict.items()
+        f'seq_kl/online_ift_seq_kl_{k}_estimate':
+            utils.masked_sum(
+                v,
+                batch['action_mask'],
+            ) for k, v in online_ift_kl_dict.items()
     }
-    # print(f"{online_ift_kl_logging_dict=}")
-    # print(f"{policy_kl_logging_dict=}")
-    # print(f"{policy_token_kl_logging_dict=}")
-    # print(f"{policy_seq_kl_logging_dict=}")
-    # print(f"{online_ift_token_kl_logging_dict=}")
-    # print(f"{online_ift_seq_kl_logging_dict=}")
-    # print(f"{length_normalize_policy_loss=}")
-    # print(f"{policy_kl=}")
-    # print(f"{online_ift_kl=}")
-    # breakpoint()
 
     return_dict = {
-        'loss/policy_loss': policy_loss,
-        'kl/policy_kl': policy_kl,
-        'kl/online_ift_kl': online_ift_kl,
-        'kl/ift_kl_scalar': batch['ift_kl_scalar'],
-        # **policy_kl_logging_dict,
-        # **online_ift_kl_logging_dict,
+        'loss/policy_loss':
+            policy_loss,
+        'kl/policy_kl':
+            policy_kl,
+        'kl/online_ift_kl':
+            online_ift_kl,
+        'kl/ift_kl_scalar':
+            batch['ift_kl_scalar'],
         **policy_token_kl_logging_dict,
         **policy_seq_kl_logging_dict,
         **online_ift_token_kl_logging_dict,
         **online_ift_seq_kl_logging_dict,
-        'policy_loss/clip_frac': policy_clip_frac,
-        'policy_loss/ratio': utils.masked_mean(ratio, batch['action_mask']),
-        'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
-        'gen/entropy': old_entropies,
+        'policy_loss/clip_frac':
+            policy_clip_frac,
+        'policy_loss/ratio':
+            utils.masked_mean(ratio, batch['action_mask']),
+        'gen/gen_length':
+            batch['action_mask'].sum(dim=1).to(torch.float32),
+        'gen/entropy':
+            old_entropies,
     }
     if loss_type == 'ppo':
         return_dict.update({

@@ -341,7 +341,7 @@ def broadcast_to_vllm(
     vllm_engines: list,
     model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
-    loss_type: str = "ppo",
+    loss_type: str = 'ppo',
 ):
     """Broadcast model weights to all vllm engines.
 
