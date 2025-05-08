@@ -80,7 +80,7 @@ class LLMRayActor:
             *args,
             **kwargs,
         )
-    
+
     def chat(self, *args: Any, **kwargs: Any):
         log.info(f'Chat kwargs are: {kwargs}')
         sampling_params = None
