@@ -88,14 +88,14 @@ def prepare_critic_values_for_training(
 def composer_online_rl_forward(
     batch: MutableMapping,
     model: torch.nn.Module,
-    critic_free: bool = False,
+    loss_type: str = 'ppo',
 ) -> MutableMapping:
     """Forward pass for the Composer PPO model.
 
     Args:
         batch (MutableMapping): The batch to run forward over.
         model (torch.nn.Module): The PPO Actor Critic model to run forwards over.
-        critic_free (bool): Whether to use critic free loss (e.g. GRPO). When ``False``, uses PPO loss.
+        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
     """
     model_forward_kwargs = {
         'attention_mask': batch['right_padded_attn_mask'],
@@ -122,7 +122,7 @@ def composer_online_rl_forward(
         'logits': logits,
     }
 
-    if not critic_free:
+    if loss_type == 'ppo':
         if 'values' not in actor_output:
             raise ValueError(
                 'The actor output does not contain values. Please check the model.',
@@ -136,7 +136,7 @@ def composer_online_rl_forward(
 def online_rl_loss(
     outputs: MutableMapping,
     batch: MutableMapping,
-    critic_free: bool,
+    loss_type: str = 'ppo',
     value_clip_range: float = 0.2,
     value_loss_weight: float = 0.2,
     policy_clip_ratio: float = 0.15,
@@ -151,7 +151,7 @@ def online_rl_loss(
     Args:
         outputs (MutableMapping): The outputs from the forward pass.
         batch (MutableMapping): The batch to compute the loss over.
-        critic_free (bool): Whether to use critic free loss (e.g. GRPO). When ``False``, uses PPO loss.
+        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
         value_clip_range (float): The value clip range.
         value_loss_weight (float): The value loss weight.
         policy_clip_ratio (float): The policy clip ratio.
@@ -165,7 +165,7 @@ def online_rl_loss(
     # action_mask: [bs, gen_len] action mask
 
     advantages = batch['advantages']
-    if not critic_free:
+    if loss_type == 'ppo':
         # advantages: [bs, gen_len] advantage computation from ppo
         # v_preds: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
         # values: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
@@ -219,7 +219,7 @@ def online_rl_loss(
             adv_masked_mean,
             adv_masked_var,
         )
-    else:
+    elif loss_type == 'grpo':
         # advantages: [bs] advantage computation from critic free methods like GRPO
         values = None
         v_preds = None
@@ -228,6 +228,10 @@ def online_rl_loss(
         returns_mean = None
         returns_var = None
         val_error = None
+    else:
+        raise ValueError(
+            f'Unknown loss type: {loss_type}. Please use either "ppo" or "grpo".',
+        )
 
     advantages = advantages.detach()
 
@@ -290,27 +294,69 @@ def online_rl_loss(
     else:
         policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
 
-    policy_kl_logging_dict = {
-        f'kl/policy_kl_{k}_estimate': v for k, v in policy_kl_dict.items()
+    # policy_kl_logging_dict = {
+    #     f'kl/policy_kl_{k}_estimate': v for k, v in policy_kl_dict.items()
+    # }
+    # online_ift_kl_logging_dict = {
+    #     f'kl/online_ift_kl_{k}_estimate': v
+    #     for k, v in online_ift_kl_dict.items()
+    # }
+    policy_token_kl_logging_dict = {
+        f'token_kl/policy_token_kl_{k}_estimate': utils.masked_mean(
+            v,
+            batch['action_mask'],
+        )
+        for k, v in policy_kl_dict.items()
     }
-    online_ift_kl_logging_dict = {
-        f'kl/online_ift_kl_{k}_estimate': v
+    policy_seq_kl_logging_dict = {
+        f'seq_kl/policy_seq_kl_{k}_estimate': utils.masked_sum(
+            v,
+            batch['action_mask'],
+        )
+        for k, v in policy_kl_dict.items()
+    }
+    online_ift_token_kl_logging_dict = {
+        f'token_kl/online_ift_token_kl_{k}_estimate': utils.masked_mean(
+            v,
+            batch['action_mask'],
+        )
         for k, v in online_ift_kl_dict.items()
     }
+    online_ift_seq_kl_logging_dict = {
+        f'seq_kl/online_ift_seq_kl_{k}_estimate': utils.masked_sum(
+            v,
+            batch['action_mask'],
+        )
+        for k, v in online_ift_kl_dict.items()
+    }
+    # print(f"{online_ift_kl_logging_dict=}")
+    # print(f"{policy_kl_logging_dict=}")
+    # print(f"{policy_token_kl_logging_dict=}")
+    # print(f"{policy_seq_kl_logging_dict=}")
+    # print(f"{online_ift_token_kl_logging_dict=}")
+    # print(f"{online_ift_seq_kl_logging_dict=}")
+    # print(f"{length_normalize_policy_loss=}")
+    # print(f"{policy_kl=}")
+    # print(f"{online_ift_kl=}")
+    # breakpoint()
 
     return_dict = {
         'loss/policy_loss': policy_loss,
         'kl/policy_kl': policy_kl,
         'kl/online_ift_kl': online_ift_kl,
         'kl/ift_kl_scalar': batch['ift_kl_scalar'],
-        **policy_kl_logging_dict,
-        **online_ift_kl_logging_dict,
+        # **policy_kl_logging_dict,
+        # **online_ift_kl_logging_dict,
+        **policy_token_kl_logging_dict,
+        **policy_seq_kl_logging_dict,
+        **online_ift_token_kl_logging_dict,
+        **online_ift_seq_kl_logging_dict,
         'policy_loss/clip_frac': policy_clip_frac,
         'policy_loss/ratio': utils.masked_mean(ratio, batch['action_mask']),
         'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
         'gen/entropy': old_entropies,
     }
-    if not critic_free:
+    if loss_type == 'ppo':
         return_dict.update({
             'advantages/mean':
                 utils.masked_mean(advantages, batch['action_mask']),
@@ -335,7 +381,7 @@ def online_rl_loss(
             'value_loss/value_error':
                 val_error,
         })
-    else:
+    elif loss_type == 'grpo':
         return_dict.update({
             'advantages/mean': advantages.mean(),
         })
@@ -375,7 +421,7 @@ def online_rl_loss(
         return_dict[key] = value.detach().cpu()
 
     return_dict['total'] = policy_loss
-    if not critic_free:
+    if loss_type == 'ppo':
         # Add value loss to total loss
         return_dict['total'
                    ] += value_loss_weight * value_loss  # pyright: ignore

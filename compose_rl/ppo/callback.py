@@ -257,10 +257,10 @@ def env_reward(
 
         partial_env_output = {
             'prompt_id': prompt_id,
-            'actions': actions.detach(),
-            'old_log_probs': device_train_microbatch_log_probs.detach(),
-            'old_entropies': device_train_microbatch_entropies.detach(),
-            'obs': right_padded_obs.detach(),
+            'actions': actions,
+            'old_log_probs': device_train_microbatch_log_probs,
+            'old_entropies': device_train_microbatch_entropies,
+            'obs': right_padded_obs,
             'generated_len': generated_len,
             'action_mask': action_mask,
         }
@@ -275,7 +275,7 @@ def env_reward(
                                           dim=-1)
             device_train_microbatch_values *= value_action_mask
             partial_env_output['values'
-                              ] = device_train_microbatch_values.detach()
+                              ] = device_train_microbatch_values
         # Future implementations may change the way reward_seq_len is defined
         # e.g., if special formatting is applied
         reward_seq_len = prompt_len + generated_len
@@ -328,9 +328,9 @@ class PPOCallback(CallbackWithConfig):
         # Other algo specific hparams
         # Find if we are using a critic free model or not
         if train_config['model']['name'] == 'hf_critic_free_lm':
-            self.critic_free = True
+            self.loss_type = "grpo"
         elif train_config['model']['name'] == 'hf_ppo_lm':
-            self.critic_free = False
+            self.loss_type = "ppo"
         else:
             raise ValueError(
                 f"Invalid model name: {train_config['model']['name']}. Only hf_critic_free_lm and hf_ppo_lm are supported.",
@@ -845,7 +845,7 @@ class PPOCallback(CallbackWithConfig):
         )
 
         # Now that rewards are resolved, we can compute advantages
-        if not self.critic_free:
+        if self.loss_type == "ppo":
             env_outs['advantages'] = compute_advantages(
                 rewards=env_outs['rewards'],
                 values=env_outs['values'],
@@ -856,7 +856,7 @@ class PPOCallback(CallbackWithConfig):
                 env_outs['advantages'],
                 env_outs['action_mask'],
             )
-        else:
+        elif self.loss_type == "grpo":
             # compute GRPO advantages
             prompt_id = env_outs['prompt_id']
             rewards = env_outs['rewards']
@@ -900,6 +900,11 @@ class PPOCallback(CallbackWithConfig):
             env_outs['advantages'] = grpo_advantage
             batch_adv_mean = grpo_advantage.mean()
             batch_adv_var = grpo_advantage.var()
+        else:
+            raise ValueError(
+                f'Invalid loss type: {self.loss_type}. ' +
+                'Valid options are: ppo, grpo.',
+            )
 
         mean_ift = masked_mean(
             env_outs['ift_kl'],
@@ -1061,7 +1066,7 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines,
             self.model_update_group,
             batch,
-            critic_free=self.critic_free,
+            loss_type=self.loss_type,
         )
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')

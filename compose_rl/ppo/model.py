@@ -95,7 +95,7 @@ class ComposerMosaicPolicy(HuggingFaceModel):
         return_dict, kl_loss = online_rl_loss(
             outputs=outputs,
             batch=batch,
-            critic_free=False,
+            loss_type='ppo',
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
@@ -206,7 +206,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         return_dict, kl_loss = online_rl_loss(
             outputs=outputs,
             batch=batch,
-            critic_free=False,
+            loss_type='ppo',
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
@@ -269,7 +269,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         ret_val = composer_online_rl_forward(
             batch,
             self.model,
-            critic_free=True,
+            loss_type='grpo',
         )
         return ret_val
 
@@ -282,7 +282,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         return_dict, kl_loss = online_rl_loss(
             outputs=outputs,
             batch=batch,
-            critic_free=True,
+            loss_type='grpo',
             policy_clip_ratio=self.policy_clip_ratio,
             policy_clip_high_ratio=self.policy_clip_high_ratio,
             length_normalize_policy_loss=self.length_normalize_policy_loss,
