@@ -19,8 +19,9 @@ from llmfoundry.utils.config_utils import process_init_device  # type: ignore
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from compose_rl.ppo.kl_controller import BaseKLController
-from compose_rl.registry import RL_REWARD_REGISTRY
+from compose_rl.interfaces.base_kl_controller import BaseKLController
+from compose_rl.registry import rewards as rewards_registry
+from compose_rl.registry_builders import build_reward
 from compose_rl.reward_learning import (
     BadGenerationEndReward,
     BaseReward,
@@ -96,7 +97,6 @@ class RewardManager:
 
         for reward_name, reward_config in self.config.items():
             assert isinstance(reward_name, str)
-
             if reward_name in self.all_rewards:
                 raise KeyError(
                     f'The reward manager already has a model with {reward_name=}',
@@ -105,13 +105,18 @@ class RewardManager:
             log.info(f'Initializing reward with name {reward_name}')
 
             # TODO: Validate reward_config
-            reward_cls = RL_REWARD_REGISTRY[reward_config.get('reward_type')]
+            reward_type = reward_config.pop('reward_type')
+            reward_cls = rewards_registry.get(reward_type)
 
             if issubclass(reward_cls, Reward):
                 # TODO: This assumes that all functional rewards are document level rewards.
                 # This is not necessarily true, but is a reasonable assumption for now.
                 self.granularities[reward_name] = 'document'
-                model = reward_cls(reward_config, self.tokenizer)
+                model = build_reward(
+                    name=reward_type,
+                    tokenizer=self.tokenizer,
+                    kwargs=reward_config,
+                )
                 self.functional_rewards.append(reward_name)
 
             elif issubclass(reward_cls, RewardModel):
@@ -120,9 +125,10 @@ class RewardManager:
                 )
 
                 if reward_cls == InferenceRewardModel:
-                    model = InferenceRewardModel(
-                        reward_config.get('config'),
-                        self.tokenizer,
+                    model = build_reward(
+                        name=reward_type,
+                        tokenizer=self.tokenizer,
+                        kwargs=reward_config,
                     )
                     self.inference_rewards.append(reward_name)
 

@@ -394,7 +394,13 @@ class PPOCallback(CallbackWithConfig):
         # Programmatically setting the max buffer size instead of the yaml
         var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
-        self.kl_ctl = build_kl_controller(var_config['kl_controller'])
+
+        # Build the KL controller through registries
+        kl_ctl_name = var_config['kl_controller'].pop('kl_ctl_type')
+        self.kl_ctl = build_kl_controller(
+            name=kl_ctl_name,
+            kwargs=var_config['kl_controller'],
+        )
 
         self.kl_ift = []
 
