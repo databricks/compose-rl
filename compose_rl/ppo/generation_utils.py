@@ -62,7 +62,7 @@ def hf_generate(
     )
 
     # We don't need to include EOS tokens since we mask out EOS tokens below
-    generated_dict = policy.generate( # type: ignore
+    generated_dict = actor_critic.generate( # type: ignore
         prompt_tokens,
         max_new_tokens=max_gen_len,
         return_dict_in_generate=True,

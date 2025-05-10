@@ -10,11 +10,18 @@ from typing import Any, MutableMapping, Optional, Union
 import torch
 from composer.models import HuggingFaceModel
 from composer.utils import dist, is_model_fsdp
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from llmfoundry.models import ComposerHFCausalLM
+from transformers import (
+    PreTrainedTokenizer,
+    PreTrainedTokenizerFast,
+)
 
 from compose_rl.ppo.modeling_hf import ComposerHFPolicy
 from compose_rl.ppo.modeling_mpt import MPTForPolicy
-from compose_rl.ppo.modeling_utils import composer_ppo_forward, ppo_loss
+from compose_rl.ppo.modeling_utils import (
+    composer_online_rl_forward,
+    online_rl_loss,
+)
 from compose_rl.ppo.policy_configuration import MPTPolicyConfig
 from compose_rl.utils import (
     clear_mb_load_balancing_loss,
@@ -30,7 +37,6 @@ class ComposerMosaicPolicy(HuggingFaceModel):
 
     def __init__(
         self,
-        # tokenizer: Optional[PreTrainedTokenizerBase] = None,
         tokenizer: Tokenizer,
         **kwargs: dict[str, Any],
     ):
@@ -69,7 +75,7 @@ class ComposerMosaicPolicy(HuggingFaceModel):
             self.model.transformer,  # type: ignore
         )
 
-        ret_val = composer_ppo_forward(batch, self.model)
+        ret_val = composer_online_rl_forward(batch, self.model)
 
         lbl = get_mb_load_balancing_loss(
             self.config,
@@ -86,15 +92,16 @@ class ComposerMosaicPolicy(HuggingFaceModel):
         )
 
     def loss(self, outputs: MutableMapping, batch: MutableMapping):
-        return_dict, kl_loss = ppo_loss(
-            outputs,
-            batch,
-            self.config.value_clip_range,
-            self.config.policy_clip_ratio,
-            self.config.value_loss_weight,
-            self.compute_kl_loss,  # pyright: ignore
-            self.config.kl_estimator,
-            self.config.kl_clip_range,
+        return_dict, kl_loss = online_rl_loss(
+            outputs=outputs,
+            batch=batch,
+            loss_type='ppo',
+            value_clip_range=self.config.value_clip_range,
+            value_loss_weight=self.config.value_loss_weight,
+            policy_clip_ratio=self.config.policy_clip_ratio,
+            add_direct_kl_loss=self.config.compute_kl_loss,
+            kl_estimator=self.config.kl_estimator,
+            kl_clip_range=self.config.kl_clip_range,
         )
 
         self.policy_kl.append(kl_loss)
@@ -156,7 +163,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         assert isinstance(self.target_kl, float)
 
     def forward(self, batch: MutableMapping):
-        ret_val = composer_ppo_forward(batch, self.model)
+        ret_val = composer_online_rl_forward(batch, self.model)
         return ret_val
 
     def generate(self, input_ids: torch.Tensor, *args: Any, **kwargs: Any):
@@ -196,19 +203,95 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         )
 
     def loss(self, outputs: MutableMapping, batch: MutableMapping):
-        return_dict, kl_loss = ppo_loss(
-            outputs,
-            batch,
-            self.config.value_clip_range,
-            self.config.policy_clip_ratio,
-            self.config.value_loss_weight,
-            self.compute_kl_loss,  # pyright: ignore
-            self.config.kl_estimator,
-            self.config.kl_clip_range,
+        return_dict, kl_loss = online_rl_loss(
+            outputs=outputs,
+            batch=batch,
+            loss_type='ppo',
+            value_clip_range=self.config.value_clip_range,
+            value_loss_weight=self.config.value_loss_weight,
+            policy_clip_ratio=self.config.policy_clip_ratio,
+            add_direct_kl_loss=self.config.compute_kl_loss,
+            kl_estimator=self.config.kl_estimator,
+            kl_clip_range=self.config.kl_clip_range,
         )
 
         self.policy_kl.append(kl_loss)
 
+        return return_dict
+
+    def determine_early_stop(self):
+        local_policy_kl = torch.stack(self.policy_kl)
+        avg_policy_kl = torch.mean(
+            torch.cat(dist.all_gather_object(local_policy_kl)),
+        )
+        early_stop = False
+        log.info(f'average policy kl is: {avg_policy_kl}')
+        if avg_policy_kl > self.target_kl * 1.5:  # pyright: ignore
+            early_stop = True
+            log.info(f'Early stopping actor critic with kl: {avg_policy_kl}')
+        self.policy_kl = []
+        return early_stop
+
+    def set_batch_stats(self, batch_stats: dict[str, Any]):
+        self.batch_stats = batch_stats
+
+
+class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
+    """HF class wrapper for Critic Free Policy model."""
+    default_train_metrics: tuple = ()
+    default_eval_metrics: tuple = ()
+
+    def __init__(
+        self,
+        normalize_advantage: bool = True,
+        length_normalize_policy_loss: bool = True,
+        policy_clip_ratio: float = 0.15,
+        policy_clip_high_ratio: float | None = None,
+        compute_kl_loss: bool = True,
+        target_kl: float = 0.1,
+        kl_estimator: str = 'k1',
+        kl_clip_range: float = 40.0,
+        **kwargs: Any,
+    ):
+        super().__init__(**kwargs)
+        self.policy_kl = []
+
+        self.normalize_advantage = normalize_advantage
+        self.length_normalize_policy_loss = length_normalize_policy_loss
+        self.policy_clip_ratio = policy_clip_ratio
+        self.policy_clip_high_ratio = policy_clip_high_ratio
+        self.compute_kl_loss = compute_kl_loss
+        self.target_kl = target_kl
+        self.kl_estimator = kl_estimator
+        self.kl_clip_range = kl_clip_range
+
+    def forward(self, batch: MutableMapping):
+        ret_val = composer_online_rl_forward(
+            batch,
+            self.model,
+            loss_type='grpo',
+        )
+        return ret_val
+
+    def eval_forward(self, batch: MutableMapping, outputs: MutableMapping):
+        raise ValueError(
+            'Eval forward is not supported for HF Critic Free Policy.',
+        )
+
+    def loss(self, outputs: MutableMapping, batch: MutableMapping):
+        return_dict, kl_loss = online_rl_loss(
+            outputs=outputs,
+            batch=batch,
+            loss_type='grpo',
+            policy_clip_ratio=self.policy_clip_ratio,
+            policy_clip_high_ratio=self.policy_clip_high_ratio,
+            length_normalize_policy_loss=self.length_normalize_policy_loss,
+            add_direct_kl_loss=self.compute_kl_loss,
+            kl_estimator=self.kl_estimator,
+            kl_clip_range=self.kl_clip_range,
+        )
+
+        self.policy_kl.append(kl_loss)
         return return_dict
 
     def determine_early_stop(self):

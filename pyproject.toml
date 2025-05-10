@@ -47,6 +47,7 @@ hf_pairwise_rm = "compose_rl.reward_learning:ComposerHFPairwiseRewardModel"
 hf_classifier_rm = "compose_rl.reward_learning:ComposerHFClassifierRewardModel"
 mpt_ppo_lm = "compose_rl.ppo:ComposerMosaicPolicy"
 hf_ppo_lm = "compose_rl.ppo:ComposerHFPolicyModel"
+hf_critic_free_lm = "compose_rl.ppo:ComposerHFCriticFreePolicyModel"
 
 [project.entry-points."llmfoundry_dataloaders"]
 pairwise_preference = "compose_rl.data:build_pairwise_preference_dataloader"
