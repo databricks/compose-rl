@@ -20,7 +20,7 @@ class BaseKLController(ABC):
 
     def __init__(self, device: str, *args: Any, **kwargs: Any):
         self.device = device
-        del args, kwargs  # unsued here
+        del args, kwargs  # unused here
         pass
 
     @abstractmethod
