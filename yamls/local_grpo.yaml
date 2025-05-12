@@ -80,13 +80,14 @@ variables:
 model:
   <<: *base_model
   name: hf_critic_free_lm
-  normalize_advantage: false
-  length_normalize_policy_loss: false
+  loss_type: grpo
+  normalize_advantage: true
+  length_normalize_policy_loss: true
   policy_clip_ratio: 0.15
   policy_clip_high_ratio: 0.28
   compute_kl_loss: true
   target_kl: 0.1
-  kl_estimator: k1
+  kl_estimator: k3
   kl_clip_range: 40.0
 
 # load_path: # TODO: fill in load path if applicable
