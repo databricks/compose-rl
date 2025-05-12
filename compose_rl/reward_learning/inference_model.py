@@ -31,7 +31,7 @@ class InferenceRewardModel(RewardModel):
         timeout: Optional[int] = None,
         threshold: Optional[float] = None,
     ):
-        super().__init__(tokenizer)
+        super().__init__(tokenizer=tokenizer)
         self.deployment_name = get_remote_name(deployment)
         log.info(f'Reward deployment name is: {self.deployment_name}')
         self.max_retries = max_retries
