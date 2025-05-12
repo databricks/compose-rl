@@ -346,7 +346,7 @@ def online_rl_loss(
             utils.masked_mean(advantages, batch['action_mask']),
     }
     if loss_type == 'ppo':
-        return_dict.update({  
+        return_dict.update({
             'loss/value_loss':
                 value_loss,
             'value_loss/values':

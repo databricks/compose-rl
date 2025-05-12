@@ -166,7 +166,11 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         assert isinstance(self.target_kl, float)
 
     def forward(self, batch: MutableMapping):
-        ret_val = composer_online_rl_forward(batch, self.model, loss_type=self.loss_type)
+        ret_val = composer_online_rl_forward(
+            batch,
+            self.model,
+            loss_type=self.loss_type,  # pyright: ignore
+        )
         return ret_val
 
     def generate(self, input_ids: torch.Tensor, *args: Any, **kwargs: Any):
@@ -209,7 +213,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         return_dict, kl_loss = online_rl_loss(
             outputs=outputs,
             batch=batch,
-            loss_type=self.loss_type,
+            loss_type=self.loss_type,  # pyright: ignore
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,

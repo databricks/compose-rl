@@ -850,7 +850,11 @@ class PPOCallback(CallbackWithConfig):
             rewards = env_outs['rewards']
 
             # Flatten the rewards by summing on sequence length/action_mask
-            flat_rewards = utils.masked_sum(rewards, env_outs['action_mask'], dim=-1)
+            flat_rewards = utils.masked_sum(
+                rewards,
+                env_outs['action_mask'],
+                dim=-1,
+            )
 
             # Get unique prompt IDs and their indices
             unique_prompt_ids, inverse_indices = torch.unique(
@@ -866,7 +870,11 @@ class PPOCallback(CallbackWithConfig):
             sum_squares = torch.zeros(n_unique, device=prompt_id.device)
 
             # Use scatter_add to accumulate values
-            counts.scatter_add_(0, inverse_indices, torch.ones_like(flat_rewards))
+            counts.scatter_add_(
+                0,
+                inverse_indices,
+                torch.ones_like(flat_rewards),
+            )
             sums.scatter_add_(0, inverse_indices, flat_rewards)
             sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
 
@@ -888,8 +896,14 @@ class PPOCallback(CallbackWithConfig):
             # Create advantages of the same shape as original rewards
             advantages = torch.zeros_like(rewards)
             # Copy the flat grpo_advantage according to action_mask
-            expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(env_outs['action_mask'])
-            advantages = torch.where(env_outs['action_mask'].bool(), expanded_advantages, advantages)
+            expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
+                env_outs['action_mask'],
+            )
+            advantages = torch.where(
+                env_outs['action_mask'].bool(),
+                expanded_advantages,
+                advantages,
+            )
             env_outs['advantages'] = advantages
         else:
             raise ValueError(
@@ -1062,7 +1076,7 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines,
             self.model_update_group,
             batch,
-            loss_type=self.actor_critic.loss_type,
+            loss_type=self.actor_critic.loss_type,  # type: ignore
         )
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
