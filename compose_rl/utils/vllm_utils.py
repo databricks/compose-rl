@@ -341,6 +341,7 @@ def broadcast_to_vllm(
     vllm_engines: list,
     model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
+    loss_type: str = 'ppo',
 ):
     """Broadcast model weights to all vllm engines.
 
@@ -349,12 +350,24 @@ def broadcast_to_vllm(
         vllm_engines (list): List of vllm engines
         model_update_group (torch.distributed.ProcessGroup): The process group for model updates
         batch (dict[str, torch.Tensor]): The batch to use for the forward pass
+        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
     """
     # avoid OOM
     torch.cuda.empty_cache()
-    count, num_params = 0, len(
-        list(model.model.lm_backbone.named_parameters()),  # type: ignore
-    )
+    if loss_type == 'ppo':
+        # Extract the lm_backbone params from the model
+        count, num_params = 0, len(
+            list(model.model.lm_backbone.named_parameters()),  # type: ignore
+        )
+    elif loss_type == 'grpo':
+        # Directly use the model params
+        count, num_params = 0, len(
+            list(model.model.named_parameters()),  # type: ignore
+        )
+    else:
+        raise ValueError(
+            f'Unsupported loss type: {loss_type}. Supported types are: ppo, grpo',
+        )
     refss = []
     # This is needed to get the correct model device
     cur_device = batch['prompt'].device
