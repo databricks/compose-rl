@@ -72,7 +72,7 @@ variables:
 model:
   <<: *base_model
   name: hf_ppo_lm
-
+  loss_type: ppo
   config_overrides:
     critic_dropout: 0.0
     value_clip_range: 0.2

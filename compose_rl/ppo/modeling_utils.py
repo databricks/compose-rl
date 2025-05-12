@@ -95,7 +95,7 @@ def composer_online_rl_forward(
     Args:
         batch (MutableMapping): The batch to run forward over.
         model (torch.nn.Module): The PPO Actor Critic model to run forwards over.
-        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
+        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to ``ppo``.
     """
     model_forward_kwargs = {
         'attention_mask': batch['right_padded_attn_mask'],
@@ -151,7 +151,7 @@ def online_rl_loss(
     Args:
         outputs (MutableMapping): The outputs from the forward pass.
         batch (MutableMapping): The batch to compute the loss over.
-        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
+        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to ``ppo``.
         value_clip_range (float): The value clip range.
         value_loss_weight (float): The value loss weight.
         policy_clip_ratio (float): The policy clip ratio.
@@ -161,12 +161,23 @@ def online_rl_loss(
         kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
         kl_clip_range (float): The clip range for the KL divergence. Default: ``40.0``.
     """
+    if loss_type not in ['ppo', 'grpo']:
+        raise ValueError(
+            f'Unknown loss type: {loss_type}. Please use either "ppo" or "grpo".',
+        )
     # log_probs: [bs, gen_len] log probability of each action
     # action_mask: [bs, gen_len] action mask
 
     advantages = batch['advantages']
+    values = None
+    v_preds = None
+    value_loss = None
+    value_clip_frac = None
+    returns_mean = None
+    returns_var = None
+    val_error = None
     if loss_type == 'ppo':
-        # advantages: [bs, gen_len] advantage computation from ppo
+        # advantages: [bs, gen_len] advantage computation from PPO or GRPO
         # v_preds: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
         # values: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
         # Note: `values` are the outputs of the critic model at the start of the PPO epoch and are fixed throughout the epoch,
@@ -218,19 +229,6 @@ def online_rl_loss(
             batch['advantages'],
             adv_masked_mean,
             adv_masked_var,
-        )
-    elif loss_type == 'grpo':
-        # advantages: [bs] advantage computation from critic free methods like GRPO
-        values = None
-        v_preds = None
-        value_loss = None
-        value_clip_frac = None
-        returns_mean = None
-        returns_var = None
-        val_error = None
-    else:
-        raise ValueError(
-            f'Unknown loss type: {loss_type}. Please use either "ppo" or "grpo".',
         )
 
     advantages = advantages.detach()
@@ -294,13 +292,6 @@ def online_rl_loss(
     else:
         policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
 
-    # policy_kl_logging_dict = {
-    #     f'kl/policy_kl_{k}_estimate': v for k, v in policy_kl_dict.items()
-    # }
-    # online_ift_kl_logging_dict = {
-    #     f'kl/online_ift_kl_{k}_estimate': v
-    #     for k, v in online_ift_kl_dict.items()
-    # }
     policy_token_kl_logging_dict = {
         f'token_kl/policy_token_kl_{k}_estimate':
             utils.masked_mean(
@@ -351,11 +342,11 @@ def online_rl_loss(
             batch['action_mask'].sum(dim=1).to(torch.float32),
         'gen/entropy':
             old_entropies,
+        'advantages/mean':
+            utils.masked_mean(advantages, batch['action_mask']),
     }
     if loss_type == 'ppo':
-        return_dict.update({
-            'advantages/mean':
-                utils.masked_mean(advantages, batch['action_mask']),
+        return_dict.update({  
             'loss/value_loss':
                 value_loss,
             'value_loss/values':
@@ -376,10 +367,6 @@ def online_rl_loss(
                 returns_var,
             'value_loss/value_error':
                 val_error,
-        })
-    elif loss_type == 'grpo':
-        return_dict.update({
-            'advantages/mean': advantages.mean(),
         })
 
     for key, value in batch.items():

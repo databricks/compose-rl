@@ -325,15 +325,6 @@ class PPOCallback(CallbackWithConfig):
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
 
         # Other algo specific hparams
-        # Find if we are using a critic free model or not
-        if train_config['model']['name'] == 'hf_critic_free_lm':
-            self.loss_type = 'grpo'
-        elif train_config['model']['name'] == 'hf_ppo_lm':
-            self.loss_type = 'ppo'
-        else:
-            raise ValueError(
-                f"Invalid model name: {train_config['model']['name']}. Only hf_critic_free_lm and hf_ppo_lm are supported.",
-            )
 
         # Which kl estimator to use
         if 'kl_estimator' not in train_config['model']:
@@ -846,24 +837,20 @@ class PPOCallback(CallbackWithConfig):
         )
 
         # Now that rewards are resolved, we can compute advantages
-        if self.loss_type == 'ppo':
+        if self.actor_critic.loss_type == 'ppo':
             env_outs['advantages'] = compute_advantages(
                 rewards=env_outs['rewards'],
                 values=env_outs['values'],
                 gamma=self.gamma,
                 lambda_gae=self.lambda_gae,
             )
-            batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-                env_outs['advantages'],
-                env_outs['action_mask'],
-            )
-        elif self.loss_type == 'grpo':
+        elif self.actor_critic.loss_type == 'grpo':
             # compute GRPO advantages
             prompt_id = env_outs['prompt_id']
             rewards = env_outs['rewards']
 
             # Flatten the rewards by summing on sequence length/action_mask
-            rewards = utils.masked_sum(rewards, env_outs['action_mask'], dim=-1)
+            flat_rewards = utils.masked_sum(rewards, env_outs['action_mask'], dim=-1)
 
             # Get unique prompt IDs and their indices
             unique_prompt_ids, inverse_indices = torch.unique(
@@ -879,9 +866,9 @@ class PPOCallback(CallbackWithConfig):
             sum_squares = torch.zeros(n_unique, device=prompt_id.device)
 
             # Use scatter_add to accumulate values
-            counts.scatter_add_(0, inverse_indices, torch.ones_like(rewards))
-            sums.scatter_add_(0, inverse_indices, rewards)
-            sum_squares.scatter_add_(0, inverse_indices, rewards**2)
+            counts.scatter_add_(0, inverse_indices, torch.ones_like(flat_rewards))
+            sums.scatter_add_(0, inverse_indices, flat_rewards)
+            sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
 
             # Compute means and standard deviations
             means = sums / counts
@@ -893,19 +880,27 @@ class PPOCallback(CallbackWithConfig):
             std_rewards = stds[inverse_indices]
 
             # Calculate GRPO advantage
-            grpo_advantage = (rewards - mean_rewards)
+            grpo_advantage = (flat_rewards - mean_rewards)
             # Only normalize the advantage if flag is set
             if self.actor_critic.normalize_advantage:
                 grpo_advantage /= (std_rewards + 1e-4)
 
-            env_outs['advantages'] = grpo_advantage
-            batch_adv_mean = grpo_advantage.mean()
-            batch_adv_var = grpo_advantage.var()
+            # Create advantages of the same shape as original rewards
+            advantages = torch.zeros_like(rewards)
+            # Copy the flat grpo_advantage according to action_mask
+            expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(env_outs['action_mask'])
+            advantages = torch.where(env_outs['action_mask'].bool(), expanded_advantages, advantages)
+            env_outs['advantages'] = advantages
         else:
             raise ValueError(
-                f'Invalid loss type: {self.loss_type}. ' +
+                f'Invalid loss type: {self.actor_critic.loss_type}. ' +
                 'Valid options are: ppo, grpo.',
             )
+
+        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
+            env_outs['advantages'],
+            env_outs['action_mask'],
+        )
 
         mean_ift = masked_mean(
             env_outs['ift_kl'],
@@ -1067,7 +1062,7 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines,
             self.model_update_group,
             batch,
-            loss_type=self.loss_type,
+            loss_type=self.actor_critic.loss_type,
         )
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')

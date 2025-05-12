@@ -154,16 +154,19 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         self.compute_kl_loss = False
         self.target_kl = 0.1
 
+        # TODO: This needs to be removed once the config is fixed.
         if config_overrides is not None:
             self.compute_kl_loss = config_overrides.get('compute_kl_loss')
             self.target_kl = config_overrides.get('target_kl')
+
+        self.loss_type = kwargs.get('loss_type', 'ppo')
 
         # Validating the input types
         assert isinstance(self.compute_kl_loss, bool)
         assert isinstance(self.target_kl, float)
 
     def forward(self, batch: MutableMapping):
-        ret_val = composer_online_rl_forward(batch, self.model)
+        ret_val = composer_online_rl_forward(batch, self.model, loss_type=self.loss_type)
         return ret_val
 
     def generate(self, input_ids: torch.Tensor, *args: Any, **kwargs: Any):
@@ -206,7 +209,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         return_dict, kl_loss = online_rl_loss(
             outputs=outputs,
             batch=batch,
-            loss_type='ppo',
+            loss_type=self.loss_type,
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
@@ -243,19 +246,33 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
 
     def __init__(
         self,
+        loss_type: str = 'grpo',
         normalize_advantage: bool = True,
         length_normalize_policy_loss: bool = True,
         policy_clip_ratio: float = 0.15,
         policy_clip_high_ratio: float | None = None,
         compute_kl_loss: bool = True,
         target_kl: float = 0.1,
-        kl_estimator: str = 'k1',
+        kl_estimator: str = 'k3',
         kl_clip_range: float = 40.0,
         **kwargs: Any,
     ):
+        """Initialize the ComposerHFCriticFreePolicyModel.
+
+        Args:
+            loss_type (str): The type of loss to use. Default: ``'grpo'``.
+            normalize_advantage (bool): Whether to normalize the advantage. Default: ``True``.
+            length_normalize_policy_loss (bool): Whether to length normalize the policy loss and KL loss. Default: ``True``.
+            policy_clip_ratio (float): The policy clip ratio. Default: ``0.15``.
+            policy_clip_high_ratio (float | None): The high policy clip ratio. Default: ``None`` uses policy_clip_ratio.
+            compute_kl_loss (bool): Whether to compute KL loss. Default: ``True``.
+            target_kl (float): The target KL value. Default: ``0.1``.
+            kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
+            kl_clip_range (float): The KL clip range. Default: ``40.0``.
+        """
         super().__init__(**kwargs)
         self.policy_kl = []
-
+        self.loss_type = loss_type
         self.normalize_advantage = normalize_advantage
         self.length_normalize_policy_loss = length_normalize_policy_loss
         self.policy_clip_ratio = policy_clip_ratio
@@ -269,7 +286,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         ret_val = composer_online_rl_forward(
             batch,
             self.model,
-            loss_type='grpo',
+            loss_type=self.loss_type,
         )
         return ret_val
 
@@ -282,7 +299,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         return_dict, kl_loss = online_rl_loss(
             outputs=outputs,
             batch=batch,
-            loss_type='grpo',
+            loss_type=self.loss_type,
             policy_clip_ratio=self.policy_clip_ratio,
             policy_clip_high_ratio=self.policy_clip_high_ratio,
             length_normalize_policy_loss=self.length_normalize_policy_loss,
