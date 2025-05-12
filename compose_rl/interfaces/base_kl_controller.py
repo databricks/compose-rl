@@ -19,7 +19,8 @@ class BaseKLController(ABC):
     """
 
     def __init__(self, device: str, *args: Any, **kwargs: Any):
-        del device, args, kwargs  # unsued here
+        self.device = device
+        del args, kwargs  # unsued here
         pass
 
     @abstractmethod

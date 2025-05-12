@@ -26,10 +26,10 @@ class AdaptiveKLController(BaseKLController):
         horizon: int,
         device: str = 'cpu',
     ):
+        super().__init__(device=device)
         self._value = init_kl_coef
         self._target = target
         self._horizon = horizon
-        self.device = device
 
     def update(self, current: torch.Tensor, n_steps: int):
         target = self._target
@@ -63,8 +63,8 @@ class FixedKLController(BaseKLController):
     """
 
     def __init__(self, init_kl_coef: float, device: str = 'cpu'):
+        super().__init__(device=device)
         self._value = init_kl_coef
-        self.device = device
 
     def update(self, current: torch.Tensor, n_steps: int):
         return
@@ -109,7 +109,6 @@ class KLPIDController(BaseKLController):
         self._horizon = horizon
         self._optim = torch.optim.Adam([self._value], lr=kl_lr)
         self.kl_lr = kl_lr
-        self.device = device
 
     def update(self, current: torch.Tensor, n_steps: int):
         self.device = current.device
@@ -169,7 +168,6 @@ class BallKLController(BaseKLController):
         self._horizon = horizon
         self._optim = torch.optim.Adam([self._value], lr=kl_lr)
         self.kl_lr = kl_lr
-        self.device = device
 
     def update(self, current: torch.Tensor, n_steps: int):
         self.device = current.device

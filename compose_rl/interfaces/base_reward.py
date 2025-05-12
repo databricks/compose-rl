@@ -37,6 +37,7 @@ class BaseReward(ABC):
         **kwargs: Any,
     ) -> None:
         self.tokenizer = tokenizer
+        del args, kwargs  # unused here
         pass
 
     def validate_config(self) -> None:
