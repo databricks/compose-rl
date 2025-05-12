@@ -7,7 +7,7 @@ model:
   pretrained: true
   use_auth_token: true
   use_flash_attention_2: true
-  pretrained_model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+  pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
 
 loggers:
   mlflow:
@@ -39,7 +39,7 @@ scheduler:
   t_warmup: 0.1dur
 
 tokenizer:
-  name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  name: meta-llama/Llama-3.1-8B-Instruct
   kwargs:
     model_max_length: ${max_seq_len}
     trust_remote_code: true
