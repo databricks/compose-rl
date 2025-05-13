@@ -34,6 +34,8 @@ class UnifiedTokenizedDataset(IterableDataset):
         max_length (int): the maximum length of each sample
         dataset_type (str): type of dataset ('preference' or 'single_prompt')
         subset (str | None): the subset of the dataset to process
+        token (str | None): the huggingface token to use for the dataset
+        include_metadata (bool): whether to include metadata in the samples
     """
 
     def __init__(
@@ -43,16 +45,17 @@ class UnifiedTokenizedDataset(IterableDataset):
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
         dataset_type: Literal['preference', 'single_prompt',
-                              'verifiable_answers',
-                              'verifiable_answers_with_metadata'],
+                              'verifiable_answers'],
         subset: str | None = None,
         token: str | None = None,
+        include_metadata: bool = False,
     ):
         self.tokenizer = tokenizer
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         self.max_length = max_length
         self.dataset_type = dataset_type
         self.dataset_name = dataset_name.lower()
+        self.include_metadata = include_metadata
 
         log.info(f'Dataset name: {dataset_name}')
         if subset:
@@ -78,12 +81,6 @@ class UnifiedTokenizedDataset(IterableDataset):
                     yield result
             elif self.dataset_type == 'verifiable_answers':
                 result = self._process_verifiable_answer_sample(sample)
-                if result is not None:
-                    yield result
-            elif self.dataset_type == 'verifiable_answers_with_metadata':
-                result = self._process_verifiable_answer_with_metadata_sample(
-                    sample,
-                )
                 if result is not None:
                     yield result
             elif self.dataset_type == 'classifier':
@@ -214,28 +211,19 @@ class UnifiedTokenizedDataset(IterableDataset):
             )
             return None
 
-        return {
+        result = {
             'prompt': np.asarray(encoded_prompt).tobytes(),
             'verified_answer': verified_answer,
         }
+        if self.include_metadata:
+            metadata = sample.get('metadata', None)
+            if metadata is None:
+                log.warning(f'No metadata found for sample: {sample}')
+                return None
 
-    def _process_verifiable_answer_with_metadata_sample(self, sample: Any):
-        """Process a prompt sample with metadataand extract the answer.
+            result['metadata'] = metadata
 
-        Args:
-            sample (Any): a sample from the dataset
-
-        Returns:
-            dict: a dictionary containing the prompt, verified answer, and metadata
-        """
-        metadata = sample.get('metadata', None)
-        if metadata is None:
-            log.warning(f'No metadata found for sample: {sample}')
-            return None
-
-        sample = self._process_verifiable_answer_sample(sample)
-        sample['metadata'] = metadata
-        return sample
+        return result
 
     def _check_for_encoding(self, sample: str) -> bool:
         """Check if a sample is encodable by streaming.
@@ -267,12 +255,19 @@ def main(
     hashes: list[str],
     splits: list[str],
     tokenizer_name: str,
-    dataset_type: Literal['preference', 'single_prompt', 'verifiable_answers',
-                          'verifiable_answers_with_metadata'],
+    dataset_type: Literal['preference', 'single_prompt', 'verifiable_answers'],
     max_length: int = 2048,
     subset: str | None = None,
     token: str | None = None,
+    include_metadata: bool = False,
 ):
+    verifiable_answers_columns = {
+        'prompt': 'bytes',
+        'verified_answer': 'str',
+    }
+    if include_metadata:
+        verifiable_answers_columns['metadata'] = 'str'
+
     columns = {
         'preference': {
             'chosen': 'bytes',
@@ -281,15 +276,7 @@ def main(
         'single_prompt': {
             'prompt': 'bytes',
         },
-        'verifiable_answers': {
-            'prompt': 'bytes',
-            'verified_answer': 'str',
-        },
-        'verifiable_answers_with_metadata': {
-            'prompt': 'bytes',
-            'verified_answer': 'str',
-            'metadata': 'str',
-        },
+        'verifiable_answers': verifiable_answers_columns,
         'classifier': {
             'input': 'bytes',
             'label': 'bytes',
@@ -321,6 +308,7 @@ def main(
                 dataset_type=dataset_type,
                 subset=subset,
                 token=token,
+                include_metadata=include_metadata,
             )
 
             log.info('Converting to MDS format')
@@ -364,7 +352,6 @@ if __name__ == '__main__':
             'single_prompt',
             'classifier',
             'verifiable_answers',
-            'verifiable_answers_with_metadata',
         ],
         required=True,
         help='Type of dataset to process',
@@ -374,6 +361,11 @@ if __name__ == '__main__':
         type=int,
         default=2048,
         help='Maximum length of tokenized samples',
+    )
+    parser.add_argument(
+        '--include_metadata',
+        action='store_true',
+        help='Include metadata in the samples',
     )
 
     args = parser.parse_args()
@@ -390,4 +382,5 @@ if __name__ == '__main__':
         max_length=args.max_length,
         subset=args.subset,
         token=hf_token,
+        include_metadata=args.include_metadata,
     )
