@@ -297,19 +297,28 @@ class BaseVerifierReward(Reward):
         raw_untokenized_texts = batch['raw_untokenized_texts']
         verified_answers = batch['verified_answers']
         generated_lens = batch['generated_lens']
+        metadata = batch.get('metadata', None)
 
         batch_size = rewards.shape[0]
         all_generated_texts = [x[1] for x in raw_untokenized_texts]
         for i in range(batch_size):
             # Process based on verifier type
             if self.needs_extraction():
-                _answer = self.extract_solution(all_generated_texts[i])
-                _reward = self.score_generations(_answer, verified_answers[i])
+                _answer = self.extract_solution(
+                    all_generated_texts[i],
+                    metadata[i] if metadata is not None else None,
+                )
+                _reward = self.score_generations(
+                    _answer,
+                    verified_answers[i],
+                    metadata[i] if metadata is not None else None,
+                )
             else:
                 # Score directly without extraction
                 _reward = self.score_generations(
                     all_generated_texts[i],
                     verified_answers[i],
+                    metadata[i] if metadata is not None else None,
                 )
 
             rewards[i, generated_lens[i] - 1] += _reward
@@ -325,13 +334,14 @@ class BaseVerifierReward(Reward):
         """
         return True
 
-    def extract_solution(self, text: str) -> str:
+    def extract_solution(self, text: str, metadata: str | None = None) -> str:
         """Extract the solution from text.
 
         Default implementation raises error; override in child classes if needed.
 
         Args:
             text (str): The generated text.
+            metadata (str | None): The metadata associated with the sample. Defaults to `None`.
 
         Returns:
             str: The extracted solution.
@@ -341,12 +351,20 @@ class BaseVerifierReward(Reward):
         )
 
     @abstractmethod
-    def score_generations(self, answer: str, label: str) -> float:
+    def score_generations(
+        self,
+        answer: str,
+        label: str,
+        metadata: str | None = None,
+    ) -> float:
         """Score the generated answer against the label.
+
+        Default implementation raises error; override in child classes if needed.
 
         Args:
             answer (str): The extracted answer.
             label (str): The verified answer.
+            metadata (str | None): The metadata associated with the sample. Defaults to `None`.
 
         Returns:
             float: The reward score.
@@ -361,15 +379,10 @@ class GSM8KAnswerVeriferReward(BaseVerifierReward):
     def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
         super().__init__(tokenizer=tokenizer, reward=reward)
 
-    def extract_solution(self, text: str) -> str:
-        """Extract numerical solution from GSM8K-style responses.
+    def extract_solution(self, text: str, metadata: str | None = None) -> str:
+        """Extract numerical solution from GSM8K-style responses."""
+        del metadata  # unused
 
-        Args:
-            text (str): The generated text.
-
-        Returns:
-            str: The extracted numerical answer.
-        """
         numbers = re.findall(r'-?[\d,]*\.?\d+', text)
         final_answer = ''
         if len(numbers) > 0:
@@ -380,16 +393,15 @@ class GSM8KAnswerVeriferReward(BaseVerifierReward):
 
         return final_answer
 
-    def score_generations(self, answer: str, label: str) -> float:
-        """Score based on exact match.
+    def score_generations(
+        self,
+        answer: str,
+        label: str,
+        metadata: str | None = None,
+    ) -> float:
+        """Score based on exact match."""
+        del metadata  # unused
 
-        Args:
-            answer (str): The extracted answer.
-            label (str): The verified answer.
-
-        Returns:
-            float: self.reward for match, 0.0 otherwise.
-        """
         return self.reward if answer == label else 0.0
 
 
@@ -402,12 +414,15 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
         """Indicate that this verifier doesn't need extraction."""
         return False
 
-    def score_generations(self, answer: str, label: str) -> float:
-        """Check if the answer follows the expected format with '####' marker.
+    def score_generations(
+        self,
+        answer: str,
+        label: str,
+        metadata: str | None = None,
+    ) -> float:
+        """Check if answer follows the expected format with '####' marker."""
+        del label, metadata  # unused
 
-        Note: The label parameter is not used in this implementation but is required
-        by the interface.
-        """
         solution = re.search(r'####.*?([\d,]+(?:\.\d+)?)', answer)
         return self.reward if solution is not None else 0.0
 
@@ -417,15 +432,10 @@ class MATHVerifierReward(BaseVerifierReward):
     def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
         super().__init__(tokenizer=tokenizer, reward=reward)
 
-    def extract_solution(self, text: str) -> str:
-        """Extract numerical solution from GSM8K-style responses.
+    def extract_solution(self, text: str, metadata: str | None = None) -> str:
+        """Extract solution from MATH responses."""
+        del metadata  # unused
 
-        Args:
-            text (str): The generated text.
-
-        Returns:
-            str: The extracted numerical answer.
-        """
         last_boxed_string = last_boxed_only_string(text)
         if not last_boxed_string:
             # No boxed string found, so we can't evaluate
@@ -435,16 +445,15 @@ class MATHVerifierReward(BaseVerifierReward):
         final_answer = normalize_final_answer(unnormalized_answer)
         return final_answer
 
-    def score_generations(self, answer: str, label: str) -> float:
-        """Score based on exact match.
+    def score_generations(
+        self,
+        answer: str,
+        label: str,
+        metadata: str | None = None,
+    ) -> float:
+        """Score based on exact match."""
+        del metadata  # unused
 
-        Args:
-            answer (str): The extracted answer.
-            label (str): The verified answer.
-
-        Returns:
-            float: self.reward for match, 0.0 otherwise.
-        """
         if answer.strip() == label.strip() or is_equiv(answer, label):
             return self.reward
         return 0.0
