@@ -4,10 +4,10 @@
 import pathlib
 
 import catalogue
+from llmfoundry.utils import registry_utils
 
 from compose_rl import registry
 from compose_rl.reward_learning.functional import OutputLengthReward
-from llmfoundry.utils import registry_utils
 
 
 def test_expected_registries_exist():
