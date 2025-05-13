@@ -73,6 +73,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         additional_train_metrics: Optional[list] = None,
         additional_eval_metrics: Optional[list] = None,
         should_save_peft_only: bool = False,
+        **kwargs: dict[str, Any],
     ):
         super().__init__(
             pretrained_model_name_or_path,
@@ -94,6 +95,9 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             should_save_peft_only=should_save_peft_only,
         )
         self.model.config.pretrained = False  # type: ignore
+
+        # TODO: ignoring additional kwargs. Fix this logic after refactoring config overrides
+        self.kwargs = kwargs
 
     @classmethod
     def build_config(

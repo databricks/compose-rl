@@ -26,19 +26,7 @@ def reward() -> BadGenerationEndReward:
         'additional_special_tokens': ['<|im_end|>'],
     }
     tokenizer.add_special_tokens(special_tokens_dict)
-    return BadGenerationEndReward(config, tokenizer)
-
-
-def test_validate_config(reward: BadGenerationEndReward) -> None:
-    reward.validate_config()
-
-
-def test_validate_config_missing_fields() -> None:
-    with pytest.raises(AssertionError):
-        BadGenerationEndReward(
-            {},
-            AutoTokenizer.from_pretrained('EleutherAI/gpt-neox-20b'),
-        )
+    return BadGenerationEndReward(tokenizer=tokenizer, **config)
 
 
 @pytest.mark.parametrize(

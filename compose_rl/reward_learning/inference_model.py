@@ -4,7 +4,7 @@
 """Inference based reward model."""
 
 import logging
-from typing import Any, MutableMapping
+from typing import MutableMapping, Optional
 
 import backoff
 import requests
@@ -23,16 +23,20 @@ class InferenceRewardModel(RewardModel):
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
-
-        deployment_str: str = self.cfg.get('deployment', None)
-        assert deployment_str is not None, 'InferenceRewardModel requires a deployment identifier.'
-        self.deployment_name = get_remote_name(deployment_str)
+    def __init__(
+        self,
+        deployment: str,
+        tokenizer: Tokenizer,
+        max_retries: int = 5,
+        timeout: Optional[int] = None,
+        threshold: Optional[float] = None,
+    ):
+        super().__init__(tokenizer=tokenizer)
+        self.deployment_name = get_remote_name(deployment)
         log.info(f'Reward deployment name is: {self.deployment_name}')
-        self.max_retries = self.cfg.get('max_retries', 5)
-        self.timeout = self.cfg.get('timeout', None)
-        self.threshold = self.cfg.get('threshold')
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.threshold = threshold
 
         if self.max_retries < 0:
             raise ValueError(

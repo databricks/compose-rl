@@ -6,7 +6,7 @@
 import logging
 import re
 from abc import abstractmethod
-from typing import Any, MutableMapping
+from typing import MutableMapping, Optional
 
 import torch
 
@@ -22,12 +22,17 @@ from compose_rl.reward_learning.base_reward import Reward, Tokenizer
 
 
 class IncreasingNumbersReward(Reward):
+    """Reward based on the number of generated increasing numbers.
+
+    Args:
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
+    def __init__(self, tokenizer: Tokenizer):
+        super().__init__(tokenizer=tokenizer)
 
     @staticmethod
     def is_number(text: str):
@@ -88,15 +93,22 @@ class IncreasingNumbersReward(Reward):
 
 
 class ShortResponseReward(Reward):
+    """Reward based on the length of the generated response.
+
+    Args:
+        reward (float): The reward to apply.
+        len_threshold (int): The length threshold to apply the reward.
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
+    def __init__(self, reward: float, len_threshold: int, tokenizer: Tokenizer):
+        super().__init__(tokenizer=tokenizer)
+        self.reward = reward
+        self.len_threshold = len_threshold
 
-        self.reward = cfg['reward']
-        self.len_threshold = cfg['len_threshold']
         log.info(
             f'Adding a reward of {self.reward} if a model generates ' +
             f'tokens under the length {self.len_threshold}',
@@ -128,23 +140,33 @@ class ShortResponseReward(Reward):
 
 
 class BadGenerationEndReward(Reward):
+    """Reward based on the end of the generated response.
+
+    Args:
+        reward (float): The reward to apply.
+        eos_penalty (float): The penalty to apply if the response does not end with an EOS.
+        extra_special_tokens (Optional[list[str]]): The extra special tokens to check for.
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
-
-        self.reward = cfg.get('reward', None)
-        self.eos_penalty = cfg.get('eos_penalty', None)
-
-        assert self.reward is not None, 'reward must be provided in the config'
-        assert self.eos_penalty is not None, 'eos_penalty must be provided in the config'
+    def __init__(
+        self,
+        reward: float,
+        eos_penalty: float,
+        extra_special_tokens: Optional[list[str]],
+        tokenizer: Tokenizer,
+    ):
+        super().__init__(tokenizer=tokenizer)
+        self.reward = reward
+        self.eos_penalty = eos_penalty
 
         # Extra special tokens for any other formats with pseudo EOS alternatives like ChatML
         self.extra_special_tokens = [
-            str(tok) for tok in cfg.get('extra_special_tokens', [])
-        ]
+            str(tok) for tok in extra_special_tokens
+        ] if extra_special_tokens is not None else []
         self.extra_special_token_ids = []
         if self.extra_special_tokens != []:
             self.extra_special_token_ids.extend([
@@ -162,16 +184,6 @@ class BadGenerationEndReward(Reward):
             f'Subtracting a reward of {self.reward} if a model does not' +
             f'end with an EOS or given set of special tokens',
         )
-
-    def validate_config(self):
-        if 'eos_penalty' not in self.cfg:
-            raise KeyError(
-                f'Required field eos_penalty is missing from BadGenerationEndReward config',
-            )
-        if 'reward' not in self.cfg:
-            raise KeyError(
-                f'Required field reward is missing from BadGenerationEndReward config',
-            )
 
     def __call__(
         self,
@@ -204,20 +216,19 @@ class BadGenerationEndReward(Reward):
 
 
 class OutputLengthReward(Reward):
+    """Reward based on the length of the generated response.
+
+    Args:
+        max_gen_len (int): The maximum length of the generated response.
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
-        self.max_gen_len = self.cfg.get('max_gen_len', None)
-        assert self.max_gen_len is not None, 'max_gen_len must be provided in the config'
-
-    def validate_config(self):
-        if 'max_gen_len' not in self.cfg:
-            raise KeyError(
-                f'Required field max_gen_len is missing from OutputLengthReward config',
-            )
+    def __init__(self, max_gen_len: int, tokenizer: Tokenizer):
+        super().__init__(tokenizer=tokenizer)
+        self.max_gen_len = max_gen_len
 
     def __call__(
         self,
@@ -245,12 +256,20 @@ class OutputLengthReward(Reward):
 
 
 class BaseVerifierReward(Reward):
+    """Base class for verifier rewards.
+
+    Args:
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+        reward (float): The reward to apply. Default is 1.0.
+    """
+
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
-        self.reward = cfg.get('reward', 1.0)
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer)
+        self.reward = reward
+
         log.info(
             f'Using reward value of {self.reward} for {self.__class__.__name__} verifier',
         )
@@ -357,8 +376,8 @@ class BaseVerifierReward(Reward):
 
 class GSM8KAnswerVeriferReward(BaseVerifierReward):
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
 
     def extract_solution(self, text: str, metadata: str | None = None) -> str:
         """Extract numerical solution from GSM8K-style responses."""
@@ -388,8 +407,8 @@ class GSM8KAnswerVeriferReward(BaseVerifierReward):
 
 class GSM8KFormatVeriferReward(BaseVerifierReward):
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
 
     def needs_extraction(self) -> bool:
         """Indicate that this verifier doesn't need extraction."""
@@ -410,8 +429,8 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
 
 class MATHVerifierReward(BaseVerifierReward):
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
 
     def extract_solution(self, text: str, metadata: str | None = None) -> str:
         """Extract solution from MATH responses."""
