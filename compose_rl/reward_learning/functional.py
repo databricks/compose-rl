@@ -6,7 +6,7 @@
 import logging
 import re
 from abc import abstractmethod
-from typing import MutableMapping, Optional
+from typing import MutableMapping
 
 import torch
 
@@ -156,8 +156,8 @@ class BadGenerationEndReward(Reward):
         self,
         reward: float,
         eos_penalty: float,
-        extra_special_tokens: Optional[list[str]],
         tokenizer: Tokenizer,
+        extra_special_tokens: list[str] | None = None,
     ):
         super().__init__(tokenizer=tokenizer)
         self.reward = reward
