@@ -432,8 +432,7 @@ class MATHVerifierReward(BaseVerifierReward):
             return ''
 
         unnormalized_answer = remove_boxed(last_boxed_string)
-        final_answer = normalize_final_answer(unnormalized_answer)
-        return final_answer
+        return normalize_final_answer(unnormalized_answer)
 
     def score_generations(self, answer: str, label: str) -> float:
         """Score based on exact match.

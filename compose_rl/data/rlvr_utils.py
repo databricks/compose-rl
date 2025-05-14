@@ -207,7 +207,9 @@ def extract_math_answer(sample: Any) -> str | None:
     last_boxed_string = last_boxed_only_string(sample['solution'])
     if not last_boxed_string:  # No boxed string found
         return None
-    return remove_boxed(last_boxed_string)
+
+    unnormalized_answer = remove_boxed(last_boxed_string)
+    return normalize_final_answer(unnormalized_answer)
 
 
 def prepare_math_prompt(sample: Any) -> str:
