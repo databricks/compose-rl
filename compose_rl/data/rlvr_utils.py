@@ -185,6 +185,12 @@ def normalize_final_answer(final_answer: str) -> str:
     final_answer = re.sub(r'(\\overline\{)(.*?)(\})', '\\2', final_answer)
     final_answer = re.sub(r'(\\boxed\{)(.*)(\})', '\\2', final_answer)
 
+    # Additional normalization for dfrac and tfrac
+    if '\\dfrac' in final_answer:
+        final_answer = final_answer.replace('\\dfrac', '\\frac')
+    if '\\tfrac' in final_answer:
+        final_answer = final_answer.replace('\\tfrac', '\\frac')
+
     # Normalize shorthand TeX:
     #  \fracab -> \frac{a}{b}
     #  \frac{abc}{bef} -> \frac{abc}{bef}
