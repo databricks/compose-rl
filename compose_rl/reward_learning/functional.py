@@ -145,8 +145,9 @@ class BadGenerationEndReward(Reward):
     Args:
         reward (float): The reward to apply.
         eos_penalty (bool): The penalty to apply if the response does not end with an EOS.
-        extra_special_tokens (Optional[list[str]]): The extra special tokens to check for.
         tokenizer (Tokenizer): The tokenizer to use for the reward.
+        extra_special_tokens (list[str] | None): The extra special tokens to check for.
+            Defaults to `None`.
     """
 
     # This can be run async
