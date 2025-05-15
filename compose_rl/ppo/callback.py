@@ -428,7 +428,7 @@ class PPOCallback(CallbackWithConfig):
         self.wandb_logger = None
         self.mlflow_logger = None
         self.prompts_and_gens = []
-        self.prompt_ids_and_rewards = []
+        self.prompt_ids_rewards_and_answers = []
         self.iter_num = 0
         self.train_prompt_loader_state_dict = None
         self.train_prompt_loader = None
@@ -832,10 +832,10 @@ class PPOCallback(CallbackWithConfig):
         )
         env_outs.update(rew_outs)
 
-        # Keep track of prompt ids and rewards
+        # Keep track of prompt ids, rewards and verified answers for logging
         prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
         rewards = env_outs['rewards'].sum(dim=-1).detach().cpu().tolist()
-        self.prompt_ids_and_rewards.extend(list(zip(prompt_ids, rewards)))
+        self.prompt_ids_rewards_and_answers.extend(list(zip(prompt_ids, rewards, iter_batch['verified_answer'])))
 
         # Adding the right_padded_attn_mask to the env_outputs
         env_outs['right_padded_attn_mask'] = torch.logical_not(
@@ -958,14 +958,14 @@ class PPOCallback(CallbackWithConfig):
         prompts_and_gens = list(
             chain(*dist.all_gather_object(self.prompts_and_gens)),
         )
-        prompt_ids_and_rewards = list(
-            chain(*dist.all_gather_object(self.prompt_ids_and_rewards)),
+        prompt_ids_rewards_and_answers = list(
+            chain(*dist.all_gather_object(self.prompt_ids_rewards_and_answers)),
         )
-        # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation)
-        columns = ['prompt_id', 'reward', 'prompt', 'generation']
-        save_data = [[prompt_id, reward, prompt, generation]
-                     for (prompt_id, reward), (prompt, generation) in zip(
-                         prompt_ids_and_rewards,
+        # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation, verified_answer)
+        columns = ['prompt_id', 'reward', 'prompt', 'generation', 'verified_answer']
+        save_data = [[prompt_id, reward, prompt, generation, verified_answer]
+                     for (prompt_id, reward, verified_answer), (prompt, generation) in zip(
+                         prompt_ids_rewards_and_answers,
                          prompts_and_gens,
                      )]
         # Sort the save_data by reward in descending order
@@ -998,7 +998,7 @@ class PPOCallback(CallbackWithConfig):
                 )
 
         self.prompts_and_gens = []
-        self.prompt_ids_and_rewards = []
+        self.prompt_ids_rewards_and_answers = []
 
     def _update_ift_kl(self):
         local_kl = torch.stack(self.kl_ift)
