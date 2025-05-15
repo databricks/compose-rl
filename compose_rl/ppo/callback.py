@@ -835,7 +835,9 @@ class PPOCallback(CallbackWithConfig):
         # Keep track of prompt ids, rewards and verified answers for logging
         prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
         rewards = env_outs['rewards'].sum(dim=-1).detach().cpu().tolist()
-        self.prompt_ids_rewards_and_answers.extend(list(zip(prompt_ids, rewards, iter_batch['verified_answer'])))
+        self.prompt_ids_rewards_and_answers.extend(
+            list(zip(prompt_ids, rewards, iter_batch['verified_answer'])),
+        )
 
         # Adding the right_padded_attn_mask to the env_outputs
         env_outs['right_padded_attn_mask'] = torch.logical_not(
@@ -962,12 +964,19 @@ class PPOCallback(CallbackWithConfig):
             chain(*dist.all_gather_object(self.prompt_ids_rewards_and_answers)),
         )
         # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation, verified_answer)
-        columns = ['prompt_id', 'reward', 'prompt', 'generation', 'verified_answer']
+        columns = [
+            'prompt_id',
+            'reward',
+            'prompt',
+            'generation',
+            'verified_answer',
+        ]
         save_data = [[prompt_id, reward, prompt, generation, verified_answer]
-                     for (prompt_id, reward, verified_answer), (prompt, generation) in zip(
-                         prompt_ids_rewards_and_answers,
-                         prompts_and_gens,
-                     )]
+                     for (prompt_id, reward,
+                          verified_answer), (prompt, generation) in zip(
+                              prompt_ids_rewards_and_answers,
+                              prompts_and_gens,
+                          )]
         # Sort the save_data by reward in descending order
         save_data = sorted(save_data, key=lambda x: x[1], reverse=True)
 
