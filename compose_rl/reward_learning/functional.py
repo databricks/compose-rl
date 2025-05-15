@@ -144,7 +144,7 @@ class BadGenerationEndReward(Reward):
 
     Args:
         reward (float): The reward to apply.
-        eos_penalty (float): The penalty to apply if the response does not end with an EOS.
+        eos_penalty (bool): The penalty to apply if the response does not end with an EOS.
         extra_special_tokens (Optional[list[str]]): The extra special tokens to check for.
         tokenizer (Tokenizer): The tokenizer to use for the reward.
     """
@@ -155,7 +155,7 @@ class BadGenerationEndReward(Reward):
     def __init__(
         self,
         reward: float,
-        eos_penalty: float,
+        eos_penalty: bool,
         tokenizer: Tokenizer,
         extra_special_tokens: list[str] | None = None,
     ):
