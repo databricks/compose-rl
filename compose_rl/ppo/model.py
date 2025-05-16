@@ -135,14 +135,13 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         loss_type: str = 'ppo',
         **kwargs: Any,
     ):
-
-        self.running_stats = collections.defaultdict(lambda: [])
-
         super().__init__(
             tokenizer=tokenizer,
             config_overrides=config_overrides,
             **kwargs,
         )
+
+        self.running_stats = collections.defaultdict(lambda: [])
 
         self.tokenizer = tokenizer
         self.policy_kl = []

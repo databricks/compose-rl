@@ -147,3 +147,6 @@ notebooks/
 **/*.pt
 **/mlruns/*
 **/tokenizer-save-dir-*/**
+
+# testing assets
+**/tests/assets/*
