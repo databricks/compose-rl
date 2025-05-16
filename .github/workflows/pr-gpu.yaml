@@ -46,7 +46,7 @@ jobs:
         ci_repo_gpu_test_ref: ${{ matrix.ci_repo_gpu_test_ref }}
   pytest-gpu-2:
     name: ${{ matrix.name }}
-    if: github.repository_owner == 'mosaicml'
+    if: github.repository_owner == 'databricks'
     runs-on: linux-ubuntu-latest
     strategy:
       fail-fast: false
