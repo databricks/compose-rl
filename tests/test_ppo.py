@@ -79,7 +79,7 @@ def test_model_forward(
 
 
 @pytest.mark.skip(
-    reason='TODO: reenable. temporarily skipping to turn GPU CI back on.'
+    reason='TODO: reenable. temporarily skipping to turn GPU CI back on.',
 )
 @pytest.mark.gpu
 @world_size(2)

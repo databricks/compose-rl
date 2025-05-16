@@ -144,7 +144,7 @@ def test_train(
 
 
 @pytest.mark.skip(
-    reason='TODO: reenable. temporarily skipping to turn GPU CI back on.'
+    reason='TODO: reenable. temporarily skipping to turn GPU CI back on.',
 )
 @pytest.mark.gpu
 @world_size(2)

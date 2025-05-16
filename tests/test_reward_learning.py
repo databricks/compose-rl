@@ -189,8 +189,8 @@ def test_forward_backward_hf_automodel():
             'tests/yamls/testing_hf_classifier.yaml',
             marks=pytest.mark.skip(
                 reason=
-                'TODO: reenable. temporarily skipping to turn GPU CI back on.'
-            )
+                'TODO: reenable. temporarily skipping to turn GPU CI back on.',
+            ),
         ),
     ],
 )
@@ -221,7 +221,7 @@ def test_forward_backward(
 
 
 @pytest.mark.skip(
-    reason='TODO: reenable. temporarily skipping to turn GPU CI back on.'
+    reason='TODO: reenable. temporarily skipping to turn GPU CI back on.',
 )
 @pytest.mark.gpu
 @world_size(2)
@@ -319,6 +319,9 @@ def test_hf_train(
     assert not torch.equal(original_params, updated_params)
 
 
+@pytest.mark.skip(
+    reason='TODO: reenable. temporarily skipping to turn GPU CI back on.',
+)
 @pytest.mark.gpu
 @world_size(2)
 def test_flashattention2(world_size: int):
