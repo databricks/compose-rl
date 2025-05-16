@@ -41,10 +41,13 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
 
     def __init__(
         self,
+        *,
+        allow_embedding_resizing: bool = True,
         **kwargs: Any,
     ):
         super().__init__(
             shift_labels=True,
+            allow_embedding_resizing=allow_embedding_resizing,
             **kwargs,
         )
         self.model.config.pretrained = False  # type: ignore
