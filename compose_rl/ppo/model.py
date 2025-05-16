@@ -132,6 +132,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         *,
         tokenizer: Tokenizer,
         config_overrides: Optional[dict[str, Any]] = None,
+        loss_type: str = 'ppo',
         **kwargs: Any,
     ):
 
@@ -154,7 +155,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
             self.compute_kl_loss = config_overrides.get('compute_kl_loss')
             self.target_kl = config_overrides.get('target_kl')
 
-        self.loss_type = kwargs.get('loss_type', 'ppo')
+        self.loss_type = loss_type
 
         # Validating the input types
         assert isinstance(self.compute_kl_loss, bool)
