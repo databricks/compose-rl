@@ -9,7 +9,10 @@ from typing import Any
 import numpy as np
 import torch
 from streaming import StreamingDataset
-from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
+from transformers import (
+    DataCollatorForLanguageModeling,
+    PreTrainedTokenizerBase,
+)
 
 import compose_rl.utils as utils
 
@@ -17,7 +20,7 @@ log = logging.getLogger(__name__)
 
 
 def prompt_dataset_collate_fn(
-    tokenizer: PreTrainedTokenizer,
+    tokenizer: PreTrainedTokenizerBase,
     max_seq_len: int,
     batch: list[dict[str, Any]],
 ) -> dict[str, torch.Tensor]:
