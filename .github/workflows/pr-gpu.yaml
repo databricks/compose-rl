@@ -1,0 +1,74 @@
+name: PR GPU tests
+on:
+  push:
+    branches:
+    - main
+    - release/*
+  pull_request_target:
+    branches:
+    - main
+    - release/**
+  workflow_dispatch:
+# Cancel old runs when a new commit is pushed to the same branch if not on main or dev
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  pytest-gpu-1:
+    name: ${{ matrix.name }}
+    if: github.repository_owner == 'databricks'
+    runs-on: linux-ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - name: "gpu-2.6.0-1"
+          container: mosaicml/llm-foundry:2.6.0_cu124-latest
+          markers: "gpu"
+          pip_deps: "[gpu]"
+          pytest_command: "coverage run -m pytest"
+          ci_repo_gpu_test_ref: v0.3.4
+    steps:
+    - name: Run PR GPU Tests
+      uses: mosaicml/ci-testing/.github/actions/pytest-gpu@v0.3.4
+      with:
+        container: ${{ matrix.container }}
+        git_repo: databricks/Compose-RL
+        mcloud_timeout: 1800
+        name: ${{ matrix.name }}
+        pip_deps: ${{ matrix.pip_deps }}
+        pytest_command: ${{ matrix.pytest_command }}
+        pytest_markers: ${{ matrix.markers }}
+        python_version: "3.12"
+        gpu_num: 1
+        mcloud_api_key: ${{ secrets.MCLOUD_API_KEY }}
+        ci_repo_gpu_test_ref: ${{ matrix.ci_repo_gpu_test_ref }}
+  pytest-gpu-2:
+    name: ${{ matrix.name }}
+    if: github.repository_owner == 'databricks'
+    runs-on: linux-ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - name: "gpu-2.6.0-2"
+          container: mosaicml/llm-foundry:2.6.0_cu124-latest
+          markers: "gpu"
+          pip_deps: "[gpu]"
+          pytest_command: "coverage run -m pytest"
+          ci_repo_gpu_test_ref: v0.3.4
+    steps:
+    - name: Run PR GPU Tests
+      uses: mosaicml/ci-testing/.github/actions/pytest-gpu@v0.3.4
+      with:
+        container: ${{ matrix.container }}
+        git_repo: databricks/Compose-RL
+        mcloud_timeout: 1800
+        name: ${{ matrix.name }}
+        pip_deps: ${{ matrix.pip_deps }}
+        pytest_command: ${{ matrix.pytest_command }}
+        pytest_markers: ${{ matrix.markers }}
+        python_version: "3.12"
+        gpu_num: 2
+        mcloud_api_key: ${{ secrets.MCLOUD_API_KEY }}
+        ci_repo_gpu_test_ref: ${{ matrix.ci_repo_gpu_test_ref }}
