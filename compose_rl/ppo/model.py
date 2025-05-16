@@ -129,21 +129,16 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
 
     def __init__(
         self,
+        *,
         tokenizer: Tokenizer,
-        pretrained_model_name_or_path: str,
-        additional_train_metrics: Optional[list] = None,
-        additional_eval_metrics: Optional[list] = None,
         config_overrides: Optional[dict[str, Any]] = None,
-        **kwargs: dict[str, Any],
+        **kwargs: Any,
     ):
 
         self.running_stats = collections.defaultdict(lambda: [])
 
         super().__init__(
-            pretrained_model_name_or_path=pretrained_model_name_or_path,
             tokenizer=tokenizer,
-            additional_train_metrics=additional_train_metrics,
-            additional_eval_metrics=additional_eval_metrics,
             config_overrides=config_overrides,
             **kwargs,
         )

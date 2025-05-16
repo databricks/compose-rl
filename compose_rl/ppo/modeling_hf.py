@@ -23,7 +23,7 @@ from compose_rl.ppo.hf_utils import AutoModelForCausalLMAsPolicy
 from compose_rl.ppo.policy_configuration import HFPolicyConfig
 
 if TYPE_CHECKING:
-    from peft import PeftConfig, PeftModel
+    from peft import PeftModel
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
@@ -31,23 +31,7 @@ Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 class ComposerHFPolicy(BaseHuggingFaceModel):
     """Configures a :class:`.ComposerMosaicPolicy` as a Policy for PPO.
 
-    Args:
-        tokenizer (Tokenizer): The tokenizer to use.
-        pretrained_model_name_or_path (str): The pretrained model to use.
-        pretrained (bool): Whether to use a pretrained model. Default: ``True``.
-        pretrained_lora_id_or_path (str): The pretrained LoRA model to use. Default: ``None``.
-        trust_remote_code (bool): Whether to trust remote code. Default: ``True``.
-        use_auth_token (bool): Whether to use an auth token. Default: ``False``.
-        use_flash_attention_2 (bool): Whether to use Flash Attention 2. Default: ``False``.
-        load_in_8bit (bool): Whether to load the model in 8-bit mode. Default: ``False``.
-        init_device (str): The device to initialize the model on. Default: ``'cpu'``.
-        config_overrides (dict[str, Any]): Additional configuration overrides. Default: ``None``.
-        peft_config (PeftConfig): The PEFT configuration. Default: ``None``.
-        use_train_metrics (bool): Whether to use training metrics. Default: ``True``.
-        allow_embedding_resizing (bool): Whether to allow embedding resizing. Default: ``True``.
-        additional_train_metrics (list): Additional training metrics. Default: ``None``.
-        additional_eval_metrics (list): Additional evaluation metrics. Default: ``None``.
-        should_save_peft_only (bool): Whether to save only the PEFT model. Default: ``False``.
+    See base class for argument documentation.
     """
     model_cls: Union[
         type[_BaseAutoModelClass],
@@ -57,47 +41,13 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
 
     def __init__(
         self,
-        tokenizer: Tokenizer,
-        pretrained_model_name_or_path: str,
-        pretrained: bool = True,
-        pretrained_lora_id_or_path: Optional[str] = None,
-        trust_remote_code: bool = True,
-        use_auth_token: bool = False,
-        use_flash_attention_2: bool = False,
-        load_in_8bit: bool = False,
-        init_device: str = 'cpu',
-        config_overrides: Optional[dict[str, Any]] = None,
-        peft_config: Optional['PeftConfig'] = None,
-        use_train_metrics: bool = True,
-        allow_embedding_resizing: bool = True,
-        additional_train_metrics: Optional[list] = None,
-        additional_eval_metrics: Optional[list] = None,
-        should_save_peft_only: bool = False,
-        **kwargs: dict[str, Any],
+        **kwargs: Any,
     ):
         super().__init__(
-            pretrained_model_name_or_path,
-            tokenizer=tokenizer,
-            pretrained=pretrained,
-            pretrained_lora_id_or_path=pretrained_lora_id_or_path,
-            trust_remote_code=trust_remote_code,
-            use_auth_token=use_auth_token,
-            use_flash_attention_2=use_flash_attention_2,
-            load_in_8bit=load_in_8bit,
-            init_device=init_device,
-            config_overrides=config_overrides,
             shift_labels=True,
-            peft_config=peft_config, # type: ignore
-            allow_embedding_resizing=allow_embedding_resizing,
-            use_train_metrics=use_train_metrics,
-            additional_train_metrics=additional_train_metrics,
-            additional_eval_metrics=additional_eval_metrics,
-            should_save_peft_only=should_save_peft_only,
+            **kwargs,
         )
         self.model.config.pretrained = False  # type: ignore
-
-        # TODO: ignoring additional kwargs. Fix this logic after refactoring config overrides
-        self.kwargs = kwargs
 
     @classmethod
     def build_config(
