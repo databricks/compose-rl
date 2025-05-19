@@ -29,6 +29,13 @@ def pairwise_preference_dataset_collate_fn(
         max_seq_len (int): The maximum sequence length of the model.
         data (list[dict[str, torch.Tensor]]): The preference data to collate.
     """
+    if max_seq_len % 2 != 0:
+        raise (
+            ValueError(
+                f'max_seq_len must be even for splitting evenly between chosen and rejected sequences. Found {max_seq_len=}',
+            )
+        )
+
     if tokenizer.eos_token_id is None:
         raise ValueError('Tokenizer must have an EOS token.')
     if tokenizer.pad_token_id is None:
@@ -45,13 +52,14 @@ def pairwise_preference_dataset_collate_fn(
     chosen_lens = []
     rejected_lens = []
     prompt_lens = []
-    sequence_ids = []
+    sequence_id = []
     chosen_rewards = []
     rejected_rewards = []
 
     for sample in data:
         chosen = sample['chosen']
         rejected = sample['rejected']
+        prompt_len = sample['prompt_len']
         chosen_len = sample['chosen_len']
         rejected_len = sample['rejected_len']
 
@@ -60,62 +68,68 @@ def pairwise_preference_dataset_collate_fn(
 
         # Add the eos token if it's not in the chosen sample
         if chosen[-1] != tokenizer.eos_token_id:
-            chosen[-1] = tokenizer.eos_token_id
+            chosen[-1] = tokenizer.eos_token_id  # type: ignore
         if rejected[-1] != tokenizer.eos_token_id:
-            rejected[-1] = tokenizer.eos_token_id
+            rejected[-1] = tokenizer.eos_token_id  # type: ignore
 
-        pad_len = max_seq_len * 2 - chosen_len - rejected_len
+        pad_len = max_seq_len - chosen_len - rejected_len
         cat_batch = torch.cat([chosen, rejected], dim=-1)
 
         if pad_len < 0:
             # We should truncate chosen and rejected by the same amount
             truncate_len = abs(pad_len // 2) + 1
 
+            log.warning((
+                f'Chosen length: {len(chosen)} Rejected length: {len(rejected)}'
+                f' are too long for max_seq_len: {max_seq_len}'
+                f' truncating each sequence by {truncate_len[0]} tokens.'
+            ))
+
             # Truncate each value by truncate length, and make the last token EOS
             chosen = chosen[:-truncate_len]
-            chosen[-1] = tokenizer.eos_token_id
+            chosen[-1] = tokenizer.eos_token_id  # type: ignore
 
             rejected = rejected[:-truncate_len]
-            rejected[-1] = tokenizer.eos_token_id
+            rejected[-1] = tokenizer.eos_token_id  # type: ignore
 
             cat_batch = torch.cat([chosen, rejected], dim=-1)
 
             chosen_len = torch.tensor([len(chosen)])
             rejected_len = torch.tensor([len(rejected)])
 
-            pad_len = max_seq_len * 2 - chosen_len - rejected_len
+            pad_len = max_seq_len - chosen_len - rejected_len
 
         if pad_len > 0:
             cat_batch = torch.cat(
                 [
                     cat_batch,
                     torch.ones(int(pad_len.item()), dtype=cat_batch.dtype) *
-                    tokenizer.pad_token_id,
+                    tokenizer.pad_token_id,  # type: ignore
                 ],
-                dim=-1,
+                dim=-1,  # type: ignore
             )
 
         attention_mask = torch.logical_not(
-            torch.eq(cat_batch, tokenizer.pad_token_id),
+            torch.eq(cat_batch, tokenizer.pad_token_id),  # type: ignore
         )
 
-        cur_sequence_ids = torch.tensor(([0] * chosen_len) +
-                                        ([1] * rejected_len) +
-                                        ([-1] * max(0, int(pad_len.item()))),)
-        sequence_ids.append(cur_sequence_ids)
+        cur_sequence_id = torch.tensor(([0] * chosen_len) +
+                                       ([1] * rejected_len) +
+                                       ([-1] * max(0, int(pad_len.item()))),)
+        sequence_id.append(cur_sequence_id)
 
         input_ids.append(cat_batch)
         attention_masks.append(attention_mask)
         chosen_lens.append(chosen_len)
         rejected_lens.append(rejected_len)
-        prompt_lens.append(sample['prompt_len'])
+        prompt_lens.append(prompt_len)
         if 'chosen_reward' in sample:
             chosen_rewards.append(sample['chosen_reward'])
             rejected_rewards.append(sample['rejected_reward'])
 
     input_ids = ref_collate_fn(input_ids)['input_ids']
     attention_masks = torch.stack(attention_masks)
-    sequence_ids = torch.stack(sequence_ids)
+    sequence_id = torch.stack(sequence_id)
 
     chosen_lens = torch.cat(chosen_lens)
     rejected_lens = torch.cat(rejected_lens)
@@ -125,8 +139,8 @@ def pairwise_preference_dataset_collate_fn(
         'rejected_len': rejected_lens,
         'prompt_len': prompt_lens,
         'input_ids': input_ids,
-        'text_attention_mask': attention_masks,
-        'sequence_ids': sequence_ids,
+        'attention_mask': attention_masks,
+        'sequence_id': sequence_id,
     }
     if len(chosen_rewards) > 0:
         chosen_rewards = torch.stack(chosen_rewards)
@@ -180,8 +194,8 @@ def finegrained_preference_dataset_collate_fn(
             continue
 
         batch[key] = ref_collate_fn(cur_values)['input_ids']
-    batch['text_attention_mask'] = torch.logical_not(
-        torch.eq(batch['text'], tokenizer.pad_token_id),
+    batch['attention_mask'] = torch.logical_not(
+        torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
     )
 
     return batch
@@ -228,7 +242,13 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
         chosen = self._read_binary_tokenized_sample(sample, 'chosen')
         rejected = self._read_binary_tokenized_sample(sample, 'rejected')
 
-        prompt_len = self.find_prompt_length(chosen, rejected)
+        if 'prompt' in sample:
+            prompt = self._read_binary_tokenized_sample(sample, 'prompt')
+            prompt_len = len(prompt)
+        else:
+            # Only use prefix matching version of prompt_len when
+            # 'prompt' is not directly given in the sample
+            prompt_len = self.find_prompt_length(chosen, rejected)
         chosen_len, rejected_len = len(chosen), len(rejected)
         return_dict = {
             'chosen': chosen,

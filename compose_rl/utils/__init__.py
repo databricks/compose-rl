@@ -9,12 +9,14 @@ from compose_rl.utils.utils import (
     compute_advantages,
     dist_compute_masked_mean_and_var,
     extract_packed_chosen_rejected,
+    flatten,
     flip_pad_token_usage_for_generate,
     flip_pad_token_usage_in_ffn,
     format_reward_input,
     get_batch_logp,
     get_batched_generated_values,
     get_decoded_sequence,
+    get_entropies,
     get_log_probs,
     get_log_probs_from_logits,
     get_mb_load_balancing_loss,
@@ -36,12 +38,18 @@ from compose_rl.utils.utils import (
     split_text_to_subsentences,
     switch_left_to_right_padding,
 )
+from compose_rl.utils.vllm_utils import (
+    broadcast_to_vllm,
+    create_vllm_engines,
+    init_process_group,
+)
 
 __all__ = [
     'get_mb_load_balancing_loss',
     'clear_mb_load_balancing_loss',
     'approx_kl',
     'get_log_probs',
+    'get_entropies',
     'switch_left_to_right_padding',
     'remove_left_padding',
     'add_right_padding',
@@ -71,4 +79,8 @@ __all__ = [
     'make_padded_tensor',
     'get_batch_logp',
     'make_action_mask',
+    'create_vllm_engines',
+    'init_process_group',
+    'broadcast_to_vllm',
+    'flatten',
 ]

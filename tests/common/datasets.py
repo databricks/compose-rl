@@ -72,3 +72,20 @@ class PromptDataset(Dataset):
             'prompt': torch.ones((self.prompt_len,)).int(),
             'prompt_len': torch.Tensor([self.prompt_len]).to(torch.int64),
         }
+
+
+class VerifiablePromptDataset(Dataset):
+
+    def __init__(self, size: int = 8, prompt_len: int = 5):
+        self.size = size
+        self.prompt_len = prompt_len
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, index: int):
+        return {
+            'prompt': torch.ones((self.prompt_len,)).int(),
+            'prompt_len': torch.Tensor([self.prompt_len]).to(torch.int64),
+            'verified_answer': '1',
+        }

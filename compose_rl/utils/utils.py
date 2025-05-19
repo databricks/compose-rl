@@ -4,7 +4,8 @@
 import logging
 import re
 import warnings
-from typing import Optional, Union
+from collections.abc import Generator, Iterable
+from typing import Any, Optional, Union
 
 import spacy
 import spacy_alignments as tokenizations
@@ -53,7 +54,7 @@ def get_mb_load_balancing_loss(
         'mb_dmoe',
     ) and transformer.training:
         assert batched_load_balancing_loss is not None
-        return batched_load_balancing_loss(transformer.mb_args)
+        return batched_load_balancing_loss(transformer.mb_args)  # type: ignore
     return None
 
 
@@ -69,22 +70,46 @@ def clear_mb_load_balancing_loss(
         clear_load_balancing_loss()
 
 
-def approx_kl(log_p: torch.Tensor, log_q: torch.Tensor) -> torch.Tensor:
+def approx_kl(
+    log_p: torch.Tensor,
+    log_q: torch.Tensor,
+    kl_clip_range: Optional[float] = 40.0,
+) -> dict[str, torch.Tensor]:
     """Approximates the KL divergence between two distributions P, Q.
 
     Approximates the KL Divergence between P, Q given the log probabilities,
-    log_p and log_q. Taken from: http://joschu.net/blog/kl-approx.html.
-
-    The estimator is unbiased and lower variance than if we were to apporximate
-    it by just `-ratio.`
+    log_p and log_q.
 
     Args:
         log_p (torch.Tensor): log probabilities for the distribution p.
         log_q (torch.Tensor): log probabilities for the distribution q.
+        kl_clip_range (float): The clip range for diff of logprobs.
+
+    Returns:
+        kl_dict (dict[str, torch.Tensor]): a dictionary of the different KL divergence estimators.
+            The keys are 'k1', 'k2', 'k3', and 'k3_offpolicy'.
     """
     ratio = log_p - log_q
-    approx_kl = (ratio.exp() - 1) - ratio
-    return approx_kl
+    if kl_clip_range is not None:
+        ratio = ratio.clamp(min=-kl_clip_range, max=kl_clip_range)
+
+    approx_kl_k1 = -ratio
+    # The k2_loss is approximately equivalent to the one-step KL divergence penalty with the k1 estimator
+    # used in https://arxiv.org/pdf/2310.10505.
+    approx_kl_k2 = 0.5 * (ratio**2)
+    # The k3 estimator is the non negative kl approximation in http://joschu.net/blog/kl-approx.html
+    approx_kl_k3 = torch.expm1(ratio) - ratio
+    # This is taken from https://hongyuzang.notion.site/The-critical-implementation-detail-of-KL-loss-in-GRPO-1ae3fe2c1ff9809a9307c5402e190373
+    # This is specifically for off-policy learning and can be useful for async training.
+    approx_kl_k3_offpolicy = 1.0 - torch.exp(ratio)
+
+    kl_dict = {
+        'k1': approx_kl_k1,
+        'k2': approx_kl_k2,
+        'k3': approx_kl_k3,
+        'k3_offpolicy': approx_kl_k3_offpolicy,
+    }
+    return kl_dict
 
 
 def get_log_probs(
@@ -95,14 +120,38 @@ def get_log_probs(
 ):
     """Gets the log probs from the generated logits.
 
-    Inputs:
-        - logits (torch.Tensor): the logits of the actions. Size (bs, seq_len + gen_len, vocab_size)
-        - actions (torch.Tensor): the actions taken, typically tokens generated. Size (bs, gen_len)
-        - prompt_len (torch.Tensor): length of the prompt.
-        - max_gen_len (int): maximum generation length.
+    Args:
+        logits (torch.Tensor): the logits of the actions. Size (bs, seq_len + gen_len, vocab_size)
+        actions (torch.Tensor): the actions taken, typically tokens generated. Size (bs, gen_len)
+        prompt_len (torch.Tensor): length of the prompt.
+        max_gen_len (int): maximum generation length.
+
+    Returns:
+        log_probs (torch.Tensor): the log probs of the actions. Size (bs, gen_len)
     """
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
     return get_log_probs_from_logits(gen_logits, actions)
+
+
+def get_entropies(
+    logits: torch.Tensor,
+    actions: torch.Tensor,
+    prompt_len: torch.Tensor,
+    max_gen_len: Union[torch.Tensor, int],
+) -> torch.Tensor:
+    """Gets the entropies from the generated logits.
+
+    Args:
+        logits (torch.Tensor): the logits of the actions. Size (bs, seq_len + gen_len, vocab_size)
+        actions (torch.Tensor): the actions taken, typically tokens generated. Size (bs, gen_len)
+        prompt_len (torch.Tensor): length of the prompt.
+        max_gen_len (int): maximum generation length.
+
+    Returns:
+        entropies (torch.Tensor): the entropies of the sequence. Size (bs)
+    """
+    gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
+    return get_entropies_from_logits(gen_logits, actions)
 
 
 def switch_left_to_right_padding(
@@ -113,11 +162,11 @@ def switch_left_to_right_padding(
 ) -> torch.Tensor:
     """Switches left padding to right padding.
 
-    Inputs:
-        - sequences (torch.Tensor): The sequences we want to swap padding (of dimension seq_len + max_gen_len).
-        - seq_len (torch.Tensor): the input prompt lengths.
-        - max_gen_len (int): the maximum generation length.
-        - pad_token (int): the pad token.
+    Args:
+        sequences (torch.Tensor): The sequences we want to swap padding (of dimension seq_len + max_gen_len).
+        seq_length (torch.Tensor): the input prompt lengths.
+        max_gen_len (int): the maximum generation length.
+        pad_token (int): the pad token.
     """
     unpadded_sequences = remove_left_padding(sequences, seq_length, max_gen_len)
     max_len = seq_length.max() + max_gen_len  # type: ignore
@@ -131,10 +180,10 @@ def remove_left_padding(
 ) -> list[torch.Tensor]:
     """Removes left padding from a set of sequences.
 
-    Inputs:
-        - sequences (torch.Tensor): the sequences to remove left padding from.
-        - seq_len (torch.Tensor): the input prompt lengths.
-        - max_gen_len (int): the maximum generation length.
+    Args:
+        sequences (torch.Tensor): the sequences to remove left padding from.
+        seq_length (torch.Tensor): the input prompt lengths.
+        max_gen_len (int): the maximum generation length.
     """
     batch_size, _ = sequences.shape
     unpadded_obs = [
@@ -151,10 +200,10 @@ def add_right_padding(
 ) -> torch.Tensor:
     """Right pad a list of sequences to a given length.
 
-    Inputs:
-        - unpadded_sequences (list[torch.Tensor]): a list of unpadded sequences.
-        - max_len (int): the maximum length we want the sequences to be padded.
-        - pad_token (int): the pad token id that we want to pad sequences.
+    Args:
+        unpadded_sequences (list[torch.Tensor]): a list of unpadded sequences.
+        max_len (int): the maximum length we want the sequences to be padded.
+        pad_token (int): the pad token id that we want to pad sequences.
     """
     right_padded_obs = [
         torch.cat([
@@ -173,10 +222,10 @@ def get_batched_generated_values(
 ) -> torch.Tensor:
     """From a set of batched prompts + max_gen_len, return the generated values.
 
-    Inputs:
-        - batched_values (torch.Tensor): The batched generated values.
-        - prompt_len (torch.Tensor): A tensor where each entry is the prompt length.
-        - max_gen_len (int): the maximum generated length.
+    Args:
+        batched_values (torch.Tensor): The batched generated values.
+        prompt_len (torch.Tensor): A tensor where each entry is the prompt length.
+        max_gen_len (int): the maximum generated length.
     """
     generations = []
     for i in range(batched_values.size(0)):
@@ -265,11 +314,11 @@ def compute_advantages(
 
     Note: this function assumes that we have right padded the values with zeros.
 
-    Inputs:
-        - rewards (torch.Tensor): The total rewards (environment + non-environment rewards)
-        - values (torch.Tensor): The values for the predicted generations per state.
-        - gamma (float): The discount factor.
-        - lambda_gae (float): lambda value for the generalized advantage estimate.
+    Args:
+        rewards (torch.Tensor): The total rewards (environment + non-environment rewards)
+        values (torch.Tensor): The values for the predicted generations per state.
+        gamma (float): The discount factor.
+        lambda_gae (float): lambda value for the generalized advantage estimate.
     """
     assert (values[:, -1] == 0).all()
 
@@ -358,25 +407,31 @@ def mask_eos(
     prompt_len: torch.Tensor,
     generated_len: torch.Tensor,
     max_gen_len: int,
-    eos_token: int,
+    eos_token_ids: list[int],
     pad_token: int,
 ):
     """Mask EOS tokens in a given sequence and returns appropriate values.
 
-    Inputs:
-        - actions (torch.Tensor): the actions taken (tokens generated).
-        - right_padded_obs (torch.Tensor): the right padded observation.
-        - right_padded_attn_mask (torch.Tensor): the right padded attention mask.
-        - prompt_len (torch.Tensor): the prompt length.
-        - generated_len (torch.Tensor): the generated length for each prompt.
-        - max_gen_len (int): the maximum generated length.
-        - eos_token (int): the token representing end of sequence token.
-        - pad_token (int): the token representing pad token.
+    Args:
+        actions (torch.Tensor): the actions taken (tokens generated).
+        right_padded_obs (torch.Tensor): the right padded observation.
+        right_padded_attn_mask (torch.Tensor): the right padded attention mask.
+        prompt_len (torch.Tensor): the prompt length.
+        generated_len (torch.Tensor): the generated length for each prompt.
+        max_gen_len (int): the maximum generated length.
+        eos_token_ids (list[int]): list of tokens representing end of sequence.
+        pad_token (int): the token representing pad token.
     """
     # Creating appropriate masks based upon EOS appearing in sequences
-    eos_actions = actions == eos_token
+    eos_tokens_tensor = torch.tensor(
+        eos_token_ids,
+        dtype=actions.dtype,
+        device=actions.device,
+    )
+    eos_actions = torch.isin(actions, eos_tokens_tensor)
     action_mask = torch.ones_like(actions)
     seen_eos_batches = set()
+
     for eos_idx in eos_actions.nonzero(as_tuple=False):
         batch_idx = int(eos_idx[0])
         if eos_idx[1] < max_gen_len and batch_idx not in seen_eos_batches:
@@ -866,14 +921,17 @@ def flip_pad_token_usage_for_generate(model: torch.nn.Module):
     needs_flipping = False
     if not hasattr(model, 'transformer'):
         return needs_flipping
-    assert len(model.transformer.blocks) > 0
-    block = model.transformer.blocks[0]
+    assert len(model.transformer.blocks) > 0  # type: ignore
+    block = model.transformer.blocks[0]  # type: ignore
     # Logic takes care of the activation checkpointing case w/ FSDP
-    if hasattr(block._fsdp_wrapped_module, '_checkpoint_wrapped_module'):
-        needs_flipping = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn
+    if hasattr(
+        block._fsdp_wrapped_module,  # type: ignore
+        '_checkpoint_wrapped_module',
+    ):
+        needs_flipping = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
     else:
         # Otherwise we avoid the activation checkpointing and toggle the flag here
-        needs_flipping = not block._fsdp_wrapped_module.use_pad_tok_in_ffn
+        needs_flipping = not block._fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
 
     if needs_flipping:
         flip_pad_token_usage_in_ffn(model)
@@ -889,7 +947,7 @@ def flip_pad_token_usage_in_ffn(model: torch.nn.Module):
     Args:
         model (torch.nn.Module): a torch model.
     """
-    for block in model.transformer.blocks:
+    for block in model.transformer.blocks:  # type: ignore
 
         # Logic takes care of the activation checkpointing case w/ FSDP
         if hasattr(block._fsdp_wrapped_module, '_checkpoint_wrapped_module'):
@@ -929,6 +987,33 @@ def get_log_probs_from_logits(logits: torch.Tensor, actions: torch.Tensor):
     logp = F.log_softmax(logits, dim=2)
     logpy = torch.gather(logp, 2, actions.unsqueeze(2).long()).squeeze(-1)
     return logpy
+
+
+def get_entropies_from_logits(
+    logits: torch.Tensor,
+    actions: torch.Tensor,
+) -> torch.Tensor:
+    """Gets the entropies from a set of logits and actions mask.
+
+    Args:
+        logits (torch.Tensor): The logits over the entire sequence (batch_size, seq_len, vocab_size).
+        actions (torch.Tensor): The actions taken (tokens generated) (batch_size, seq_len).
+
+    Returns:
+        torch.Tensor: The entropies for the entire sequence (batch_size).
+    """
+    # Get probability distribution
+    pd = F.softmax(logits, dim=2)
+
+    # Get probabilities for the specific actions
+    actions_probs = torch.gather(pd, 2, actions.unsqueeze(2).long()).squeeze(-1)
+
+    # Calculate entropy for those specific actions: -p*log(p)
+    # Adding small epsilon to avoid log(0)
+    pointwise_entropies = -actions_probs * torch.log(actions_probs + 1e-10)
+
+    # Mean over sequence length (dim=1) to get one entropy value per sequence
+    return torch.mean(pointwise_entropies, dim=1)
 
 
 def extract_packed_chosen_rejected(
@@ -1075,3 +1160,23 @@ def make_action_mask(
         mask[i, :prompt_len[i] - 1] = 0
 
     return mask
+
+
+def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
+    """Recursively flattens an arbitrarily nested iterable (excluding strings).
+
+    Note: strings are treated as atomic elements and are not flattened into
+    characters.
+
+    Args:
+        coll (Union[Iterable[Any], str]): The nested iterable to flatten.
+
+    Yields:
+        Any: The individual, non-iterable elements from the flattened structure.
+    """
+    for i in coll:
+        if isinstance(i, Iterable) and not isinstance(i, str):
+            for subc in flatten(i):
+                yield subc
+        else:
+            yield i

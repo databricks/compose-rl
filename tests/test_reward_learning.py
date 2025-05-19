@@ -22,7 +22,7 @@ from omegaconf import OmegaConf as om
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
-from transformers.models.llama.modeling_llama import LlamaFlashAttention2
+from transformers.models.llama.modeling_llama import LlamaAttention
 
 from compose_rl.data import (
     finegrained_preference_dataset_collate_fn,
@@ -32,7 +32,9 @@ from compose_rl.reward_learning.hf_utils import AutoModelForCausalLMWithRM
 from tests.common import FineGrainedPreference, PairwisePreference, world_size
 
 
-def get_config(conf_path: str = './yamls/testing.yaml',) -> DictConfig:
+def get_config(
+    conf_path: str = './yamls/testing.yaml',
+) -> DictConfig:
     with open(conf_path) as f:
         test_cfg = om.load(f)
     return cast(DictConfig, test_cfg)
@@ -106,8 +108,8 @@ def _get_objs(
         cfg=to_dict_container(test_cfg.model),
         tokenizer=tokenizer,
     )
-    model.model.lm_backbone = model.model.lm_backbone.to('cuda')
-    model.model.value_head = model.model.value_head.to('cuda')
+    model.model.lm_backbone = model.model.lm_backbone.to('cuda')  # type: ignore
+    model.model.value_head = model.model.value_head.to('cuda')  # type: ignore
 
     # Optimizer
     assert test_cfg.optimizer.name == 'decoupled_adamw'
@@ -140,7 +142,7 @@ def gen_random_batch(
         high=30000,
         size=(batch_size, test_cfg.max_seq_len * 2),
     ).to(device)
-    batch['text_attention_mask'] = torch.ones(
+    batch['attention_mask'] = torch.ones(
         size=(batch_size, test_cfg.max_seq_len * 2),
         dtype=torch.int64,
     ).to(device)
@@ -178,7 +180,9 @@ def test_forward_backward_hf_automodel():
     model = AutoModelForCausalLMWithRM.from_pretrained(model_id)
     model.train()
     original_params = next(model.parameters()).clone().data
-    optimizer = DecoupledAdamW(model.parameters(),)
+    optimizer = DecoupledAdamW(
+        model.parameters(),
+    )
     model_inputs = tokenizer(sample_text, return_tensors='pt')
     output = model(**model_inputs)
     loss = output.scores.mean()
@@ -373,9 +377,16 @@ def test_flashattention2(world_size: int):
         cfg=model_config_flash,
     ).to('cuda')
 
-    transformer_block = model_flash.model.lm_backbone.model.layers[0]
+    transformer_block = model_flash.model.lm_backbone.model.layers[  # type: ignore
+        0]
     # Checks that Flash Attention has been properly initialized
-    assert isinstance(transformer_block.self_attn, LlamaFlashAttention2)
+    assert isinstance(
+        transformer_block.self_attn,  # type: ignore
+        LlamaAttention,
+    )
+    assert model.model.config._attn_implementation == (  # type: ignore
+        'flash_attention_2'
+    )
 
     with get_precision_context('amp_bf16'):
         for batch in dataloader:
@@ -385,10 +396,10 @@ def test_flashattention2(world_size: int):
             out_flash = {k: v.to('cpu') for k, v in out_flash.items()}
 
             assert torch.all(
-                out['chosen_scores'].bfloat16() !=
-                out['rejected_scores'].bfloat16(),
+                out['chosen_scores'].bfloat16()
+                != out['rejected_scores'].bfloat16(),
             )
             assert torch.all(
-                out_flash['chosen_scores'].bfloat16() !=
-                out_flash['rejected_scores'].bfloat16(),
+                out_flash['chosen_scores'].bfloat16()
+                != out_flash['rejected_scores'].bfloat16(),
             )

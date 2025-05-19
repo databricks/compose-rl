@@ -2,7 +2,7 @@ run_name:  # TODO: fill in
 max_seq_len: 2048
 
 variables:
-  tokenizer_name: meta-llama/Llama-3.1-8B-Instruct
+  tokenizer_name: meta-llama/Llama-3.2-1B-Instruct
 
   reference_model:
     model_config: &base_model
@@ -10,7 +10,7 @@ variables:
       pretrained: true
       use_auth_token: true
       use_flash_attention_2: true
-      pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+      pretrained_model_name_or_path: meta-llama/Llama-3.2-1B-Instruct
 
     precision: amp_bf16
 
@@ -43,6 +43,7 @@ variables:
   # RL parameters
   gamma: 1.0
   lambda_gae: 0.95
+  # kl_estimator: k1
 
   device_generate_batch_size: 32
 
@@ -58,38 +59,39 @@ variables:
   - 128009
 
   rewards:
-    short_response_reward:
+    bad_generation_end:
+      reward: -3
+      eos_penalty: true
+      reward_type: bad_generation_end
+    math_verifier:
+      reward_type: math_verifier
+      reward: 2
+    penalize_extra_short_responses:
+      reward: -1
       reward_type: short_response_reward
-      reward: -1.0
-      len_threshold: 5
+      len_threshold: 10
 
   buffer:
     name: MinibatchRolloutBuffer
-    max_buffer_size: ${variables.num_batches_per_update}
+    # max_buffer_size: ${variables.num_batches_per_update}
 
   center_reward_mean:
 
 model:
   <<: *base_model
-  name: hf_ppo_lm
-  loss_type: ppo
-  config_overrides:
-    critic_dropout: 0.0
-    value_clip_range: 0.2
-    value_loss_weight: 0.2
-    target_kl: 0.1
-
-    policy_clip_ratio: 0.15
-
-    joint_actor_critic: true
-    compute_kl_loss: true
-    kl_estimator: k3
-    kl_clip_range: 40.0
+  name: hf_critic_free_lm
+  loss_type: grpo
+  normalize_advantage: true
+  length_normalize_policy_loss: true
+  policy_clip_ratio: 0.15
+  policy_clip_high_ratio: 0.28
+  compute_kl_loss: true
+  target_kl: 0.1
+  kl_estimator: k3
+  kl_clip_range: 40.0
 
 # load_path: # TODO: fill in load path if applicable
 # load_weights_only: true
-# load_ignore_keys:
-# - "state/model/model.critic_head.*"
 # load_strict_model_weights: false
 
 autoresume: true
@@ -145,7 +147,7 @@ device_train_microbatch_size: 1
 device_eval_batch_size: 1
 
 max_duration: 10iter
-eval_interval: 1
+eval_interval: -1
 eval_subset_num_batches: -1
 eval_first: false
 
@@ -181,7 +183,7 @@ callbacks:
 
   ppo: {}
 
-save_folder: /tmp/ppo_models   # TODO: fill in with an appropriate value
+save_folder: /tmp/critic_free_models   # TODO: fill in with an appropriate value
 # only_composer_checkpoint: true
 # save_weights_only: false
 

@@ -4,22 +4,35 @@
 """Functional reward implementations."""
 
 import logging
-from typing import Any, MutableMapping
+import re
+from abc import abstractmethod
+from typing import MutableMapping
 
 import torch
 
 log = logging.getLogger(__name__)
 
+from compose_rl.data.rlvr_utils import (
+    is_equiv,
+    last_boxed_only_string,
+    normalize_final_answer,
+    remove_boxed,
+)
 from compose_rl.reward_learning.base_reward import Reward, Tokenizer
 
 
 class IncreasingNumbersReward(Reward):
+    """Reward based on the number of generated increasing numbers.
+
+    Args:
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
+    def __init__(self, tokenizer: Tokenizer):
+        super().__init__(tokenizer=tokenizer)
 
     @staticmethod
     def is_number(text: str):
@@ -28,10 +41,6 @@ class IncreasingNumbersReward(Reward):
             return True
         except ValueError:
             return False
-
-    def validate_config(self):
-        # There are no config requirements for this reward
-        return
 
     def __call__(
         self,
@@ -84,23 +93,26 @@ class IncreasingNumbersReward(Reward):
 
 
 class ShortResponseReward(Reward):
+    """Reward based on the length of the generated response.
+
+    Args:
+        reward (float): The reward to apply.
+        len_threshold (int): The length threshold to apply the reward.
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
+    def __init__(self, reward: float, len_threshold: int, tokenizer: Tokenizer):
+        super().__init__(tokenizer=tokenizer)
+        self.reward = reward
+        self.len_threshold = len_threshold
 
-        self.reward = cfg['reward']
-        self.len_threshold = cfg['len_threshold']
         log.info(
             f'Adding a reward of {self.reward} if a model generates ' +
             f'tokens under the length {self.len_threshold}',
         )
-
-    def validate_config(self):
-        # There are no config requirements for this reward
-        return
 
     def __call__(
         self,
@@ -128,23 +140,34 @@ class ShortResponseReward(Reward):
 
 
 class BadGenerationEndReward(Reward):
+    """Reward based on the end of the generated response.
+
+    Args:
+        reward (float): The reward to apply.
+        eos_penalty (bool): The penalty to apply if the response does not end with an EOS.
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+        extra_special_tokens (list[str] | None): The extra special tokens to check for.
+            Defaults to `None`.
+    """
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
-
-        self.reward = cfg.get('reward', None)
-        self.eos_penalty = cfg.get('eos_penalty', None)
-
-        assert self.reward is not None, 'reward must be provided in the config'
-        assert self.eos_penalty is not None, 'eos_penalty must be provided in the config'
+    def __init__(
+        self,
+        reward: float,
+        eos_penalty: bool,
+        tokenizer: Tokenizer,
+        extra_special_tokens: list[str] | None = None,
+    ):
+        super().__init__(tokenizer=tokenizer)
+        self.reward = reward
+        self.eos_penalty = eos_penalty
 
         # Extra special tokens for any other formats with pseudo EOS alternatives like ChatML
         self.extra_special_tokens = [
-            str(tok) for tok in cfg.get('extra_special_tokens', [])
-        ]
+            str(tok) for tok in extra_special_tokens
+        ] if extra_special_tokens is not None else []
         self.extra_special_token_ids = []
         if self.extra_special_tokens != []:
             self.extra_special_token_ids.extend([
@@ -162,16 +185,6 @@ class BadGenerationEndReward(Reward):
             f'Subtracting a reward of {self.reward} if a model does not' +
             f'end with an EOS or given set of special tokens',
         )
-
-    def validate_config(self):
-        if 'eos_penalty' not in self.cfg:
-            raise KeyError(
-                f'Required field eos_penalty is missing from BadGenerationEndReward config',
-            )
-        if 'reward' not in self.cfg:
-            raise KeyError(
-                f'Required field reward is missing from BadGenerationEndReward config',
-            )
 
     def __call__(
         self,
@@ -204,20 +217,19 @@ class BadGenerationEndReward(Reward):
 
 
 class OutputLengthReward(Reward):
+    """Reward based on the length of the generated response.
+
+    Args:
+        max_gen_len (int): The maximum length of the generated response.
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+    """
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
-        self.max_gen_len = self.cfg.get('max_gen_len', None)
-        assert self.max_gen_len is not None, 'max_gen_len must be provided in the config'
-
-    def validate_config(self):
-        if 'max_gen_len' not in self.cfg:
-            raise KeyError(
-                f'Required field max_gen_len is missing from OutputLengthReward config',
-            )
+    def __init__(self, max_gen_len: int, tokenizer: Tokenizer):
+        super().__init__(tokenizer=tokenizer)
+        self.max_gen_len = max_gen_len
 
     def __call__(
         self,
@@ -242,3 +254,197 @@ class OutputLengthReward(Reward):
         curr_rewards = generated_lens / self.max_gen_len
         rewards[torch.arange(batch_size), generated_lens - 1] += curr_rewards
         return rewards
+
+
+class BaseVerifierReward(Reward):
+    """Base class for verifier rewards.
+
+    Args:
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+        reward (float): The reward to apply. Default is 1.0.
+    """
+
+    # This can be run async
+    BLOCKING = False
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer)
+        self.reward = reward
+
+        log.info(
+            f'Using reward value of {self.reward} for {self.__class__.__name__} verifier',
+        )
+
+    def __call__(
+        self,
+        batch: MutableMapping,
+    ) -> torch.Tensor:
+        """Apply the reward for verifying the correct answer from the model.
+
+        Currently verifier rewards are only applied to the last token of the sequence.
+
+        Args:
+            batch (dict): The input batch containing all information needed.
+
+        Returns:
+            torch.tensor: rewards of shape <batch_size, seq_len>
+        """
+        assert 'zero_rewards' in batch.keys()
+        assert 'raw_untokenized_texts' in batch.keys()
+        assert 'verified_answers' in batch.keys()
+        assert 'generated_lens' in batch.keys()
+
+        rewards = batch['zero_rewards']
+        raw_untokenized_texts = batch['raw_untokenized_texts']
+        verified_answers = batch['verified_answers']
+        generated_lens = batch['generated_lens']
+
+        batch_size = rewards.shape[0]
+        all_generated_texts = [x[1] for x in raw_untokenized_texts]
+        for i in range(batch_size):
+            # Process based on verifier type
+            if self.needs_extraction():
+                _answer = self.extract_solution(all_generated_texts[i])
+                _reward = self.score_generations(_answer, verified_answers[i])
+            else:
+                # Score directly without extraction
+                _reward = self.score_generations(
+                    all_generated_texts[i],
+                    verified_answers[i],
+                )
+
+            rewards[i, generated_lens[i] - 1] += _reward
+        return rewards
+
+    def needs_extraction(self) -> bool:
+        """Determine if this verifier needs to extract solutions before scoring.
+
+        Override in child classes if needed.
+
+        Returns:
+            bool: True if extraction is needed, False otherwise.
+        """
+        return True
+
+    def extract_solution(self, text: str) -> str:
+        """Extract the solution from text.
+
+        Default implementation raises error; override in child classes if needed.
+
+        Args:
+            text (str): The generated text.
+
+        Returns:
+            str: The extracted solution.
+        """
+        raise NotImplementedError(
+            'Subclasses must implement `extract_solution` if `needs_extraction` returns True.',
+        )
+
+    @abstractmethod
+    def score_generations(self, answer: str, label: str) -> float:
+        """Score the generated answer against the label.
+
+        Args:
+            answer (str): The extracted answer.
+            label (str): The verified answer.
+
+        Returns:
+            float: The reward score.
+        """
+        raise NotImplementedError(
+            'Subclasses must implement `score_generations` definition.',
+        )
+
+
+class GSM8KAnswerVeriferReward(BaseVerifierReward):
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+
+    def extract_solution(self, text: str) -> str:
+        """Extract numerical solution from GSM8K-style responses.
+
+        Args:
+            text (str): The generated text.
+
+        Returns:
+            str: The extracted numerical answer.
+        """
+        numbers = re.findall(r'-?[\d,]*\.?\d+', text)
+        final_answer = ''
+        if len(numbers) > 0:
+            final_answer = numbers[-1].strip().lower().replace(',', '').replace(
+                '$',
+                '',
+            )
+
+        return final_answer
+
+    def score_generations(self, answer: str, label: str) -> float:
+        """Score based on exact match.
+
+        Args:
+            answer (str): The extracted answer.
+            label (str): The verified answer.
+
+        Returns:
+            float: self.reward for match, 0.0 otherwise.
+        """
+        return self.reward if answer == label else 0.0
+
+
+class GSM8KFormatVeriferReward(BaseVerifierReward):
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+
+    def needs_extraction(self) -> bool:
+        """Indicate that this verifier doesn't need extraction."""
+        return False
+
+    def score_generations(self, answer: str, label: str) -> float:
+        """Check if the answer follows the expected format with '####' marker.
+
+        Note: The label parameter is not used in this implementation but is required
+        by the interface.
+        """
+        solution = re.search(r'####.*?([\d,]+(?:\.\d+)?)', answer)
+        return self.reward if solution is not None else 0.0
+
+
+class MATHVerifierReward(BaseVerifierReward):
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+
+    def extract_solution(self, text: str) -> str:
+        """Extract numerical solution from GSM8K-style responses.
+
+        Args:
+            text (str): The generated text.
+
+        Returns:
+            str: The extracted numerical answer.
+        """
+        last_boxed_string = last_boxed_only_string(text)
+        if not last_boxed_string:
+            # No boxed string found, so we can't evaluate
+            return ''
+
+        unnormalized_answer = remove_boxed(last_boxed_string)
+        return normalize_final_answer(unnormalized_answer)
+
+    def score_generations(self, answer: str, label: str) -> float:
+        """Score based on exact match.
+
+        Args:
+            answer (str): The extracted answer.
+            label (str): The verified answer.
+
+        Returns:
+            float: self.reward for match, 0.0 otherwise.
+        """
+        if answer.strip() == label.strip() or is_equiv(answer, label):
+            return self.reward
+        return 0.0

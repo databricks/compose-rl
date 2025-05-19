@@ -50,8 +50,8 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         should_save_peft_only (bool): Whether to save only the PEFT model. Default: ``False``.
     """
     model_cls: Union[
-        _BaseAutoModelClass,
-        PreTrainedModel] = AutoModelForCausalLMAsPolicy  # type: ignore
+        type[_BaseAutoModelClass],
+        type[PreTrainedModel]] = AutoModelForCausalLMAsPolicy  # type: ignore
     default_train_metrics: tuple = ()
     default_eval_metrics: tuple = ()
 
@@ -73,6 +73,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         additional_train_metrics: Optional[list] = None,
         additional_eval_metrics: Optional[list] = None,
         should_save_peft_only: bool = False,
+        **kwargs: dict[str, Any],
     ):
         super().__init__(
             pretrained_model_name_or_path,
@@ -86,14 +87,17 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             init_device=init_device,
             config_overrides=config_overrides,
             shift_labels=True,
-            peft_config=peft_config,
+            peft_config=peft_config, # type: ignore
             allow_embedding_resizing=allow_embedding_resizing,
             use_train_metrics=use_train_metrics,
             additional_train_metrics=additional_train_metrics,
             additional_eval_metrics=additional_eval_metrics,
             should_save_peft_only=should_save_peft_only,
         )
-        self.model.config.pretrained = False
+        self.model.config.pretrained = False  # type: ignore
+
+        # TODO: ignoring additional kwargs. Fix this logic after refactoring config overrides
+        self.kwargs = kwargs
 
     @classmethod
     def build_config(
@@ -112,6 +116,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
             attn_implementation=attn_implementation,
             use_cache=
             False,  # Necessary due to https://github.com/huggingface/transformers/issues/28056
+            torch_dtype=config_overrides.get('torch_dtype', 'float32'),
         )
 
         pretrain_cfg = {
@@ -146,20 +151,21 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         # so that the (possible) embedding resizing doesn't destroy them
         #prepare_hf_model_for_fsdp(model.lm_backbone, init_device)
         try:
-            base_model = model.lm_backbone.model  # NOTE: Llama based. Make more general
+            # NOTE: Llama based. Make more general
+            base_model = model.lm_backbone.model  # type: ignore
         except:
-            base_model = model.lm_backbone.transformer
+            base_model = model.lm_backbone.transformer  # type: ignore
 
-        model_block = hf_get_hidden_layers(base_model)
+        model_block = hf_get_hidden_layers(base_model)  # type: ignore
         critic_head = model.critic_head
-        lm_head = model.lm_backbone.get_output_embeddings()
+        lm_head = model.lm_backbone.get_output_embeddings()  # type: ignore
 
         # Try to get input embeddings from the transformer backbone
         # and then from the XXXForCausalLM
         try:
-            tied_embeddings = base_model.get_input_embeddings()
+            tied_embeddings = base_model.get_input_embeddings()  # type: ignore
         except:
-            tied_embeddings = model.get_input_embeddings()
+            tied_embeddings = model.get_input_embeddings()  # type: ignore
 
         modules = {
             'base_model': base_model,
@@ -183,8 +189,8 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         # This is a hurdle for FSDP because they need to be in the same FSDP block
         # These lines ensures that both modules stay together in the top-most block when
         # the model has this tying enabled (almost all do; this property defaults to True)
-        if model.config.tie_word_embeddings:
-            base_model._fsdp_wrap = False
+        if model.config.tie_word_embeddings:  # type: ignore
+            base_model._fsdp_wrap = False  # type: ignore
             tied_embeddings._fsdp_wrap = False  # type: ignore
             lm_head._fsdp_wrap = False
 
@@ -192,7 +198,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         # TODO: Revisit this if we enforce use_orig_params=True, which seems to support
         # mixed frozen/unfrozen FSDP modules
         if hasattr(model, 'peft_type') and model.peft_type is not None:
-            peft_type = model.peft_type.lower()
+            peft_type = model.peft_type.lower()  # type: ignore
             active_adapters = [
                 adapter.lower()
                 for adapter in model.active_adapters  # type: ignore

@@ -60,7 +60,10 @@ def pairwise_forward(
         return_lm_logits (bool): Whether to only return the logits from the lm_head
     """
     if policy_model_config is not None and hasattr(model, 'transformer'):
-        clear_mb_load_balancing_loss(policy_model_config, model.transformer)
+        clear_mb_load_balancing_loss(
+            policy_model_config,
+            model.transformer,  # type: ignore
+        )
 
     batch_size, concat_seq_len = batch['input_ids'].shape
     pad_token_id = tokenizer.pad_token_id  # type: ignore
@@ -71,8 +74,8 @@ def pairwise_forward(
     if use_attention_sequence_id:
         model_output = model(
             batch['input_ids'],
-            attention_mask=batch['text_attention_mask'],
-            sequence_id=batch['sequence_ids'],
+            attention_mask=batch['attention_mask'],
+            sequence_id=batch['sequence_id'],
             return_lm_logits=return_lm_logits,
         )
 
@@ -80,8 +83,8 @@ def pairwise_forward(
             input_tensor=model_output.scores,
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
-            max_seq_len=concat_seq_len // 2,
-            pad_token_id=pad_token_id,
+            max_seq_len=concat_seq_len,
+            pad_token_id=pad_token_id,  # type: ignore
         )
 
     else:
@@ -92,15 +95,15 @@ def pairwise_forward(
             input_tensor=batch['input_ids'],
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
-            max_seq_len=concat_seq_len // 2,
-            pad_token_id=pad_token_id,
+            max_seq_len=concat_seq_len,
+            pad_token_id=pad_token_id,  # type: ignore
         )
 
         chosen_attention_mask, rejected_attention_mask = extract_packed_chosen_rejected(
-            input_tensor=batch['text_attention_mask'],
+            input_tensor=batch['attention_mask'],
             chosen_len=batch['chosen_len'],
             rejected_len=batch['rejected_len'],
-            max_seq_len=concat_seq_len // 2,
+            max_seq_len=concat_seq_len,
             pad_token_id=0,
         )
 
@@ -159,7 +162,10 @@ def pairwise_forward(
         outputs['rejected_logits'] = rejected_logits
 
     if policy_model_config is not None and hasattr(model, 'transformer'):
-        lbl = get_mb_load_balancing_loss(policy_model_config, model.transformer)
+        lbl = get_mb_load_balancing_loss(
+            policy_model_config,
+            model.transformer,  # type: ignore
+        )
         if lbl is not None:
             outputs['lbl'] = lbl
 
@@ -178,7 +184,7 @@ def classifier_forward(
 
     model_output = model(
         batch['text'],
-        attention_mask=batch['text_attention_mask'],
+        attention_mask=batch['attention_mask'],
         return_lm_logits=return_lm_logits,
     )
 
@@ -244,8 +250,8 @@ def pairwise_loss(
         'rejected_rewards':
             rejected_scores.detach(),
         'margin': (chosen_scores - rejected_scores).detach(),
-        'accuracy':
-            (chosen_scores > rejected_scores).detach().to(torch.float32),
+        'accuracy': (chosen_scores
+                     > rejected_scores).detach().to(torch.float32),
     }
 
     loss_dict.update(partial_loss_dict)

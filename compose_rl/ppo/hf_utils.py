@@ -22,6 +22,7 @@ from compose_rl.ppo.modeling_utils import (
     prepare_critic_values_for_training,
 )
 from compose_rl.ppo.policy_configuration import HFPolicyConfig
+from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
@@ -42,6 +43,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
                 config.base_model,
                 config=config.base_config,
                 **pretrain_cfg,
+                torch_dtype=_MASTER_WEIGHTS_PRECISION,
             )
         else:
             # When downloading from hub, base config gets converted to dict
@@ -50,6 +52,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
                 config.base_config = AutoConfig.from_pretrained(
                     config.base_model,
                     **config.base_config,
+                    torch_dtype=_MASTER_WEIGHTS_PRECISION,
                 )
             self.lm_backbone = AutoModelForCausalLM.from_config(
                 config.base_config,
@@ -62,6 +65,18 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
         )
         self.critic_head._fsdp_wrap = True  # pyright: ignore
         self.lm_backbone._fsdp_wrap = True
+
+        self.critic_head._is_critic_head = True  # pyright: ignore
+
+    def _init_weights(self, module: nn.Module) -> None:
+        if hasattr(module, '_is_critic_head'):
+            # Initialize weights with Xavier uniform
+            nn.init.xavier_uniform_(module.weight)  # type: ignore
+            # Initialize bias to zero
+            if hasattr(module, 'bias'):
+                nn.init.zeros_(module.bias)  # type: ignore
+        else:
+            super()._init_weights(module)
 
     def generate(
         self,
@@ -143,6 +158,8 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
         target_kl: float = 0.1,
         policy_clip_ratio: float = 0.15,
         compute_kl_loss: bool = True,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = 40.0,
         config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
         cache_dir: Optional[Union[str, os.PathLike]] = None,
         ignore_mismatched_sizes: bool = False,
@@ -166,6 +183,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
             token=token,
             attn_implementation=attn_implementation,
             use_cache=False,
+            torch_dtype=_MASTER_WEIGHTS_PRECISION,
         )
 
         if isinstance(pretrained_model_config, cls.config_class):
@@ -204,6 +222,8 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
             target_kl=target_kl,
             policy_clip_ratio=policy_clip_ratio,
             compute_kl_loss=compute_kl_loss,
+            kl_estimator=kl_estimator,
+            kl_clip_range=kl_clip_range,
         )
 
         model = cls(policy_config)

@@ -1,6 +1,6 @@
 # build requirements
 [build-system]
-requires = ["setuptools < 68.0.0"]
+requires = ["setuptools < 79.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -8,28 +8,34 @@ packages = { find = { include = ["compose_rl*"] } }
 
 [project]
 name = "compose_rl"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
     'spacy==3.7.5',
     'spacy-alignments',
+    'ray<3',
+    'kubernetes==29.0.0',
+    'vllm>=0.8.3,<0.9.0',
+    # for MATH dataset
+    'omegaconf==2.4.0.dev3', # needed for antrl4-4.11 package
+    'sympy==1.13.1', # this version is only compatible with antlr-4.11 package
+    'antlr4-python3-runtime==4.11', # this is the version compatible with minieval
 ]
 
 [project.optional-dependencies]
 cpu = [
     'llm-foundry[all-cpu]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
-    'kubernetes==29.0.0',
 ]
 gpu = [
     'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
-    'kubernetes==29.0.0',
 ]
 dev = [
     'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
-    'kubernetes==29.0.0',
 ]
 released = [
-    'llm-foundry[all]==0.15.1',
-    'kubernetes==29.0.0',
+    'llm-foundry[all]>=0.17.1',
+]
+cpu_released = [
+    'llm-foundry[all-cpu]>=0.17.1',
 ]
 
 # Registry entry points
@@ -41,6 +47,7 @@ hf_pairwise_rm = "compose_rl.reward_learning:ComposerHFPairwiseRewardModel"
 hf_classifier_rm = "compose_rl.reward_learning:ComposerHFClassifierRewardModel"
 mpt_ppo_lm = "compose_rl.ppo:ComposerMosaicPolicy"
 hf_ppo_lm = "compose_rl.ppo:ComposerHFPolicyModel"
+hf_critic_free_lm = "compose_rl.ppo:ComposerHFCriticFreePolicyModel"
 
 [project.entry-points."llmfoundry_dataloaders"]
 pairwise_preference = "compose_rl.data:build_pairwise_preference_dataloader"
@@ -54,6 +61,9 @@ ppo = "compose_rl.ppo:PPOCallback"
 [project.entry-points."llmfoundry_metrics"]
 pairwise_rm_accuracy = "compose_rl.metrics.reward_model_metrics:PairwiseRewardClassificationAccuracy"
 classifier_accuracy = "compose_rl.metrics.reward_model_metrics:BinaryRewardClassificationAccuracy"
+
+[project.entry-points."llmfoundry_load_planners"]
+ppo_load_planner = "compose_rl.ppo.load_planner:PPOModelLoadPlanner"
 
 # iSort
 [tool.isort]

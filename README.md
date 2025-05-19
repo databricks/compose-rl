@@ -28,7 +28,8 @@ You'll find in this repo:
 
 Clone the repository and install the dependencies:
 
-```
+<!--pytest.mark.skip-->
+```bash
 git clone https://github.com/databricks/compose-rl.git
 cd compose-rl
 pip install -e .[gpu]
@@ -49,7 +50,8 @@ Below is the set of commands to run to prepare datasets into the appropriate Mos
 
 Below is the command to prepare preference data -- which can be used for reward model or offline RL (e.g. DPO) training:
 
-```
+<!--pytest.mark.skip-->
+```bash
 cd scripts
 python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_binarized_cleaned \
 --local_dir pref_data \
@@ -60,7 +62,8 @@ python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_bin
 
 Below is the command to prepare prompt data -- which can be used for online RL (e.g. PPO) training:
 
-```
+<!--pytest.mark.skip-->
+```bash
 cd scripts
 python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_binarized_cleaned \
 --local_dir prompt_data \
@@ -68,6 +71,25 @@ python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_bin
 --tokenizer_name meta-llama/Llama-3.1-8B-Instruct \
 --split train_prefs
 ```
+
+To further enable online RL with [verifiable rewards](https://arxiv.org/abs/2411.15124) you can use the following command:
+
+<!--pytest.mark.skip-->
+```bash
+cd scripts
+python data/unified_tokenize_dataset.py --dataset_name <hf_dataset_name> \
+--local_dir verifiable_data \
+--dataset_type verifiable_answers \
+--tokenizer_name meta-llama/Llama-3.1-8B-Instruct \
+--split train \
+```
+
+We currently support the following two HuggingFace datasets for verifiable rewards:
+
+- GMS8k: `openai/gsm8k`
+- MATH: `DigitalLearningGmbH/MATH-lighteval`
+
+The data preparation scripts also supports additional arguments for specifying the subset of the HuggingFace dataset `--subset <str>` and max sequence length `--max_length <int>`
 
 ### Model training
 
@@ -77,7 +99,8 @@ Below are the scripts to launch training runs assuming you ran the data preparat
 
 Below is the command to run reward model training:
 
-```
+<!--pytest.mark.skip-->
+```bash
 composer llm-foundry/scripts/train/train.py \
 compose-rl/yamls/local_reward.yaml \
 train_loader.dataset.local=/compose-rl/scripts/pref_data/ \
@@ -88,7 +111,8 @@ train_loader.dataset.split=train_prefs
 
 Below is the command to run for DPO training (along with its variants):
 
-```
+<!--pytest.mark.skip-->
+```bash
 composer llm-foundry/scripts/train/train.py \
 compose-rl/yamls/local_dpo.yaml \
 train_loader.dataset.local=/compose-rl/scripts/pref_data/ \
@@ -101,7 +125,8 @@ For DPO we support other variants of DPO including: [Reward Aware Preference Opt
 
 Below is the command to run Online PPO training:
 
-```
+<!--pytest.mark.skip-->
+```bash
 composer llm-foundry/scripts/train/train.py \
 compose-rl/yamls/local_ppo.yaml \
 train_loader.dataset.local=/compose-rl/scripts/prompt_data/ \
@@ -111,22 +136,21 @@ train_loader.dataset.split=train_prefs
 ## Helpful code pointers
 
 **Adding new data processing**
-In the [`unified_tokenize_dataset.py`](https://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/scripts/data/unified_tokenize_dataset.py) script, we can add new capabilities to process data by modifying the [`__iter__`](hhttps://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/scripts/data/unified_tokenize_dataset.py#L51) function. Typically all datasets are pre-tokenized before model training.
+In the [`unified_tokenize_dataset.py`](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/scripts/data/unified_tokenize_dataset.py)  script, we can add new capabilities to process data by modifying the [`__iter__`](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/scripts/data/unified_tokenize_dataset.py#L51)function. Typically all datasets are pre-tokenized before model training.
 
 **Creating new reward models**
-In order to modify the training loss for reward models we need to define a new `Enum` [here](https://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/compose_rl/reward_learning/model_methods.py#L30) and update the `pairwise_loss` function. Modifying the loss will result in a different `loss_type` in the model yaml [here](https://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/yamls/pairwise_reward_model.yaml#L27)
+In order to modify the training loss for reward models we need to define a new `Enum` [here](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/compose_rl/reward_learning/model_methods.py#L30) and update the `pairwise_loss` function. Modifying the loss will result in a different `loss_type` in the model yaml [here](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/yamls/local_reward.yaml#L16)
 
-Additionally, in order to modify the reward model architecture for huggingface models we need to update `AutoModelForCausalLMWithRM` [here](https://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/compose_rl/reward_learning/hf_utils.py#L124). Additionally, any model config updates, we can update the config [here](https://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/compose_rl/reward_learning/hf_utils.py#L89). Config updates will apply to the model yaml [here](https://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/yamls/pairwise_reward_model.yaml#L23)
+Additionally, in order to modify the reward model architecture for huggingface models we need to update `AutoModelForCausalLMWithRM` [here](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/compose_rl/reward_learning/hf_utils.py#L127). Additionally, any model config updates, we can update the config [here](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/compose_rl/reward_learning/hf_utils.py#L91). Config updates will apply to the model yaml [here](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/yamls/local_reward.yaml#L11)
 
 **Creating new Offline RL Variants**
-In order to add new offline RL based algorithms, we need to add a new `Enum` to `DPOEnum` [here](https://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/compose_rl/dpo/model_methods.py#L29) and then we can add the new loss function in the `dpo_loss` method. The loss function field will be updated in the model section of the DPO yaml [here](https://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/yamls/dpo.yaml#L18)
+In order to add new offline RL based algorithms, we need to add a new `Enum` to `DPOEnum` [here](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/compose_rl/dpo/model_methods.py#L29) and then we can add the new loss function in the `dpo_loss` method. The loss function field will be updated in the model section of the DPO yaml [here](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/yamls/local_dpo.yaml#L6)
 
 **Creating new Online RL Variants**
 In order to create new online RL based algorithms, we need to add a new `forward` and `loss` function into `ppo/modeling_utils.py`. From here we need to define a new model in `ppo/model.py`.
 
-
 **A high level overview of LLM Foundry Plugins**
-LLM Foundry plugins allows us to take advantage of many of the functions within LLM foundry, while augmenting the code with other models and methods. Plugins requires us to define registry entrypoints into LLM foundry which is done in the `pyproject.toml` file in this repo. See the commented code around `entry points` in the file [here](https://github.com/databricks-mosaic/RLHF/blob/9f8fe135ff4c334efce95197b606f7ff0f5a3eb6/pyproject.toml#L35), where we define various entrypoints for models, dataloaders, callbacks, and metrics. For more details on plugins and its registry system see [here](https://github.com/mosaicml/llm-foundry/?tab=readme-ov-file#registry).
+LLM Foundry plugins allows us to take advantage of many of the functions within LLM foundry, while augmenting the code with other models and methods. Plugins requires us to define registry entrypoints into LLM foundry which is done in the `pyproject.toml` file in this repo. See the commented code around `entry points` in the file [here](https://github.com/databricks/compose-rl/blob/d59a63baecdadc7444b85edc39101c6237441bd6/pyproject.toml#L41), where we define various entrypoints for models, dataloaders, callbacks, and metrics. For more details on plugins and its registry system see [here](https://github.com/mosaicml/llm-foundry/?tab=readme-ov-file#registry).
 
 **How to write HuggingFace checkpoints**
 Since we use LLM Foundry's plugins, we are able to export our models as HuggingFace Models and Checkpoints. We are able to do this by using the `hf_checkpointer` [callback from LLM Foundry](https://github.com/mosaicml/llm-foundry/blob/a27c720058bcdf08bfbd51a1e76b17097012fe26/llmfoundry/callbacks/hf_checkpointer.py#L245), which can be defined in a yaml as the following:
