@@ -468,10 +468,14 @@ def broadcast_to_vllm(
                                     group=model_update_group,
                                 )
                                 update_time += time.time() - start_update_time
-    
-    assert num_params == count, (
-        f'Number of parameters updated {count} does not match the number of parameters {num_params}' + 
-        f'This means that some parameters were not updated.')
+
+    if dist.get_global_rank() == 0:
+        # Check if the number of parameters updated is equal to the number of parameters
+        # This can only be done on global rank 0, since it is the one that is updating the parameters.
+        assert num_params == count, (
+            f'Number of parameters updated {count} does not match the number of parameters {num_params}'
+            + f'This means that some parameters were not updated.'
+        )
 
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
