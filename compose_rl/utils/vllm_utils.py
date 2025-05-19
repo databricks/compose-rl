@@ -497,6 +497,7 @@ def broadcast_to_vllm(
                                 )
                                 update_time += time.time() - start_update_time
 
+    # Issue (#67): Note this code will likely need to be updated for PEFT for efficiency reasons.
     if dist.get_global_rank() == 0:
         # Check if the number of parameters updated is equal to the number of parameters
         # This can only be done on global rank 0, since it is the one that is updating the parameters.
