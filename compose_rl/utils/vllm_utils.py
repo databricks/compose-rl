@@ -347,6 +347,7 @@ def should_update_torch_module(
 
     Args:
         parsed_module_name (str): The parsed name of the module
+        full_param_name (str): The full name of the parameter
         module (nn.Module): The torch module to check
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
         valid_non_leaf_module_names (list[str]): List of valid non-leaf module names
