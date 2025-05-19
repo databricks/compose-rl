@@ -407,9 +407,9 @@ def broadcast_to_vllm(
     for module_name, module in model.named_modules():
         if isinstance(module, FSDP):
             # This should be the root module, and it's only initialized after we call forwards
-            if module_name == 'model':
-            # print ("this should be the root module skipping", module)
-                continue
+            # if module_name == 'model':
+                # print ("this should be the root module skipping", module)
+                # continue
 
             # Only update if we haven't updated this module before
             if module not in seen_fsdp_modules:
@@ -437,7 +437,11 @@ def broadcast_to_vllm(
                             if is_fsdp_leaf(module):
                                 update = True
                             elif parsed_name in valid_non_leaf_module_names:
-                                if (loss_type == 'ppo' and 'lm_backbone' in full_name or loss_type == 'grpo'):
+                                if (
+                                    loss_type == 'ppo' and
+                                    'lm_backbone' in full_name or
+                                    loss_type == 'grpo'
+                                ):
                                     update = True
 
                             # We've already updated this module before,
