@@ -423,10 +423,10 @@ class PPOCallback(CallbackWithConfig):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
 
-        if self.pad_token_idx in self.eos_token_ids:
-            log.warning(
-                'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
-            )
+        # if self.pad_token_idx in self.eos_token_ids:
+        #     log.warning(
+        #         'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
+        #     )
 
         # TODO (#158): do this through composer.
         for destination in ensure_tuple(logger.destinations):
