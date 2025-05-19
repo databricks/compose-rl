@@ -336,6 +336,36 @@ def is_fsdp_leaf(module: nn.Module) -> bool:
     return True
 
 
+def should_update_torch_module(
+    parsed_module_name: str,
+    full_param_name: str,
+    module: nn.Module,
+    loss_type: str,
+    valid_non_leaf_module_names: list[str],
+):
+    """Check if the module should be updated.
+
+    Args:
+        parsed_module_name (str): The parsed name of the module
+        module (nn.Module): The torch module to check
+        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
+        valid_non_leaf_module_names (list[str]): List of valid non-leaf module names
+    """
+    if is_fsdp_leaf(module):
+        return True
+
+    if parsed_module_name not in valid_non_leaf_module_names:
+        return False
+
+    if loss_type == 'grpo':
+        return True
+
+    if loss_type == 'ppo' and 'lm_backbone' in full_param_name:
+        return True
+
+    return False
+
+
 def broadcast_to_vllm(
     model: nn.Module,
     vllm_engines: list,
@@ -406,8 +436,9 @@ def broadcast_to_vllm(
 
     for module_name, module in model.named_modules():
         if isinstance(module, FSDP):
-            # This is the root module for actor critic models. This is needed otherwise FSDP 
-            # will materialize parameters of size 0 
+            # This is the root module for the joint actor critic models. This is needed otherwise FSDP
+            # will materialize parameters of size 0. So just for the joint actor critic
+            # models we have to actually skip this module.
             if module_name == 'model' and loss_type == 'ppo':
                 continue
 
@@ -431,18 +462,13 @@ def broadcast_to_vllm(
                                 log.info('Critic head found, skipping sending')
                                 continue
 
-                            update = False
-
-                            # If we are at a leaf of a FSDP module we should always update it
-                            if is_fsdp_leaf(module):
-                                update = True
-                            elif parsed_name in valid_non_leaf_module_names:
-                                if (
-                                    loss_type == 'ppo' and
-                                    'lm_backbone' in full_name or
-                                    loss_type == 'grpo'
-                                ):
-                                    update = True
+                            update = should_update_torch_module(
+                                parsed_name,
+                                full_name,
+                                module,
+                                loss_type,
+                                valid_non_leaf_module_names,
+                            )
 
                             # We've already updated this module before,
                             if parsed_name in seen_updated_parsed_names:
@@ -452,9 +478,6 @@ def broadcast_to_vllm(
                             if update:
                                 start_update_time = time.time()
                                 seen_updated_parsed_names.add(parsed_name)
-
-                                print('updating parsed name: ', parsed_name)
-                                print('updating full name: ', full_name)
 
                                 count += 1
                                 shape = param.shape
