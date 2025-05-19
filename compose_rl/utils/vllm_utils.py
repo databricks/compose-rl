@@ -448,6 +448,9 @@ def broadcast_to_vllm(
                                 start_update_time = time.time()
                                 seen_updated_parsed_names.add(parsed_name)
 
+                                print ("updating parsed name: ", parsed_name)
+                                print ("updating full name: ", full_name)
+
                                 count += 1
                                 shape = param.shape
                                 refs = [
