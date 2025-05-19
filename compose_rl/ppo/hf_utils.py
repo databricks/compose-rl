@@ -31,7 +31,14 @@ log = logging.getLogger(__name__)
 
 class AutoModelForCausalLMAsPolicy(PreTrainedModel):
     config_class = HFPolicyConfig
+
+    # None of these are really true, but because this class inherits
+    # from PreTrainedModel, we need to fake these to pass checks that transformers runs.
+    # The real checks will be done when we call AutoModelForCausalLM in the constructor.
     _supports_flash_attn_2 = True
+    _supports_sdpa = True
+    _supports_flex_attn = True
+    _supports_attention_backend = True
 
     def __init__(self, config: PretrainedConfig, **kwargs: Any):
         super().__init__(config)
