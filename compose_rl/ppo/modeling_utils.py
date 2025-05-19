@@ -231,6 +231,8 @@ def online_rl_loss(
             adv_masked_var,
         )
 
+        print('in modeling utils in ppo advantages is: ', advantages)
+
     advantages = advantages.detach()
 
     online_log_probs, old_log_probs = outputs['online_log_probs'], batch[

@@ -846,12 +846,14 @@ class PPOCallback(CallbackWithConfig):
 
         # Now that rewards are resolved, we can compute advantages
         if self.actor_critic.loss_type == 'ppo':
+            print('in compute advantages in ppo')
             env_outs['advantages'] = compute_advantages(
                 rewards=env_outs['rewards'],
                 values=env_outs['values'],
                 gamma=self.gamma,
                 lambda_gae=self.lambda_gae,
             )
+            print('advantages is: ', env_outs['advantages'])
         elif self.actor_critic.loss_type == 'grpo':
             # compute GRPO advantages
             prompt_id = env_outs['prompt_id']
@@ -922,6 +924,13 @@ class PPOCallback(CallbackWithConfig):
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
             env_outs['advantages'],
             env_outs['action_mask'],
+        )
+
+        print(
+            'advantages mean is: ',
+            batch_adv_mean,
+            ' and var is: ',
+            batch_adv_var,
         )
 
         mean_ift = masked_mean(
