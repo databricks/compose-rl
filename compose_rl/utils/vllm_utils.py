@@ -407,9 +407,9 @@ def broadcast_to_vllm(
     for module_name, module in model.named_modules():
         if isinstance(module, FSDP):
             # This should be the root module, and it's only initialized after we call forwards
-            if module_name == 'model':
+            # if module_name == 'model':
                 # print ("this should be the root module skipping", module)
-                continue
+                # continue
 
             # Only update if we haven't updated this module before
             if module not in seen_fsdp_modules:
@@ -448,8 +448,8 @@ def broadcast_to_vllm(
                                 start_update_time = time.time()
                                 seen_updated_parsed_names.add(parsed_name)
 
-                                print ("updating parsed name: ", parsed_name)
-                                print ("updating full name: ", full_name)
+                                print("updating parsed name: ", parsed_name)
+                                print("updating full name: ", full_name)
 
                                 count += 1
                                 shape = param.shape
