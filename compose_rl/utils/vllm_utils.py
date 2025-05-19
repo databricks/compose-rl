@@ -406,6 +406,11 @@ def broadcast_to_vllm(
 
     for module_name, module in model.named_modules():
         if isinstance(module, FSDP):
+            # This is the root module for actor critic models. This is needed otherwise FSDP 
+            # will materialize parameters of size 0 
+            if module_name == 'model' and loss_type == 'ppo':
+                continue
+
             # Only update if we haven't updated this module before
             if module not in seen_fsdp_modules:
                 seen_fsdp_modules.add(module)
