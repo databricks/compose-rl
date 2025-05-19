@@ -436,9 +436,8 @@ def broadcast_to_vllm(
 
     for module_name, module in model.named_modules():
         if isinstance(module, FSDP):
-            # This is the root module for the joint actor critic models. This is needed otherwise FSDP
-            # will materialize parameters of size 0. So just for the joint actor critic
-            # models we have to actually skip this module.
+            # This is needed otherwise FSDP will materialize parameters of size 0.
+            # So just for the joint actor critic models we have to actually skip this module.
             if module_name == 'model' and loss_type == 'ppo':
                 continue
 
