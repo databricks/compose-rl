@@ -406,11 +406,6 @@ def broadcast_to_vllm(
 
     for module_name, module in model.named_modules():
         if isinstance(module, FSDP):
-            # This should be the root module, and it's only initialized after we call forwards
-            # if module_name == 'model':
-                # print ("this should be the root module skipping", module)
-                # continue
-
             # Only update if we haven't updated this module before
             if module not in seen_fsdp_modules:
                 seen_fsdp_modules.add(module)
@@ -473,6 +468,10 @@ def broadcast_to_vllm(
                                     group=model_update_group,
                                 )
                                 update_time += time.time() - start_update_time
+    
+    assert num_params == count, (
+        f'Number of parameters updated {count} does not match the number of parameters {num_params}' + 
+        f'This means that some parameters were not updated.')
 
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
