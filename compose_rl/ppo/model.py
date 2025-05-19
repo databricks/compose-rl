@@ -129,24 +129,19 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
 
     def __init__(
         self,
+        *,
         tokenizer: Tokenizer,
-        pretrained_model_name_or_path: str,
-        additional_train_metrics: Optional[list] = None,
-        additional_eval_metrics: Optional[list] = None,
         config_overrides: Optional[dict[str, Any]] = None,
-        **kwargs: dict[str, Any],
+        loss_type: str = 'ppo',
+        **kwargs: Any,
     ):
-
-        self.running_stats = collections.defaultdict(lambda: [])
-
         super().__init__(
-            pretrained_model_name_or_path=pretrained_model_name_or_path,
             tokenizer=tokenizer,
-            additional_train_metrics=additional_train_metrics,
-            additional_eval_metrics=additional_eval_metrics,
             config_overrides=config_overrides,
             **kwargs,
         )
+
+        self.running_stats = collections.defaultdict(lambda: [])
 
         self.tokenizer = tokenizer
         self.policy_kl = []
@@ -159,7 +154,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
             self.compute_kl_loss = config_overrides.get('compute_kl_loss')
             self.target_kl = config_overrides.get('target_kl')
 
-        self.loss_type = kwargs.get('loss_type', 'ppo')
+        self.loss_type = loss_type
 
         # Validating the input types
         assert isinstance(self.compute_kl_loss, bool)
