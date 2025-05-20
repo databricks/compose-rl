@@ -933,8 +933,10 @@ class PPOCallback(CallbackWithConfig):
             utils.masked_mean(norm_adv, env_outs['action_mask']),
         )
 
-        all_gathered_advantages = dist.all_gather_object(norm_adv)
-        all_gathered_masks = dist.all_gather_object(env_outs['action_mask'])
+        all_gathered_advantages = torch.Tensor(dist.all_gather_object(norm_adv))
+        all_gathered_masks = torch.Tensor(
+            dist.all_gather_object(env_outs['action_mask'])
+        )
         print(
             'global normalized is: ',
             utils.masked_mean(all_gathered_advantages, all_gathered_masks),
