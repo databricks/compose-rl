@@ -835,8 +835,11 @@ class PPOCallback(CallbackWithConfig):
         # Keep track of prompt ids, rewards and verified answers for logging
         prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
         rewards = env_outs['rewards'].sum(dim=-1).detach().cpu().tolist()
+        verified_answers = iter_batch.get('verified_answer', None)
+        if verified_answers is None:
+            verified_answers = [''] * len(prompt_ids)
         self.prompt_ids_rewards_and_answers.extend(
-            list(zip(prompt_ids, rewards, iter_batch['verified_answer'])),
+            list(zip(prompt_ids, rewards, verified_answers)),
         )
 
         # Adding the right_padded_attn_mask to the env_outputs
