@@ -927,6 +927,19 @@ class PPOCallback(CallbackWithConfig):
             env_outs['action_mask'],
         )
 
+        norm_adv = (env_outs['advantages'] - batch_adv_mean)
+        print(
+            'local norm mean adv is: ',
+            utils.masked_mean(norm_adv, env_outs['action_mask']),
+        )
+
+        all_gathered_advantages = dist.all_gather_object(norm_adv)
+        all_gathered_masks = dist.all_gather_object(env_outs['action_mask'])
+        print(
+            'global normalized is: ',
+            utils.masked_mean(all_gathered_advantages, all_gathered_masks),
+        )
+
         mean_ift = masked_mean(
             env_outs['ift_kl'],
             env_outs['action_mask'],
