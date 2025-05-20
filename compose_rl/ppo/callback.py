@@ -500,6 +500,8 @@ class PPOCallback(CallbackWithConfig):
 
         self.precision = state.precision
         self.device_train_microbatch_size: int = state.device_train_microbatch_size  # type: ignore
+        if self.device_train_microbatch_size == 'auto':
+            raise ValueError('auto microbatching is not supported for PPO')
 
         self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
 
