@@ -135,6 +135,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         loss_type: str = 'ppo',
         **kwargs: Any,
     ):
+        print("*"*30 + kwargs['attn_implementation'])
         super().__init__(
             tokenizer=tokenizer,
             config_overrides=config_overrides,

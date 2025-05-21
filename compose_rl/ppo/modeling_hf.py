@@ -45,6 +45,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         allow_embedding_resizing: bool = True,
         **kwargs: Any,
     ):
+        print("*"*30 + kwargs['attn_implementation'])
         super().__init__(
             shift_labels=True,
             allow_embedding_resizing=allow_embedding_resizing,
@@ -61,7 +62,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         attn_implementation: str,
         config_overrides: dict[str, Any],
     ) -> PretrainedConfig:
-
+        print("*"*30 + attn_implementation)
         base_config = AutoConfig.from_pretrained(
             pretrained_model_name_or_path,
             trust_remote_code=trust_remote_code,
