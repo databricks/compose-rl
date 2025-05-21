@@ -224,6 +224,8 @@ def online_rl_loss(
         if adv_masked_var.dim() > 0:
             adv_masked_var = adv_masked_var[0]
 
+        print("*"*30, adv_masked_mean, adv_masked_var)
+
         # Normalizing advantages over each minibatch
         advantages = utils.masked_normalize(
             batch['advantages'],
