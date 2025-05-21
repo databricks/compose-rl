@@ -407,11 +407,12 @@ def online_rl_loss(
         return_dict[key] = value.detach().cpu()
 
     return_dict['total'] = policy_loss
+    print("1*"*30, return_dict['total'])
     if loss_type == 'ppo':
         # Add value loss to total loss
         return_dict['total'
                    ] += value_loss_weight * value_loss  # pyright: ignore
-
+    print("2*"*30, return_dict['total'])
     # If we want to directly minimize the KL Divergence, we can do so here
     # and it will not include the KL in the reward.
     if add_direct_kl_loss:
@@ -419,9 +420,9 @@ def online_rl_loss(
         return_dict['loss/online_ift_kl'] = (
             batch['ift_kl_scalar'][0] * online_ift_kl
         )
-
+    print("3*"*30, return_dict['total'])
     if 'lbl' in outputs and outputs['lbl'] is not None:
         return_dict['loss/lbl'] = outputs['lbl']
         return_dict['total'] += outputs['lbl']
-
+    print("4*"*30, return_dict['total'])
     return return_dict, policy_kl.detach().cpu()
