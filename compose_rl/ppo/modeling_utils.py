@@ -292,6 +292,8 @@ def online_rl_loss(
 
     if length_normalize_policy_loss:
         policy_loss = utils.masked_mean(policy_loss, batch['action_mask'], dim=-1).mean()
+        print("old*"*30, utils.masked_mean(policy_loss, batch['action_mask']))
+        print("new*"*30, policy_loss)
     else:
         policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
 
