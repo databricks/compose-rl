@@ -251,6 +251,12 @@ def masked_sum(
         return (values * mask).sum(dim=dim)
     return (values * mask).sum()
 
+def batch_preserving_masked_mean(
+    values: torch.Tensor,
+    mask: torch.Tensor,
+):
+    per_row = (values * mask).sum(dim=-1) / mask.sum(dim=-1)
+    return per_row.mean()
 
 def masked_mean(
     values: torch.Tensor,

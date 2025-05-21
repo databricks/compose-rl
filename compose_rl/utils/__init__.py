@@ -4,6 +4,7 @@
 from compose_rl.utils.utils import (
     add_right_padding,
     approx_kl,
+    batch_preserving_masked_mean,
     batch_process_fine_granularities,
     clear_mb_load_balancing_loss,
     compute_advantages,
@@ -83,4 +84,5 @@ __all__ = [
     'init_process_group',
     'broadcast_to_vllm',
     'flatten',
+    'batch_preserving_masked_mean',
 ]
