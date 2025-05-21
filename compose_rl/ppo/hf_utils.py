@@ -31,7 +31,14 @@ log = logging.getLogger(__name__)
 
 class AutoModelForCausalLMAsPolicy(PreTrainedModel):
     config_class = HFPolicyConfig
+
+    # None of these are really true, but because this class inherits
+    # from PreTrainedModel, we need to fake these to pass checks that transformers runs.
+    # The real checks will be done when we call AutoModelForCausalLM in the constructor.
     _supports_flash_attn_2 = True
+    _supports_sdpa = True
+    _supports_flex_attn = True
+    _supports_attention_backend = True
 
     def __init__(self, config: PretrainedConfig, **kwargs: Any):
         super().__init__(config)
@@ -158,6 +165,8 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
         target_kl: float = 0.1,
         policy_clip_ratio: float = 0.15,
         compute_kl_loss: bool = True,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = 40.0,
         config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
         cache_dir: Optional[Union[str, os.PathLike]] = None,
         ignore_mismatched_sizes: bool = False,
@@ -220,6 +229,8 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
             target_kl=target_kl,
             policy_clip_ratio=policy_clip_ratio,
             compute_kl_loss=compute_kl_loss,
+            kl_estimator=kl_estimator,
+            kl_clip_range=kl_clip_range,
         )
 
         model = cls(policy_config)

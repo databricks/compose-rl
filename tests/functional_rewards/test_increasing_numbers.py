@@ -15,7 +15,7 @@ from compose_rl.reward_learning import IncreasingNumbersReward
 @pytest.fixture
 def reward() -> IncreasingNumbersReward:
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    return IncreasingNumbersReward({}, tokenizer)
+    return IncreasingNumbersReward(tokenizer=tokenizer)
 
 
 def test_is_number() -> None:
@@ -23,10 +23,6 @@ def test_is_number() -> None:
     assert IncreasingNumbersReward.is_number('-123.45') == True
     assert IncreasingNumbersReward.is_number('abc') == False
     assert IncreasingNumbersReward.is_number('12a') == False
-
-
-def test_validate_config(reward: IncreasingNumbersReward) -> None:
-    reward.validate_config()
 
 
 @pytest.mark.parametrize(

@@ -3,8 +3,6 @@
 
 import logging
 import re
-import signal
-import types
 from typing import Any
 
 import sympy
@@ -72,66 +70,34 @@ def remove_boxed(s: str) -> str:
     return s.strip('{}')
 
 
-class timeout:  # noqa: N801
-    """Context manager for enforcing function execution timeouts."""
-
-    def __init__(self, seconds: int = 1, error_message: str = 'Timeout'):
-        """Initializes timeout parameters."""
-        self.seconds = seconds
-        self.error_message = error_message
-
-    def handle_timeout(self, signum: int, frame: Any):
-        """Handles the timeout signal by raising a TimeoutError."""
-        del signum, frame  # unused
-        raise TimeoutError(self.error_message)
-
-    def __enter__(self):
-        """Sets up the alarm signal for the timeout."""
-        signal.signal(signal.SIGALRM, self.handle_timeout)
-        signal.alarm(self.seconds)
-
-    def __exit__(
-        self,
-        type: type[BaseException],
-        value: BaseException,
-        traceback: types.TracebackType,
-    ):
-        """Disables the alarm signal."""
-        signal.alarm(0)
-
-
 def is_equiv(x1: str, x2: str) -> bool:
     """Checks mathematical equivalence between two normalized LaTeX strings."""
     try:
-        with timeout(seconds=5):
-            try:
-                parsed_x1 = parse_latex(x1)
-                parsed_x2 = parse_latex(x2)
-            except (
-                sympy.parsing.latex.  # pyright: ignore[reportGeneralTypeIssues]
-                errors.LaTeXParsingError,
-                sympy.SympifyError,
-                TypeError,
-            ):
-                log.debug(f"couldn't parse one of {x1} or {x2}")
-                return False
+        try:
+            parsed_x1 = parse_latex(x1)
+            parsed_x2 = parse_latex(x2)
+        except (
+            sympy.parsing.latex.  # pyright: ignore[reportGeneralTypeIssues]
+            errors.LaTeXParsingError,
+            sympy.SympifyError,
+            TypeError,
+        ):
+            log.debug(f"couldn't parse one of {x1} or {x2}")
+            return False
 
-            try:
-                diff = parsed_x1 - parsed_x2  # pyright: ignore[reportOptionalOperand]
-            except TypeError:
-                log.debug(f"couldn't subtract {x1} and {x2}")
-                return False
+        try:
+            diff = parsed_x1 - parsed_x2  # pyright: ignore[reportOptionalOperand]
+        except TypeError:
+            log.debug(f"couldn't subtract {x1} and {x2}")
+            return False
 
-            try:
-                return sympy.simplify(diff) == 0
-            except ValueError:
-                log.debug(
-                    f'Had some trouble simplifying when comparing {x1} and {x2}',
-                )
-                return False
-    except TimeoutError:
-        log.debug(f'Timed out comparing {x1} and {x2}')
-        return False
+        try:
+            return sympy.simplify(diff) == 0
+        except ValueError:
+            log.debug(
+                f'Had some trouble simplifying when comparing {x1} and {x2}',
+            )
+            return False
     except ImportError as e:
         log.error(e)
         raise
@@ -241,7 +207,9 @@ def extract_math_answer(sample: Any) -> str | None:
     last_boxed_string = last_boxed_only_string(sample['solution'])
     if not last_boxed_string:  # No boxed string found
         return None
-    return remove_boxed(last_boxed_string)
+
+    unnormalized_answer = remove_boxed(last_boxed_string)
+    return normalize_final_answer(unnormalized_answer)
 
 
 def prepare_math_prompt(sample: Any) -> str:

@@ -14,15 +14,8 @@ from compose_rl.reward_learning import MATHVerifierReward
 
 @pytest.fixture
 def reward() -> MATHVerifierReward:
-    config: dict[str, Any] = {
-        'reward': 10.0,
-    }
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    return MATHVerifierReward(config, tokenizer)
-
-
-def test_validate_config(reward: MATHVerifierReward) -> None:
-    reward.validate_config()
+    return MATHVerifierReward(reward=10.0, tokenizer=tokenizer)
 
 
 def test_call_base_verifer_invalid_input(reward: MATHVerifierReward) -> None:

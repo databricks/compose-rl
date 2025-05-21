@@ -19,8 +19,9 @@ from llmfoundry.utils.config_utils import process_init_device  # type: ignore
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from compose_rl.ppo.kl_controller import BaseKLController
-from compose_rl.registry import RL_REWARD_REGISTRY
+from compose_rl.interfaces.base_kl_controller import BaseKLController
+from compose_rl.registry import rewards as rewards_registry
+from compose_rl.registry_builders import build_reward
 from compose_rl.reward_learning import (
     BadGenerationEndReward,
     BaseReward,
@@ -29,6 +30,7 @@ from compose_rl.reward_learning import (
     RewardModel,
 )
 from compose_rl.utils import (
+    approx_kl,
     batch_process_fine_granularities,
     get_log_probs,
     scatter_gather_rewards,
@@ -95,7 +97,6 @@ class RewardManager:
 
         for reward_name, reward_config in self.config.items():
             assert isinstance(reward_name, str)
-
             if reward_name in self.all_rewards:
                 raise KeyError(
                     f'The reward manager already has a model with {reward_name=}',
@@ -104,13 +105,18 @@ class RewardManager:
             log.info(f'Initializing reward with name {reward_name}')
 
             # TODO: Validate reward_config
-            reward_cls = RL_REWARD_REGISTRY[reward_config.get('reward_type')]
+            reward_type = reward_config.pop('reward_type')
+            reward_cls = rewards_registry.get(reward_type)
 
             if issubclass(reward_cls, Reward):
                 # TODO: This assumes that all functional rewards are document level rewards.
                 # This is not necessarily true, but is a reasonable assumption for now.
                 self.granularities[reward_name] = 'document'
-                model = reward_cls(reward_config, self.tokenizer)
+                model = build_reward(
+                    name=reward_type,
+                    tokenizer=self.tokenizer,
+                    kwargs=reward_config,
+                )
                 self.functional_rewards.append(reward_name)
 
             elif issubclass(reward_cls, RewardModel):
@@ -119,9 +125,10 @@ class RewardManager:
                 )
 
                 if reward_cls == InferenceRewardModel:
-                    model = InferenceRewardModel(
-                        reward_config.get('config'),
-                        self.tokenizer,
+                    model = build_reward(
+                        name=reward_type,
+                        tokenizer=self.tokenizer,
+                        kwargs=reward_config,
                     )
                     self.inference_rewards.append(reward_name)
 
@@ -301,7 +308,8 @@ class RewardManager:
         actions: torch.Tensor,
         action_log_probs: torch.Tensor,
         device_train_microbatch_size: int,
-        kl_estimator: str,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = 40.0,
         verified_answers: Optional[list[str]] = None,
     ) -> tuple[ReferenceOutput, RewardOutput]:
         """Collect rewards for generations.
@@ -325,6 +333,7 @@ class RewardManager:
             action_log_probs (tensor): The log probability of generating each action.
             device_train_microbatch_size (int): The device train microbatch size, which we need to compute log_probs otherwise we see numerical differences.
             kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
+            kl_clip_range (float): The clip range for the KL divergence.
             verified_answers (Optional[list[str]]): A list of answers for verifiable rewards.
 
         Returns:
@@ -417,6 +426,7 @@ class RewardManager:
             batch,
             device_train_microbatch_size,
             kl_estimator,
+            kl_clip_range,
         )
 
         return ref_output, computed_rewards
@@ -485,7 +495,8 @@ class RewardManager:
         self,
         batch: MutableMapping,
         device_train_microbatch_size: int,
-        kl_estimator: str,
+        kl_estimator: Optional[str] = 'k1',
+        kl_clip_range: Optional[float] = 40.0,
     ) -> ReferenceOutput:
         """Computes the reference KL for a batch of data.
 
@@ -493,6 +504,7 @@ class RewardManager:
             batch (MutableMapping): the batch of data to compute the reference KL.
             device_train_microbatch_size (int): The device train microbatch size.
             kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3', 'k3_offpolicy'.
+            kl_clip_range (float): The clip range for the KL divergence.
         """
         batch_size = batch['input_ids'].size(0)
         kl = []
@@ -513,28 +525,12 @@ class RewardManager:
                 max_gen_len=curr_batch['max_gen_len'],
             )
 
-            logprob_diff = (
-                curr_batch['action_log_probs'] - curr_ref_log_probs
-            ).clamp(min=-40.0, max=40.0)
-            approxkl_k1 = logprob_diff
-            approxkl_k2 = 0.5 * (logprob_diff**2)
-            approxkl_k3 = torch.expm1(-logprob_diff) + logprob_diff
-            approxkl_k3_offpolicy = 1.0 - torch.exp(-logprob_diff)
-
-            curr_kl = 0.0
-            if kl_estimator == 'k1':
-                curr_kl = approxkl_k1
-            elif kl_estimator == 'k2':
-                # The k2_loss is approximately equivalent to the one-step KL divergence penalty with the k1 estimator
-                # used in https://arxiv.org/pdf/2310.10505.
-                curr_kl = approxkl_k2
-            elif kl_estimator == 'k3':
-                # The k3 estimator is the non negative kl approximation in http://joschu.net/blog/kl-approx.html
-                curr_kl = approxkl_k3
-            elif kl_estimator == 'k3_offpolicy':
-                # This is taken from https://hongyuzang.notion.site/The-critical-implementation-detail-of-KL-loss-in-GRPO-1ae3fe2c1ff9809a9307c5402e190373
-                # This is specifically for off-policy learning and can be useful for async training.
-                curr_kl = approxkl_k3_offpolicy
+            kl_dict = approx_kl(
+                log_p=curr_ref_log_probs,
+                log_q=curr_batch['action_log_probs'],
+                kl_clip_range=kl_clip_range,
+            )
+            curr_kl = kl_dict[kl_estimator]  # pyright: ignore
 
             kl.append(curr_kl)
             ref_model_log_probs.append(curr_ref_log_probs)

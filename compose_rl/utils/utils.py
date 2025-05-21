@@ -70,22 +70,46 @@ def clear_mb_load_balancing_loss(
         clear_load_balancing_loss()
 
 
-def approx_kl(log_p: torch.Tensor, log_q: torch.Tensor) -> torch.Tensor:
+def approx_kl(
+    log_p: torch.Tensor,
+    log_q: torch.Tensor,
+    kl_clip_range: Optional[float] = 40.0,
+) -> dict[str, torch.Tensor]:
     """Approximates the KL divergence between two distributions P, Q.
 
     Approximates the KL Divergence between P, Q given the log probabilities,
-    log_p and log_q. Taken from: http://joschu.net/blog/kl-approx.html.
-
-    The estimator is unbiased and lower variance than if we were to apporximate
-    it by just `-ratio.`
+    log_p and log_q.
 
     Args:
         log_p (torch.Tensor): log probabilities for the distribution p.
         log_q (torch.Tensor): log probabilities for the distribution q.
+        kl_clip_range (float): The clip range for diff of logprobs.
+
+    Returns:
+        kl_dict (dict[str, torch.Tensor]): a dictionary of the different KL divergence estimators.
+            The keys are 'k1', 'k2', 'k3', and 'k3_offpolicy'.
     """
     ratio = log_p - log_q
-    approx_kl = (ratio.exp() - 1) - ratio
-    return approx_kl
+    if kl_clip_range is not None:
+        ratio = ratio.clamp(min=-kl_clip_range, max=kl_clip_range)
+
+    approx_kl_k1 = -ratio
+    # The k2_loss is approximately equivalent to the one-step KL divergence penalty with the k1 estimator
+    # used in https://arxiv.org/pdf/2310.10505.
+    approx_kl_k2 = 0.5 * (ratio**2)
+    # The k3 estimator is the non negative kl approximation in http://joschu.net/blog/kl-approx.html
+    approx_kl_k3 = torch.expm1(ratio) - ratio
+    # This is taken from https://hongyuzang.notion.site/The-critical-implementation-detail-of-KL-loss-in-GRPO-1ae3fe2c1ff9809a9307c5402e190373
+    # This is specifically for off-policy learning and can be useful for async training.
+    approx_kl_k3_offpolicy = 1.0 - torch.exp(ratio)
+
+    kl_dict = {
+        'k1': approx_kl_k1,
+        'k2': approx_kl_k2,
+        'k3': approx_kl_k3,
+        'k3_offpolicy': approx_kl_k3_offpolicy,
+    }
+    return kl_dict
 
 
 def get_log_probs(

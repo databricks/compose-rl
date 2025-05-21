@@ -10,7 +10,7 @@ import os
 import socket
 import time
 from itertools import chain
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import ray
 import torch
@@ -70,7 +70,8 @@ def env_reward(
     device_train_microbatch_size: int,
     tokenizer: Tokenizer,
     eos_token_ids: list[int],
-    kl_estimator: str,
+    kl_estimator: Optional[str] = 'k1',
+    kl_clip_range: Optional[float] = 40.0,
 ) -> tuple[
     dict[str, torch.Tensor],
     list[tuple[str, str]],
@@ -93,6 +94,7 @@ def env_reward(
         tokenizer (Tokenizer): The actor critic's tokenizer.
         eos_token_ids (list[int]): A list of eos token ids.
         kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
+        kl_clip_range (float): The clip range for the KL divergence.
 
     Returns:
         partial_env_output (dict[str, tensor]): Partially complete dictionary of return elements suitable
@@ -224,9 +226,9 @@ def env_reward(
                     if isinstance(value, torch.Tensor) else value
                 for key, value in input_model_kwargs.items()
             }
+
             cur_output = actor_critic(curr_kwargs)
             cur_logits = cur_output['logits']
-            cur_values = cur_output['values']
             # need to pull out current actions and prompt len
             cur_actions = curr_kwargs['actions']
             cur_prompt_len = curr_kwargs['prompt_len']
@@ -245,31 +247,34 @@ def env_reward(
             )
             log_probs.append(cur_log_probs)
             entropies.append(cur_entropies)
-            values.append(cur_values)
+            # Ignore values when the model doesn't have a value head
+            if 'values' in cur_output:
+                cur_values = cur_output['values']
+                values.append(cur_values)
 
         device_train_microbatch_log_probs = torch.cat(log_probs)
         device_train_microbatch_entropies = torch.cat(entropies)
-        device_train_microbatch_values = torch.cat(values)
-
-        # Need to add in the padding for the value function
-        value_action_mask = torch.cat([
-            action_mask,
-            torch.zeros((batch_size, 1), device=cur_device),
-        ],
-                                      dim=-1)
-        device_train_microbatch_values *= value_action_mask
 
         partial_env_output = {
             'prompt_id': prompt_id,
-            'actions': actions.detach(),
-            'old_log_probs': device_train_microbatch_log_probs.detach(),
-            'old_entropies': device_train_microbatch_entropies.detach(),
-            'obs': right_padded_obs.detach(),
+            'actions': actions,
+            'old_log_probs': device_train_microbatch_log_probs,
+            'old_entropies': device_train_microbatch_entropies,
+            'obs': right_padded_obs,
             'generated_len': generated_len,
             'action_mask': action_mask,
-            'values': device_train_microbatch_values.detach(),
         }
+        if len(values) > 0:
+            device_train_microbatch_values = torch.cat(values)
 
+            # Need to add in the padding for the value function
+            value_action_mask = torch.cat([
+                action_mask,
+                torch.zeros((batch_size, 1), device=cur_device),
+            ],
+                                          dim=-1)
+            device_train_microbatch_values *= value_action_mask
+            partial_env_output['values'] = device_train_microbatch_values
         # Future implementations may change the way reward_seq_len is defined
         # e.g., if special formatting is applied
         reward_seq_len = prompt_len + generated_len
@@ -286,6 +291,7 @@ def env_reward(
             action_log_probs=device_train_microbatch_log_probs,
             device_train_microbatch_size=device_train_microbatch_size,
             kl_estimator=kl_estimator,
+            kl_clip_range=kl_clip_range,
             verified_answers=verified_answers,
         )
 
@@ -317,13 +323,48 @@ class PPOCallback(CallbackWithConfig):
         self.gamma = var_config.get('gamma', 1.0)
         # Value used in the generalized advantage estimate calculation.
         self.lambda_gae = var_config.get('lambda_gae', 1.0)
+
+        # Other algo specific hparams
+
         # Which kl estimator to use
-        self.kl_estimator = var_config.get('kl_estimator', 'k1')
-        if self.kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
+        if 'kl_estimator' not in train_config['model']:
+            # TODO: Modify PPO to nuke config_overrides in the future
+            # Check in model's config_overrides
+            kl_estimator = train_config['model']['config_overrides'].get(
+                'kl_estimator',
+                'k1',
+            )
+        else:
+            kl_estimator = train_config['model'].get('kl_estimator', 'k1')
+        if kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
             raise ValueError(
-                f'Invalid kl estimator: {self.kl_estimator}. ' +
+                f'Invalid kl estimator: {kl_estimator}. ' +
                 'Valid options are: k1, k2, k3, k3_offpolicy.',
             )
+        self.kl_estimator = kl_estimator
+
+        if 'kl_clip_range' not in train_config['model']:
+            # TODO: Modify PPO to nuke config_overrides in the future
+            # Check in model's config_overrides
+            kl_clip_range = train_config['model']['config_overrides'].get(
+                'kl_clip_range',
+                40.0,
+            )
+        else:
+            kl_clip_range = train_config['model'].get('kl_clip_range', 40.0)
+        if kl_clip_range <= 0:
+            raise ValueError(
+                f'Invalid kl clip range: {kl_clip_range}. ' +
+                'Must be greater than 0.',
+            )
+        # check for precision and clip range
+        precision = train_config['precision']
+        if precision != 'fp32':
+            if kl_clip_range > 50.0:
+                log.warning(
+                    f'Clip value of {kl_clip_range=} will not be effective with {precision=} as range for tensors is too small',
+                )
+        self.kl_clip_range = kl_clip_range
 
         # Generation keyword arguments.
         self.generation_kwargs = var_config.get('generation_kwargs')
@@ -374,14 +415,20 @@ class PPOCallback(CallbackWithConfig):
         # Programmatically setting the max buffer size instead of the yaml
         var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
-        self.kl_ctl = build_kl_controller(var_config['kl_controller'])
+
+        # Build the KL controller through registries
+        kl_ctl_name = var_config['kl_controller'].pop('kl_ctl_type')
+        self.kl_ctl = build_kl_controller(
+            name=kl_ctl_name,
+            kwargs=var_config['kl_controller'],
+        )
 
         self.kl_ift = []
 
         self.wandb_logger = None
         self.mlflow_logger = None
         self.prompts_and_gens = []
-        self.prompt_ids_and_rewards = []
+        self.prompt_ids_rewards_and_answers = []
         self.iter_num = 0
         self.train_prompt_loader_state_dict = None
         self.train_prompt_loader = None
@@ -713,6 +760,7 @@ class PPOCallback(CallbackWithConfig):
             tokenizer=self.tokenizer,  # type: ignore
             eos_token_ids=self.eos_token_ids,  # type: ignore
             kl_estimator=self.kl_estimator,
+            kl_clip_range=self.kl_clip_range,
         )
 
         self.prompts_and_gens.extend(prompts_and_gens)
@@ -795,10 +843,12 @@ class PPOCallback(CallbackWithConfig):
         )
         env_outs.update(rew_outs)
 
-        # Keep track of prompt ids and rewards
+        # Keep track of prompt ids, rewards and verified answers for logging
         prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
         rewards = env_outs['rewards'].sum(dim=-1).detach().cpu().tolist()
-        self.prompt_ids_and_rewards.extend(list(zip(prompt_ids, rewards)))
+        self.prompt_ids_rewards_and_answers.extend(
+            list(zip(prompt_ids, rewards, iter_batch['verified_answer'])),
+        )
 
         # Adding the right_padded_attn_mask to the env_outputs
         env_outs['right_padded_attn_mask'] = torch.logical_not(
@@ -806,12 +856,79 @@ class PPOCallback(CallbackWithConfig):
         )
 
         # Now that rewards are resolved, we can compute advantages
-        env_outs['advantages'] = compute_advantages(
-            rewards=env_outs['rewards'],
-            values=env_outs['values'],
-            gamma=self.gamma,
-            lambda_gae=self.lambda_gae,
-        )
+        if self.actor_critic.loss_type == 'ppo':
+            env_outs['advantages'] = compute_advantages(
+                rewards=env_outs['rewards'],
+                values=env_outs['values'],
+                gamma=self.gamma,
+                lambda_gae=self.lambda_gae,
+            )
+        elif self.actor_critic.loss_type == 'grpo':
+            # compute GRPO advantages
+            prompt_id = env_outs['prompt_id']
+            rewards = env_outs['rewards']
+
+            # Flatten the rewards by summing on sequence length/action_mask
+            flat_rewards = utils.masked_sum(
+                rewards,
+                env_outs['action_mask'],
+                dim=-1,
+            )
+
+            # Get unique prompt IDs and their indices
+            unique_prompt_ids, inverse_indices = torch.unique(
+                prompt_id,
+                return_inverse=True,
+            )
+
+            # Use scatter to compute means and standard deviations
+            # First, we'll create a tensor to track counts, sums, and sum of squares
+            n_unique = len(unique_prompt_ids)
+            counts = torch.zeros(n_unique, device=prompt_id.device)
+            sums = torch.zeros(n_unique, device=prompt_id.device)
+            sum_squares = torch.zeros(n_unique, device=prompt_id.device)
+
+            # Use scatter_add to accumulate values
+            counts.scatter_add_(
+                0,
+                inverse_indices,
+                torch.ones_like(flat_rewards),
+            )
+            sums.scatter_add_(0, inverse_indices, flat_rewards)
+            sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
+
+            # Compute means and standard deviations
+            means = sums / counts
+            variances = (sum_squares / counts) - (means**2)
+            stds = torch.sqrt(variances)
+
+            # Map back to original tensor shape
+            mean_rewards = means[inverse_indices]
+            std_rewards = stds[inverse_indices]
+
+            # Calculate GRPO advantage
+            grpo_advantage = (flat_rewards - mean_rewards)
+            # Only normalize the advantage if flag is set
+            if self.actor_critic.normalize_advantage:
+                grpo_advantage /= (std_rewards + 1e-4)
+
+            # Create advantages of the same shape as original rewards
+            advantages = torch.zeros_like(rewards)
+            # Copy the flat grpo_advantage according to action_mask
+            expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
+                env_outs['action_mask'],
+            )
+            advantages = torch.where(
+                env_outs['action_mask'].bool(),
+                expanded_advantages,
+                advantages,
+            )
+            env_outs['advantages'] = advantages
+        else:
+            raise ValueError(
+                f'Invalid loss type: {self.actor_critic.loss_type}. ' +
+                'Valid options are: ppo, grpo.',
+            )
 
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
             env_outs['advantages'],
@@ -854,16 +971,23 @@ class PPOCallback(CallbackWithConfig):
         prompts_and_gens = list(
             chain(*dist.all_gather_object(self.prompts_and_gens)),
         )
-        prompt_ids_and_rewards = list(
-            chain(*dist.all_gather_object(self.prompt_ids_and_rewards)),
+        prompt_ids_rewards_and_answers = list(
+            chain(*dist.all_gather_object(self.prompt_ids_rewards_and_answers)),
         )
-        # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation)
-        columns = ['prompt_id', 'reward', 'prompt', 'generation']
-        save_data = [[prompt_id, reward, prompt, generation]
-                     for (prompt_id, reward), (prompt, generation) in zip(
-                         prompt_ids_and_rewards,
-                         prompts_and_gens,
-                     )]
+        # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation, verified_answer)
+        columns = [
+            'prompt_id',
+            'reward',
+            'prompt',
+            'generation',
+            'verified_answer',
+        ]
+        save_data = [[prompt_id, reward, prompt, generation, verified_answer]
+                     for (prompt_id, reward,
+                          verified_answer), (prompt, generation) in zip(
+                              prompt_ids_rewards_and_answers,
+                              prompts_and_gens,
+                          )]
         # Sort the save_data by reward in descending order
         save_data = sorted(save_data, key=lambda x: x[1], reverse=True)
 
@@ -894,7 +1018,7 @@ class PPOCallback(CallbackWithConfig):
                 )
 
         self.prompts_and_gens = []
-        self.prompt_ids_and_rewards = []
+        self.prompt_ids_rewards_and_answers = []
 
     def _update_ift_kl(self):
         local_kl = torch.stack(self.kl_ift)
@@ -978,6 +1102,7 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines,
             self.model_update_group,
             batch,
+            loss_type=self.actor_critic.loss_type,  # type: ignore
         )
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
