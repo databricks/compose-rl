@@ -239,7 +239,7 @@ def online_rl_loss(
             batch['action_mask'],
         )
         adv_var = torch.clamp(adv_var, min=1e-6)
-        advantages = masked_normalize(
+        advantages = utils.masked_normalize(
             batch['advantages'],
             adv_mean,
             adv_var,
