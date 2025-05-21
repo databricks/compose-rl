@@ -260,8 +260,8 @@ def online_rl_loss(
             online_ift_kl_dict[kl_estimator], # pyright: ignore
             batch['action_mask'],
         )
-        print("+"*30, policy_kl_dict[kl_estimator])
-        print("-"*30, online_ift_kl_dict[kl_estimator])
+        print("+"*30, policy_kl_dict[kl_estimator], policy_kl_dict[kl_estimator].sum())
+        print("-"*30, online_ift_kl_dict[kl_estimator], online_ift_kl_dict[kl_estimator].sum())
     else:
         policy_kl = utils.masked_sum(
             policy_kl_dict[kl_estimator], # pyright: ignore
