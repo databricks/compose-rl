@@ -230,11 +230,27 @@ def online_rl_loss(
         )
 
         # Normalizing advantages over each minibatch
-        advantages = utils.masked_normalize(
+        adv_mean = utils.masked_mean(
             batch['advantages'],
-            adv_masked_mean,
-            adv_masked_var,
+            batch['action_mask'],
         )
+        adv_var = utils.masked_var(
+            batch['advantages'],
+            batch['action_mask'],
+        )
+        adv_var = torch.clamp(adv_var, min=1e-6)
+        advantages = masked_normalize(
+            batch['advantages'],
+            adv_mean,
+            adv_var,
+        )
+
+        # # Normalizing advantages over each minibatch
+        # advantages = utils.masked_normalize(
+        #     batch['advantages'],
+        #     adv_masked_mean,
+        #     adv_masked_var,
+        # )
 
         print('after normalized advantages mean is: ', advantages.mean())
 
