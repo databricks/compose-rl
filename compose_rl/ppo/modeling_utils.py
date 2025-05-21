@@ -271,6 +271,7 @@ def online_rl_loss(
         )
 
     ratio = torch.exp(online_log_probs - old_log_probs)
+    print("*"*30, advantages, ratio)
     policy_loss_1 = -advantages * ratio
 
     # Use the same clip ratio for both sides if clip high ratio is not provided
