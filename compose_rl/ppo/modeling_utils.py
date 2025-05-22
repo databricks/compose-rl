@@ -191,7 +191,8 @@ def online_rl_loss(
 
         returns = advantages + values
         returns_mean = utils.sample_wise_masked_mean(
-            returns, batch['action_mask']
+            returns,
+            batch['action_mask'],
         )
         returns_var = utils.masked_var(returns, batch['action_mask'])
 
@@ -291,7 +292,8 @@ def online_rl_loss(
 
     if length_normalize_policy_loss:
         policy_loss = utils.sample_wise_masked_mean(
-            policy_loss, batch['action_mask']
+            policy_loss,
+            batch['action_mask'],
         )
     else:
         policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
