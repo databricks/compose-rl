@@ -1,3 +1,6 @@
+# Copyright 2024 MosaicML ComposeRL authors
+# SPDX-License-Identifier: Apache-2.0
+
 """Utilities for math evaluation.
 
 Note, this uses sympy for equivalence checking, in contrast to simple-evals, which uses LLM-as-a-judge
@@ -13,7 +16,6 @@ import re
 
 import sympy
 from sympy.parsing.latex import parse_latex
-
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +69,8 @@ def is_sympy_equivalent(x1: str, x2: str) -> bool:
             parsed_x1 = parse_latex(x1)
             parsed_x2 = parse_latex(x2)
         except (
-            sympy.parsing.latex.errors.LaTeXParsingError,  # pyright: ignore[reportGeneralTypeIssues]
+            sympy.parsing.latex.  # pyright: ignore[reportGeneralTypeIssues]
+            errors.LaTeXParsingError,
             sympy.SympifyError,
             TypeError,
         ):
@@ -83,7 +86,9 @@ def is_sympy_equivalent(x1: str, x2: str) -> bool:
         try:
             return sympy.simplify(diff) == 0
         except ValueError:
-            log.debug(f'Had some trouble simplifying when comparing {x1} and {x2}')
+            log.debug(
+                f'Had some trouble simplifying when comparing {x1} and {x2}',
+            )
             return False
     except ImportError as e:
         log.error(e)
@@ -189,7 +194,13 @@ def get_unnormalized_answer(text: str) -> str | None:
                 last_match = match.group(1).strip()
 
     stop_words = [
-        '</s>', '<|im_end|>', '<|endoftext|>', '<|eot_id|>', '<|eom_id|>', '<|end_of_text|>', '<|end▁of▁sentence|>'
+        '</s>',
+        '<|im_end|>',
+        '<|endoftext|>',
+        '<|eot_id|>',
+        '<|eom_id|>',
+        '<|end_of_text|>',
+        '<|end▁of▁sentence|>',
     ]
     for stop_word in stop_words:
         if last_match and last_match.endswith(stop_word):
@@ -199,12 +210,13 @@ def get_unnormalized_answer(text: str) -> str | None:
 
 
 def _read_token(s: str, i: int) -> tuple[str, int]:
-    """
-    Return (token, next_index) where `token` is either
-        '{...}'      balanced brace group,
-        '\\command'  control sequence,
-        'c'          single char (non-space),
-    starting at position i.  If no token possible, return ('', i).
+    r"""Return (token, next_index) where `token` is.
+
+    - either '{...}' balanced brace group
+    - '\\command' control sequence,
+    - 'c' single char (non-space), starting at position i.
+
+    If no token possible, return ('', i).
     """
     n = len(s)
     if i >= n:
@@ -243,10 +255,10 @@ def _read_token(s: str, i: int) -> tuple[str, int]:
 
 
 def _fix_fracs(text: str) -> str:
-    """
-    Make every \\frac follow the canonical  \\frac{num}{den}  form.
-    Tokens are parsed according to real LaTeX rules.
-    Nothing else in the string is modified.
+    r"""Make every \\frac follow the canonical \\frac{num}{den} form.
+
+    Tokens are parsed according to real LaTeX rules. Nothing else in the string
+    is modified.
     """
     out, i, n = [], 0, len(text)
 
@@ -290,7 +302,6 @@ _SLASH_FRAC_RE = re.compile(
 
 
 def _fix_a_slash_b(s: str) -> str:
-
     def replacement(m: re.Match[str]) -> str:
         numerator = m.group(1)
         denominator = m.group(2)
@@ -305,12 +316,14 @@ def _fix_a_slash_b(s: str) -> str:
 
 
 def _fix_sqrt(string: str) -> str:
+    r"""Matches `\\sqrt`, optionally followed by a bracketed index (e.g., `[n]`).
+
+    It skips if already followed by a brace, then captures the next LaTeX
+    command, parenthesis group, word, or single character to wrap in braces.
     """
-    Matches `\\sqrt`, optionally followed by a bracketed index (e.g., `[n]`), skips
-    if already followed by a brace, then captures the next LaTeX command, parenthesis
-    group, word, or single character to wrap in braces.
-    """
-    _sqrt_pat_final = re.compile(r'\\sqrt(\[[^\]]+\])?\s*(?!\{)(\\[A-Za-z]+|\([^()]*\)|[A-Za-z0-9_.]+|.)')
+    _sqrt_pat_final = re.compile(
+        r'\\sqrt(\[[^\]]+\])?\s*(?!\{)(\\[A-Za-z]+|\([^()]*\)|[A-Za-z0-9_.]+|.)',
+    )
 
     def _repl(m: re.Match[str]) -> str:
         index = m.group(1) or ''
@@ -419,7 +432,7 @@ def is_hendrycks_equivalent(str1: str, str2: str) -> bool:
 
 
 def extract_answers(prediction: str) -> list[str]:
-    """Extracts all potential answers from a string (given different potential formats)"""
+    """Extracts all potential answers from a string."""
     answers = []
 
     # Attempt extraction from \boxed{} string
@@ -436,7 +449,9 @@ def extract_answers(prediction: str) -> list[str]:
         # Attempt extraction from the last LaTeX-formatted answer
         dollars = [m.start() for m in re.finditer(r'\$', prediction)]
         if len(dollars) > 1:
-            answers.append(normalize_string(prediction[dollars[-2] + 1:dollars[-1]]))
+            answers.append(
+                normalize_string(prediction[dollars[-2] + 1:dollars[-1]]),
+            )
 
     if not answers:
         # fallback to the full output if no answers were found
