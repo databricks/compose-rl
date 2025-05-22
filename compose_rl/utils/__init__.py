@@ -4,7 +4,6 @@
 from compose_rl.utils.utils import (
     add_right_padding,
     approx_kl,
-    batch_preserving_masked_mean,
     batch_process_fine_granularities,
     clear_mb_load_balancing_loss,
     compute_advantages,
@@ -34,6 +33,7 @@ from compose_rl.utils.utils import (
     process_fine_granularities,
     remove_left_padding,
     rescale,
+    sample_wise_masked_mean,
     scatter_gather_rewards,
     split_text_to_sentences,
     split_text_to_subsentences,
@@ -84,5 +84,5 @@ __all__ = [
     'init_process_group',
     'broadcast_to_vllm',
     'flatten',
-    'batch_preserving_masked_mean',
+    'sample_wise_masked_mean',
 ]

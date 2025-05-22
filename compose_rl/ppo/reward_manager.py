@@ -507,7 +507,6 @@ class RewardManager:
             kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3', 'k3_offpolicy'.
             kl_clip_range (float): The clip range for the KL divergence.
         """
-        batch_size = batch['input_ids'].size(0)
         kl = []
         ref_model_log_probs = []
 
