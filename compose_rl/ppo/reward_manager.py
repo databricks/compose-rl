@@ -7,6 +7,7 @@ import logging
 from itertools import chain
 from multiprocessing import get_context
 from multiprocessing.pool import AsyncResult, Pool
+import time
 from typing import Any, MutableMapping, Optional, Union
 
 import spacy
@@ -507,6 +508,9 @@ class RewardManager:
             kl_clip_range (float): The clip range for the KL divergence.
         """
         batch_size = batch['input_ids'].size(0)
+
+        start_time = time.time()
+
         kl = []
         ref_model_log_probs = []
         for i in range(batch_size // device_train_microbatch_size):
@@ -538,6 +542,8 @@ class RewardManager:
         kl = torch.cat(kl)
         ref_model_log_probs = torch.cat(ref_model_log_probs)
         ref_output = (kl, ref_model_log_probs)
+
+        log.info(f"Took {time.time() - start_time} seconds to compute reference KL.")
 
         return ref_output
 
@@ -576,6 +582,8 @@ class RewardManager:
         """
         device = action_mask.device
 
+        start_time = time.time()
+
         # Resolve any output elements that are being computed async,
         # waiting for them to finish where necessary.
         resolved_reward_outputs: dict[str, torch.Tensor] = {}
@@ -597,6 +605,8 @@ class RewardManager:
                 bad_end_generation_mask = bad_end_generation_mask.to(
                     device=device,
                 )
+
+        log.info(f"Took {time.time() - start_time} seconds to resolve rewards.")
 
         ref_kl = ref_output[0].to(device=device)
         ref_log_probs = ref_output[1].to(device=device)
