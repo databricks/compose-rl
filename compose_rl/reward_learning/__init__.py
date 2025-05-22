@@ -11,6 +11,7 @@ from compose_rl.reward_learning.functional import (  # MATHVerifierReward,
     GSM8KAnswerVeriferReward,
     GSM8KFormatVeriferReward,
     IncreasingNumbersReward,
+    MATHVerifierReward,
     OutputLengthReward,
     ShortResponseReward,
 )
@@ -41,7 +42,7 @@ rewards.register('hf_pairwise', func=ComposerHFPairwiseRewardModel)
 rewards.register('bad_generation_end', func=BadGenerationEndReward)
 rewards.register('gsm8k_answer_verifier', func=GSM8KAnswerVeriferReward)
 rewards.register('gsm8k_format_verifier', func=GSM8KFormatVeriferReward)
-# rewards.register('math_verifier', func=MATHVerifierReward)
+rewards.register('math_verifier', func=MATHVerifierReward)
 
 __all__ = [
     'BaseReward',
@@ -57,5 +58,5 @@ __all__ = [
     'ShortResponseReward',
     'GSM8KFormatVeriferReward',
     'GSM8KAnswerVeriferReward',
-    # 'MATHVerifierReward',
+    'MATHVerifierReward',
 ]

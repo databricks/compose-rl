@@ -12,12 +12,11 @@ import torch
 
 log = logging.getLogger(__name__)
 
-# from compose_rl.data.rlvr_utils import (
-#     is_equiv,
-#     last_boxed_only_string,
-#     normalize_final_answer,
-#     remove_boxed,
-# )
+
+from compose_rl.data.math_utils import (
+    extract_answers,
+    process_results,
+)
 from compose_rl.reward_learning.base_reward import Reward, Tokenizer
 
 
@@ -413,38 +412,24 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
         return self.reward if solution is not None else 0.0
 
 
-# class MATHVerifierReward(BaseVerifierReward):
+class MATHVerifierReward(BaseVerifierReward):
 
-#     def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
-#         super().__init__(tokenizer=tokenizer, reward=reward)
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
 
-#     def extract_solution(self, text: str) -> str:
-#         """Extract numerical solution from GSM8K-style responses.
+    def needs_extraction(self) -> bool:
+        """Indicate that this verifier doesn't need extraction."""
+        return False
 
-#         Args:
-#             text (str): The generated text.
+    def score_generations(self, answer: str, label: str) -> float:
+        """Score based on exact match.
 
-#         Returns:
-#             str: The extracted numerical answer.
-#         """
-#         last_boxed_string = last_boxed_only_string(text)
-#         if not last_boxed_string:
-#             # No boxed string found, so we can't evaluate
-#             return ''
+        Args:
+            answer (str): The extracted answer.
+            label (str): The verified answer.
 
-#         unnormalized_answer = remove_boxed(last_boxed_string)
-#         return normalize_final_answer(unnormalized_answer)
-
-#     def score_generations(self, answer: str, label: str) -> float:
-#         """Score based on exact match.
-
-#         Args:
-#             answer (str): The extracted answer.
-#             label (str): The verified answer.
-
-#         Returns:
-#             float: self.reward for match, 0.0 otherwise.
-#         """
-#         if answer.strip() == label.strip() or is_equiv(answer, label):
-#             return self.reward
-#         return 0.0
+        Returns:
+            float: self.reward for match, 0.0 otherwise.
+        """
+        result = process_results(prediction=answer, ground_truth=label)
+        return self.reward if result == 1 else 0.0

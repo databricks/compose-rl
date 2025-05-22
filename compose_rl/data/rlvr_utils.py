@@ -33,8 +33,7 @@ def extract_math_answer(sample: Any) -> str | None:
     if not last_boxed_string:  # No boxed string found
         return None
 
-    unnormalized_answer = math_utils.remove_boxed(last_boxed_string)
-    return math_utils.normalize_string(unnormalized_answer)
+    return math_utils.remove_boxed(last_boxed_string)
 
 
 def prepare_math_prompt(sample: Any) -> str:

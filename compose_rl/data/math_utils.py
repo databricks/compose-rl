@@ -415,7 +415,7 @@ def is_hendrycks_equivalent(str1: str, str2: str) -> bool:
         ss2 = normalize_string(str2)
         return ss1 == ss2
     except Exception:
-        return str1 == str2
+        return str1.strip() == str2.strip()
 
 
 def extract_answers(prediction: str) -> list[str]:
@@ -425,7 +425,7 @@ def extract_answers(prediction: str) -> list[str]:
     # Attempt extraction from \boxed{} string
     boxed_answer = last_boxed_only_string(prediction)
     if boxed_answer:
-        answers.append(normalize_string(remove_boxed(boxed_answer)))
+        answers.append(remove_boxed(boxed_answer))
 
     # Attempt extraction via Minerva math format
     answer = get_unnormalized_answer(prediction)
@@ -452,7 +452,7 @@ def process_results(prediction: str, ground_truth: str) -> int:
     extracted_answers = extract_answers(prediction)
     for answer in extracted_answers:
         if (
-            answer.strip() == ground_truth.strip() or is_sympy_equivalent(answer, ground_truth) or
+            is_sympy_equivalent(answer, ground_truth) or
             is_hendrycks_equivalent(answer, ground_truth)
         ):
             return 1
