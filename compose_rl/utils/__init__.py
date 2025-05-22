@@ -33,6 +33,7 @@ from compose_rl.utils.utils import (
     process_fine_granularities,
     remove_left_padding,
     rescale,
+    sample_wise_masked_mean,
     scatter_gather_rewards,
     split_text_to_sentences,
     split_text_to_subsentences,
@@ -83,4 +84,5 @@ __all__ = [
     'init_process_group',
     'broadcast_to_vllm',
     'flatten',
+    'sample_wise_masked_mean',
 ]
