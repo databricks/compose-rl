@@ -216,7 +216,6 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
         )
-        print(return_dict)
 
         self.policy_kl.append(kl_loss)
 
