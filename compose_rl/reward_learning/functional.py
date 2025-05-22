@@ -13,10 +13,7 @@ import torch
 log = logging.getLogger(__name__)
 
 
-from compose_rl.data.math_utils import (
-    extract_answers,
-    process_results,
-)
+from compose_rl.data.math_utils import process_results
 from compose_rl.reward_learning.base_reward import Reward, Tokenizer
 
 
