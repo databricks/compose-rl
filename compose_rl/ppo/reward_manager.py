@@ -4,10 +4,10 @@
 """Contains the reward manager implementation."""
 
 import logging
+import time
 from itertools import chain
 from multiprocessing import get_context
 from multiprocessing.pool import AsyncResult, Pool
-import time
 from typing import Any, MutableMapping, Optional, Union
 
 import spacy
@@ -543,7 +543,9 @@ class RewardManager:
         ref_model_log_probs = torch.cat(ref_model_log_probs)
         ref_output = (kl, ref_model_log_probs)
 
-        log.info(f"Took {time.time() - start_time} seconds to compute reference KL.")
+        log.info(
+            f"Took {time.time() - start_time} seconds to compute reference KL.",
+        )
 
         return ref_output
 
