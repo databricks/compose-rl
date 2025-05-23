@@ -453,18 +453,15 @@ def extract_answers(prediction: str) -> list[str]:
                 normalize_string(prediction[dollars[-2] + 1:dollars[-1]]),
             )
 
-    if not answers:
-        # fallback to the full output if no answers were found
-        answers.append(normalize_string(prediction))
-        # add the full output as a fallback
-        answers.append(prediction)
-
     return answers
 
 
 def process_results(prediction: str, ground_truth: str) -> int:
     # Compare all extracted_answers with gold truth answer
     extracted_answers = extract_answers(prediction)
+    if not extracted_answers:
+        return 0
+
     for answer in extracted_answers:
         if (
             is_sympy_equivalent(answer, ground_truth) or
