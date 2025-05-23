@@ -4,6 +4,7 @@
 import torch
 
 from compose_rl.utils import mask_eos
+from compose_rl.utils.utils import masked_mean, sample_wise_masked_mean
 
 
 def test_mask_eos_basic_functionality():
@@ -309,3 +310,64 @@ def test_mask_eos_varying_prompt_lengths():
     expected_action_mask[1, 6:] = 0
 
     assert torch.all(action_mask == expected_action_mask)
+
+
+def test_sample_wise_masked_mean_basic():
+    """Test basic functionality of sample_wise_masked_mean with simple cases."""
+    values = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    mask = torch.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 1.0]])
+
+    result = sample_wise_masked_mean(values, mask)
+
+    # First sample mean: (1*1 + 2*1 + 3*0) / (1+1+0) = 3/2 = 1.5
+    # Second sample mean: (4*1 + 5*0 + 6*1) / (1+0+1) = 10/2 = 5.0
+    # Final result: (1.5 + 5.0) / 2 = 3.25
+    expected = torch.tensor(3.25)
+
+    assert torch.allclose(result, expected)
+
+
+def test_sample_wise_masked_mean_all_valid():
+    """Test when all values are valid (mask is all ones)."""
+    values = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    mask = torch.tensor([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]])
+
+    result = sample_wise_masked_mean(values, mask)
+    global_mean_result = masked_mean(values, mask)
+
+    # First sample mean: (1+2+3)/3 = 2.0
+    # Second sample mean: (4+5+6)/3 = 5.0
+    # Final result: (2.0 + 5.0) / 2 = 3.5
+    expected = torch.tensor(3.5)
+
+    assert torch.allclose(result, expected)
+    assert torch.allclose(global_mean_result, expected)
+
+
+def test_sample_wise_masked_mean_single_valid_per_sample():
+    """Test when each sample has only one valid value."""
+    values = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    mask = torch.tensor([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+
+    result = sample_wise_masked_mean(values, mask)
+
+    # First sample mean: 1.0/1 = 1.0
+    # Second sample mean: 6.0/1 = 6.0
+    # Final result: (1.0 + 6.0) / 2 = 3.5
+    expected = torch.tensor(3.5)
+
+    assert torch.allclose(result, expected)
+
+
+def test_sample_wise_masked_mean_single_sample():
+    """Test with a single sample."""
+    values = torch.tensor([[1.0, 2.0, 3.0]])
+    mask = torch.tensor([[1.0, 0.0, 1.0]])
+
+    result = sample_wise_masked_mean(values, mask)
+
+    # Only one sample mean: (1+3)/2 = 2.0
+    # Final result: 2.0
+    expected = torch.tensor(2.0)
+
+    assert torch.allclose(result, expected)
