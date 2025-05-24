@@ -247,6 +247,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         self,
         loss_type: str = 'grpo',
         normalize_advantage: bool = True,
+        clip_negative_advantage: bool = False,
         length_normalize_policy_loss: bool = True,
         policy_clip_ratio: float = 0.15,
         policy_clip_high_ratio: float | None = None,
@@ -261,6 +262,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         Args:
             loss_type (str): The type of loss to use. Default: ``'grpo'``.
             normalize_advantage (bool): Whether to normalize the advantage. Default: ``True``.
+            clip_negative_advantage (bool): Whether to clip negative advantages. Default: ``False``.
             length_normalize_policy_loss (bool): Whether to length normalize the policy loss and KL loss. Default: ``True``.
             policy_clip_ratio (float): The policy clip ratio. Default: ``0.15``.
             policy_clip_high_ratio (float | None): The high policy clip ratio. Default: ``None`` uses policy_clip_ratio.
@@ -273,6 +275,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         self.policy_kl = []
         self.loss_type = loss_type
         self.normalize_advantage = normalize_advantage
+        self.clip_negative_advantage = clip_negative_advantage
         self.length_normalize_policy_loss = length_normalize_policy_loss
         self.policy_clip_ratio = policy_clip_ratio
         self.policy_clip_high_ratio = policy_clip_high_ratio
@@ -301,6 +304,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
             loss_type=self.loss_type,
             policy_clip_ratio=self.policy_clip_ratio,
             policy_clip_high_ratio=self.policy_clip_high_ratio,
+            clip_negative_advantage=self.clip_negative_advantage,
             length_normalize_policy_loss=self.length_normalize_policy_loss,
             add_direct_kl_loss=self.compute_kl_loss,
             kl_estimator=self.kl_estimator,

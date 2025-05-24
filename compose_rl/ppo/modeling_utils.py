@@ -141,6 +141,7 @@ def online_rl_loss(
     value_loss_weight: float = 0.2,
     policy_clip_ratio: float = 0.15,
     policy_clip_high_ratio: float | None = None,
+    clip_negative_advantage: bool = False,
     length_normalize_policy_loss: bool = True,
     add_direct_kl_loss: bool = False,
     kl_estimator: Optional[str] = 'k1',
@@ -156,6 +157,7 @@ def online_rl_loss(
         value_loss_weight (float): The value loss weight.
         policy_clip_ratio (float): The policy clip ratio.
         policy_clip_high_ratio (float | None): The high policy clip ratio. Default: ``None``.
+        clip_negative_advantage (bool): Whether to clip negative advantages. Default: ``False``.
         length_normalize_policy_loss (bool): Whether to normalize the policy loss by the length of the sequence. Default: ``True``.
         add_direct_kl_loss (bool): Whether to add the KL loss directly to the loss. Default: ``False``.
         kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
@@ -235,6 +237,9 @@ def online_rl_loss(
         )
 
     advantages = advantages.detach()
+    if clip_negative_advantage:
+        # Clip negative advantages to zero
+        advantages = torch.clamp(advantages, min=0.0)
 
     online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
         'old_log_probs']
