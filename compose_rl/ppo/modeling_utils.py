@@ -426,9 +426,9 @@ def online_rl_loss(
     # Entropy Loss. Meant to promote diversity.
     if add_entropy_loss:
         return_dict['loss/entropy'] = (
-            entropy_loss_weight * old_entropies.mean()
+            entropy_loss_weight * old_entropies
         )
-        return_dict['total'] += entropy_loss_weight * old_entropies.mean()
+        return_dict['total'] += entropy_loss_weight * old_entropies
 
     if 'lbl' in outputs and outputs['lbl'] is not None:
         return_dict['loss/lbl'] = outputs['lbl']
