@@ -102,6 +102,8 @@ class ComposerMosaicPolicy(HuggingFaceModel):
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
+            add_entropy_loss=self.config.compute_entropy_loss,
+            entropy_loss_weight=self.config.entropy_loss_weight,
         )
 
         self.policy_kl.append(kl_loss)

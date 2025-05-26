@@ -140,9 +140,11 @@ def online_rl_loss(
     value_clip_range: float = 0.2,
     value_loss_weight: float = 0.2,
     policy_clip_ratio: float = 0.15,
+    entropy_loss_weight: float = -0.001,
     policy_clip_high_ratio: float | None = None,
     length_normalize_policy_loss: bool = True,
     add_direct_kl_loss: bool = False,
+    add_entropy_loss: bool = False,
     kl_estimator: Optional[str] = 'k1',
     kl_clip_range: Optional[float] = 40.0,
 ) -> tuple[MutableMapping, torch.Tensor]:
@@ -421,6 +423,10 @@ def online_rl_loss(
         return_dict['loss/online_ift_kl'] = (
             batch['ift_kl_scalar'][0] * online_ift_kl
         )
+    # Entropy Loss. Meant to promote diversity.
+    if add_entropy_loss:
+        return_dict['total'] += entropy_loss_weight * old_entropies.mean()
+
     if 'lbl' in outputs and outputs['lbl'] is not None:
         return_dict['loss/lbl'] = outputs['lbl']
         return_dict['total'] += outputs['lbl']
