@@ -207,7 +207,7 @@ def env_reward(
         # there are numerical differences at training time.
         # log probs will be [batch_size, generated_len]
         log_probs = []
-        entropies = []
+        # entropies = []
         values = []
 
         input_model_kwargs = {
@@ -224,9 +224,7 @@ def env_reward(
             microbatch_size=device_train_microbatch_size,
         )
         # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
-        for split in microbatch_splits:
-            curr_kwargs = split
-
+        for curr_kwargs in microbatch_splits:
             cur_output = actor_critic(curr_kwargs)
             cur_logits = cur_output['logits']
             # need to pull out current actions and prompt len
@@ -239,27 +237,27 @@ def env_reward(
                 prompt_len=cur_prompt_len,
                 max_gen_len=max_gen_len,
             )
-            cur_entropies = get_entropies(
-                logits=cur_logits,
-                actions=cur_actions,
-                prompt_len=cur_prompt_len,
-                max_gen_len=max_gen_len,
-            )
+            # cur_entropies = get_entropies(
+            #     logits=cur_logits,
+            #     actions=cur_actions,
+            #     prompt_len=cur_prompt_len,
+            #     max_gen_len=max_gen_len,
+            # )
             log_probs.append(cur_log_probs)
-            entropies.append(cur_entropies)
+            # entropies.append(cur_entropies)
             # Ignore values when the model doesn't have a value head
             if 'values' in cur_output:
                 cur_values = cur_output['values']
                 values.append(cur_values)
 
         device_train_microbatch_log_probs = torch.cat(log_probs)
-        device_train_microbatch_entropies = torch.cat(entropies)
+        # device_train_microbatch_entropies = torch.cat(entropies)
 
         partial_env_output = {
             'prompt_id': prompt_id,
             'actions': actions,
             'old_log_probs': device_train_microbatch_log_probs,
-            'old_entropies': device_train_microbatch_entropies,
+            # 'old_entropies': device_train_microbatch_entropies,
             'obs': right_padded_obs,
             'generated_len': generated_len,
             'action_mask': action_mask,

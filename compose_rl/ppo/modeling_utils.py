@@ -8,6 +8,7 @@ import torch
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 import compose_rl.utils as utils
+from compose_rl.utils import get_entropies
 
 
 @dataclass
@@ -117,9 +118,17 @@ def composer_online_rl_forward(
         batch['max_gen_len'],
     )
 
+    cur_entropies = get_entropies(
+        logits=logits,
+        actions=batch['actions'],
+        prompt_len=batch['prompt_len'],
+        max_gen_len=batch['max_gen_len'],
+    )
+
     return_dict = {
         'online_log_probs': log_prob_outputs,
         'logits': logits,
+        'fwd_entropies': cur_entropies,
     }
 
     if loss_type == 'ppo':
@@ -140,11 +149,10 @@ def online_rl_loss(
     value_clip_range: float = 0.2,
     value_loss_weight: float = 0.2,
     policy_clip_ratio: float = 0.15,
-    entropy_loss_weight: float = -0.001,
     policy_clip_high_ratio: float | None = None,
     length_normalize_policy_loss: bool = True,
     add_direct_kl_loss: bool = False,
-    add_entropy_loss: bool = False,
+    entropy_loss_weight: float | None = None,
     kl_estimator: Optional[str] = 'k1',
     kl_clip_range: Optional[float] = 40.0,
 ) -> tuple[MutableMapping, torch.Tensor]:
@@ -160,6 +168,7 @@ def online_rl_loss(
         policy_clip_high_ratio (float | None): The high policy clip ratio. Default: ``None``.
         length_normalize_policy_loss (bool): Whether to normalize the policy loss by the length of the sequence. Default: ``True``.
         add_direct_kl_loss (bool): Whether to add the KL loss directly to the loss. Default: ``False``.
+        entropy_loss_weight (float | None): The entropy loss weight. If ``None``, no entropy loss is added. Default: ``None``.
         kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
         kl_clip_range (float): The clip range for the KL divergence. Default: ``40.0``.
     """
@@ -240,7 +249,7 @@ def online_rl_loss(
 
     online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
         'old_log_probs']
-    old_entropies = batch['old_entropies']
+    fwd_entropies = outputs['fwd_entropies']
 
     policy_kl_dict = utils.approx_kl(
         log_p=online_log_probs,
@@ -349,7 +358,7 @@ def online_rl_loss(
         'gen/gen_length':
             batch['action_mask'].sum(dim=1).to(torch.float32),
         'gen/entropy':
-            old_entropies,
+            fwd_entropies,
         'advantages/mean':
             utils.sample_wise_masked_mean(advantages, batch['action_mask']),
     }
@@ -424,11 +433,11 @@ def online_rl_loss(
             batch['ift_kl_scalar'][0] * online_ift_kl
         )
     # Entropy Loss. Meant to promote diversity.
-    if add_entropy_loss:
+    if entropy_loss_weight is not None:
         return_dict['loss/entropy'] = (
-            entropy_loss_weight * old_entropies
+            entropy_loss_weight * fwd_entropies
         )
-        return_dict['total'] += entropy_loss_weight * old_entropies
+        return_dict['total'] += entropy_loss_weight * fwd_entropies
 
     if 'lbl' in outputs and outputs['lbl'] is not None:
         return_dict['loss/lbl'] = outputs['lbl']
