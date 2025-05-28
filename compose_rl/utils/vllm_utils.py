@@ -240,7 +240,7 @@ def create_vllm_engines(
                 num_cpus=num_gpus,
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,
-                max_concurrency=5,  # type: ignore
+                concurrency_groups={"infer": 5, "update": 1},
             ).remote(
                 model=pretrain,  # type: ignore
                 revision=revision,  # type: ignore

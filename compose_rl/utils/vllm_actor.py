@@ -68,6 +68,7 @@ class LLMRayActor:
 
         self.llm = vllm.LLM(*args, **kwargs)
 
+    @ray.method(concurrency_group="infer")
     def generate(self, *args: Any, **kwargs: Any):
         log.info(f'Generate kwargs are: {kwargs}')
         sampling_params = None
@@ -81,6 +82,7 @@ class LLMRayActor:
             **kwargs,
         )
 
+    @ray.method(concurrency_group="infer")
     def chat(self, *args: Any, **kwargs: Any):
         sampling_params = None
         if 'sampling_params' in kwargs:
@@ -93,6 +95,7 @@ class LLMRayActor:
             sampling_params=sampling_params,
         )
 
+    @ray.method(concurrency_group="update")
     def init_process_group(
         self,
         master_address: str,
@@ -114,6 +117,7 @@ class LLMRayActor:
             ),
         )
 
+    @ray.method(concurrency_group="update")
     def update_weight(
         self,
         name: str,
