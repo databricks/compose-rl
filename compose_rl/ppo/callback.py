@@ -443,6 +443,11 @@ class PPOCallback(CallbackWithConfig):
                 train_config['python_log_level'].upper(),
             )
 
+        self.gen_filter_same_value = var_config.get(
+            'same_reward_threshold',
+            None,
+        )
+
         self.vllm_engines = None
         self.num_vllm_engines = 0
         self.vllm_tensor_parallel_size = var_config.get(
@@ -754,8 +759,6 @@ class PPOCallback(CallbackWithConfig):
             kl_clip_range=self.kl_clip_range,
         )
 
-        self.prompts_and_gens.extend(prompts_and_gens)
-
         gen_batch_partial_outputs = (env_outputs, ref_outputs, all_rewards_dict)
         # For every partial output we want to resolve them together
         # And compute the global per iteration batch advantage's mean and variance
@@ -763,6 +766,28 @@ class PPOCallback(CallbackWithConfig):
             batch,
             gen_batch_partial_outputs,
         )
+
+        if self.gen_filter_same_value is not None:
+            start_time = time.time()
+            all_gathered_outputs = dist.all_gather_object(resolved_outputs)
+
+            resolved_outputs = {}
+            for key in resolved_outputs.keys():
+                # Collect all tensors under this key from each rank
+                tensors_to_cat = [d[key] for d in all_gathered_outputs]
+                out[key] = torch.cat(tensors_to_cat, dim=0)
+
+            log.info(
+                f"It took {time.time() - start_time} seconds to gather all resolved outputs.",
+            )
+            # Filter the resolved outputs based on the generation filtering values
+            resolved_outputs = utils.filter_resolved_outputs(
+                resolved_outputs,
+                self.gen_filter_same_value,
+            )
+
+        # TODO: fix
+        self.prompts_and_gens.extend(prompts_and_gens)
 
         # We need to split the resolved outputs into minibatches
         for idx in range(self.iter_batch_size // self.device_train_batch_size):

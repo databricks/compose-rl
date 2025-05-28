@@ -1204,3 +1204,113 @@ def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
                 yield subc
         else:
             yield i
+
+
+def filter_resolved_outputs(
+    outputs: dict[str, torch.Tensor],
+    filter_threshold: float,
+):
+    """Filters the outputs based on the provided filter values.
+
+    Filters out prompts where a high percentage of rewards are the same value.
+    This is done on a prompt-by-prompt basis.
+
+    Args:
+        outputs (dict[str, torch.Tensor]): The outputs to filter.
+        filter_thresholds (dict[str, float]): Dict with 'high' threshold.
+            - 'high': Filter if percentage of same rewards > high (e.g., 0.8 = 80%)
+
+    Returns:
+        dict: Filtered outputs with resolved prompts removed
+    """
+    prompt_id = outputs['prompt_id']
+    rewards = outputs['rewards']
+
+    # Get unique prompt IDs and their indices
+    unique_prompt_ids, inverse_indices = torch.unique(
+        prompt_id,
+        return_inverse=True,
+    )
+
+    # Get threshold
+    high_threshold = filter_thresholds.get('high', 0.8)  # default 80%
+
+    log.info(f"\nTotal unique prompts: {len(unique_prompt_ids)}")
+    log.info(
+        f"Threshold: Filter if > {high_threshold:.0%} of rewards are the same",
+    )
+
+    prompts_to_filter = []
+    prompt_stats = {}
+
+    # Check each prompt individually
+    for i, unique_id in enumerate(unique_prompt_ids):
+        mask = inverse_indices == i
+        prompt_rewards = rewards[mask]
+        n_samples = len(prompt_rewards)
+
+        # Find the most common reward value and its percentage
+        unique_values, counts = torch.unique(prompt_rewards, return_counts=True)
+        max_count = torch.max(counts).item()
+        max_percentage = max_count / n_samples
+
+        # Find which value is most common
+        most_common_idx = torch.argmax(counts)
+        most_common_value = unique_values[most_common_idx].item()
+
+        # Decide whether to filter
+        if max_percentage > high_threshold:
+            prompts_to_filter.append(i)
+            prompt_stats[unique_id.item()] = {
+                'action': 'filtered',
+                'most_common_value': most_common_value,
+                'most_common_count': max_count,
+                'percentage_same': max_percentage,
+                'n_samples': n_samples,
+                'unique_values': unique_values.tolist(),
+                'counts': counts.tolist(),
+            }
+            log.info(
+                f"  Prompt {unique_id.item()}: filtering as ({max_percentage:.0%} of the generations with the reward: {most_common_value}) as the most common value",
+            )
+        else:
+            prompt_stats[unique_id.item()] = {
+                'action': 'kept',
+                'most_common_value': most_common_value,
+                'most_common_count': max_count,
+                'percentage_same': max_percentage,
+                'n_samples': n_samples,
+                'unique_values': unique_values.tolist(),
+                'counts': counts.tolist(),
+                'mean': torch.mean(prompt_rewards).item(),
+                'std': torch.std(prompt_rewards).item(),
+            }
+
+    # Create filter mask
+    keep_mask = torch.ones(len(prompt_id), dtype=torch.bool)
+    for prompt_idx in prompts_to_filter:
+        prompt_mask = inverse_indices == prompt_idx
+        keep_mask[prompt_mask] = False
+
+    # Apply filter to all outputs
+    filtered_outputs = {}
+    for key, value in outputs.items():
+        filtered_outputs[key] = value[keep_mask]
+
+    # Store statistics
+    filter_stats = {
+        'total_prompts': len(unique_prompt_ids),
+        'kept_prompts': len(unique_prompt_ids) - len(prompts_to_filter),
+        'filtered_prompts': len(prompts_to_filter),
+        'prompt_stats': prompt_stats,
+        'threshold': high_threshold,
+    }
+
+    # filtered_outputs['filter_stats'] = filter_stats
+
+    log.info(f"  Kept: {filter_stats['kept_prompts']} prompts")
+    log.info(f"  Filtered: {len(prompts_to_filter)} prompts")
+    log.info(f"  Original samples: {len(prompt_id)}")
+    log.info(f"  Remaining samples: {len(filtered_outputs['prompt_id'])}")
+
+    return filtered_outputs
