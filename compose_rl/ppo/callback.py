@@ -223,6 +223,7 @@ def env_reward(
             batch=input_model_kwargs,
             microbatch_size=device_train_microbatch_size,
         )
+        start_time = time.time()
         # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
         for split in microbatch_splits:
             curr_kwargs = split
@@ -251,6 +252,9 @@ def env_reward(
             if 'values' in cur_output:
                 cur_values = cur_output['values']
                 values.append(cur_values)
+        log.info(
+            f"To compute log_probs and entropies took {time.time() - start_time:.2f} seconds",
+        )
 
         device_train_microbatch_log_probs = torch.cat(log_probs)
         device_train_microbatch_entropies = torch.cat(entropies)
