@@ -1217,8 +1217,7 @@ def filter_resolved_outputs(
 
     Args:
         outputs (dict[str, torch.Tensor]): The outputs to filter.
-        filter_thresholds (dict[str, float]): Dict with 'high' threshold.
-            - 'high': Filter if percentage of same rewards > high (e.g., 0.8 = 80%)
+        filter_threshold (float): The percentage threshold for filtering. 
 
     Returns:
         dict: Filtered outputs with resolved prompts removed
@@ -1232,12 +1231,9 @@ def filter_resolved_outputs(
         return_inverse=True,
     )
 
-    # Get threshold
-    high_threshold = filter_thresholds.get('high', 0.8)  # default 80%
-
     log.info(f"\nTotal unique prompts: {len(unique_prompt_ids)}")
     log.info(
-        f"Threshold: Filter if > {high_threshold:.0%} of rewards are the same",
+        f"Threshold: Filter if > {filter_threshold:.0%} of rewards are the same",
     )
 
     prompts_to_filter = []
@@ -1259,7 +1255,7 @@ def filter_resolved_outputs(
         most_common_value = unique_values[most_common_idx].item()
 
         # Decide whether to filter
-        if max_percentage > high_threshold:
+        if max_percentage > filter_threshold:
             prompts_to_filter.append(i)
             prompt_stats[unique_id.item()] = {
                 'action': 'filtered',
@@ -1303,7 +1299,7 @@ def filter_resolved_outputs(
         'kept_prompts': len(unique_prompt_ids) - len(prompts_to_filter),
         'filtered_prompts': len(prompts_to_filter),
         'prompt_stats': prompt_stats,
-        'threshold': high_threshold,
+        'threshold': filter_threshold,
     }
 
     # filtered_outputs['filter_stats'] = filter_stats
