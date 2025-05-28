@@ -22,6 +22,7 @@ from composer.core import (
     ensure_time,
     get_precision_context,
 )
+from composer.core.data_spec import _default_split_batch
 from composer.loggers import Logger, MLFlowLogger, WandBLogger
 from composer.trainer.trainer import _get_initial_device_train_microbatch_size
 from composer.utils import dist, ensure_tuple
@@ -217,15 +218,14 @@ def env_reward(
             'action_mask': action_mask,
             'actions': actions,
         }
+
+        microbatch_splits = _default_split_batch(
+            batch=input_model_kwargs,
+            microbatch_size=device_train_microbatch_size,
+        )
         # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
-        for i in range(batch_size // device_train_microbatch_size):
-            curr_kwargs = {
-                key:
-                    value[i * device_train_microbatch_size:(i + 1) *
-                          device_train_microbatch_size]
-                    if isinstance(value, torch.Tensor) else value
-                for key, value in input_model_kwargs.items()
-            }
+        for split in microbatch_splits:
+            curr_kwargs = split
 
             cur_output = actor_critic(curr_kwargs)
             cur_logits = cur_output['logits']
@@ -500,6 +500,8 @@ class PPOCallback(CallbackWithConfig):
 
         self.precision = state.precision
         self.device_train_microbatch_size: int = state.device_train_microbatch_size  # type: ignore
+        if self.device_train_microbatch_size == 'auto':  # type: ignore
+            raise ValueError('auto microbatching is not supported for PPO')
 
         self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
 

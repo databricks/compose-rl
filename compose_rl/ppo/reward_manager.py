@@ -14,6 +14,7 @@ import spacy
 import torch
 from composer import Trainer
 from composer.core import Precision
+from composer.core.data_spec import _default_split_batch
 from llmfoundry.utils import build_composer_model
 # pyright does not recognize process_init_device though it is a declared export
 from llmfoundry.utils.config_utils import process_init_device  # type: ignore
@@ -508,19 +509,17 @@ class RewardManager:
             kl_clip_range (float): The clip range for the KL divergence.
         """
         batch_size = batch['input_ids'].size(0)
-
-        start_time = time.time()
-
         kl = []
         ref_model_log_probs = []
-        for i in range(batch_size // device_train_microbatch_size):
-            curr_batch = {
-                key:
-                    value[i * device_train_microbatch_size:(i + 1) *
-                          device_train_microbatch_size]
-                    if isinstance(value, torch.Tensor) else value
-                for key, value in batch.items()
-            }
+
+        microbatch_splits = _default_split_batch(
+            batch=batch,
+            microbatch_size=device_train_microbatch_size,
+        )
+
+        start_time = time.time()
+        for split in microbatch_splits:
+            curr_batch = split
             curr_ref_output = self.reference_model(curr_batch)
             curr_ref_log_probs = get_log_probs(
                 logits=curr_ref_output.logits,

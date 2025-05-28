@@ -252,6 +252,30 @@ def masked_sum(
     return (values * mask).sum()
 
 
+def sample_wise_masked_mean(
+    values: torch.Tensor,
+    mask: torch.Tensor,
+):
+    """Compute the mean of masked values, averaged across samples.
+
+    This function first computes the masked mean for each sample (row) independently,
+    then takes the average across all samples. This is different from a global masked
+    mean as it gives equal weight to each sample regardless of how many valid (unmasked)
+    elements each sample contains.
+
+    Args:
+        values (torch.Tensor): Input tensor of shape (..., sequence_length) containing
+            the values to compute the mean over.
+        mask (torch.Tensor): Binary mask tensor of the same shape as values, where
+            1 indicates valid values and 0 indicates values to ignore.
+
+    Returns:
+        torch.Tensor: A scalar tensor containing the sample-wise masked mean.
+    """
+    per_row = (values * mask).sum(dim=-1) / mask.sum(dim=-1)
+    return per_row.mean()
+
+
 def masked_mean(
     values: torch.Tensor,
     mask: torch.Tensor,

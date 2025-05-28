@@ -337,6 +337,37 @@ def is_fsdp_leaf(module: nn.Module) -> bool:
     return True
 
 
+def should_update_torch_module(
+    parsed_module_name: str,
+    full_param_name: str,
+    module: nn.Module,
+    loss_type: str,
+    valid_non_leaf_module_names: list[str],
+):
+    """Check if the module should be updated.
+
+    Args:
+        parsed_module_name (str): The parsed name of the module
+        full_param_name (str): The full name of the parameter
+        module (nn.Module): The torch module to check
+        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
+        valid_non_leaf_module_names (list[str]): List of valid non-leaf module names
+    """
+    if is_fsdp_leaf(module):
+        return True
+
+    if parsed_module_name not in valid_non_leaf_module_names:
+        return False
+
+    if loss_type == 'grpo':
+        return True
+
+    if loss_type == 'ppo' and 'lm_backbone' in full_param_name:
+        return True
+
+    return False
+
+
 def broadcast_to_vllm(
     model: nn.Module,
     vllm_engines: list,
@@ -407,9 +438,9 @@ def broadcast_to_vllm(
 
     for module_name, module in model.named_modules():
         if isinstance(module, FSDP):
-            # This should be the root module, and it's only initialized after we call forwards
-            if module_name == 'model':
-                # print ("this should be the root module skipping", module)
+            # This is needed otherwise FSDP will materialize parameters of size 0.
+            # So just for the joint actor critic models we have to actually skip this module.
+            if module_name == 'model' and loss_type == 'ppo':
                 continue
 
             # Only update if we haven't updated this module before
@@ -432,13 +463,13 @@ def broadcast_to_vllm(
                                 log.info('Critic head found, skipping sending')
                                 continue
 
-                            update = False
-
-                            # If we are at a leaf of a FSDP module we should always update it
-                            if is_fsdp_leaf(module):
-                                update = True
-                            elif parsed_name in valid_non_leaf_module_names and 'lm_backbone' in full_name:
-                                update = True
+                            update = should_update_torch_module(
+                                parsed_name,
+                                full_name,
+                                module,
+                                loss_type,
+                                valid_non_leaf_module_names,
+                            )
 
                             # We've already updated this module before,
                             if parsed_name in seen_updated_parsed_names:
@@ -466,6 +497,15 @@ def broadcast_to_vllm(
                                     group=model_update_group,
                                 )
                                 update_time += time.time() - start_update_time
+
+    # Issue (#67): Note this code will likely need to be updated for PEFT for efficiency reasons.
+    if dist.get_global_rank() == 0:
+        # Check if the number of parameters updated is equal to the number of parameters
+        # This can only be done on global rank 0, since it is the one that is updating the parameters.
+        assert num_params == count, (
+            f'Number of parameters updated {count} does not match the number of parameters {num_params}'
+            + f'This means that some parameters were not updated.'
+        )
 
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()

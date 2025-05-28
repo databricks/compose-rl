@@ -190,7 +190,10 @@ def online_rl_loss(
         values = batch['values'][:, :-1] * batch['action_mask']
 
         returns = advantages + values
-        returns_mean = utils.masked_mean(returns, batch['action_mask'])
+        returns_mean = utils.sample_wise_masked_mean(
+            returns,
+            batch['action_mask'],
+        )
         returns_var = utils.masked_var(returns, batch['action_mask'])
 
         v_pred_clipped = torch.clamp(
@@ -202,17 +205,17 @@ def online_rl_loss(
         value_loss_1 = (v_preds - returns)**2
         value_loss_2 = (v_pred_clipped - returns)**2
 
-        value_loss = 0.5 * utils.masked_mean(
+        value_loss = 0.5 * utils.sample_wise_masked_mean(
             torch.max(value_loss_1, value_loss_2),
             batch['action_mask'],
         )
-        value_clip_frac = utils.masked_mean(
+        value_clip_frac = utils.sample_wise_masked_mean(
             torch.gt(value_loss_1, value_loss_2).double(),
             batch['action_mask'],
         )
 
-        val_error = utils.masked_mean((v_preds - returns)**2,
-                                      batch['action_mask'])
+        val_error = utils.sample_wise_masked_mean((v_preds - returns)**2,
+                                                  batch['action_mask'])
 
         adv_masked_mean = batch['adv_masked_mean']
         adv_masked_var = batch['adv_masked_var']
@@ -250,11 +253,11 @@ def online_rl_loss(
 
     # Normalize the KL divergence by the length depending on the flag
     if length_normalize_policy_loss:
-        policy_kl = utils.masked_mean(
+        policy_kl = utils.sample_wise_masked_mean(
             policy_kl_dict[kl_estimator], # pyright: ignore
             batch['action_mask'],
         )
-        online_ift_kl = utils.masked_mean(
+        online_ift_kl = utils.sample_wise_masked_mean(
             online_ift_kl_dict[kl_estimator], # pyright: ignore
             batch['action_mask'],
         )
@@ -288,13 +291,16 @@ def online_rl_loss(
     )
 
     if length_normalize_policy_loss:
-        policy_loss = utils.masked_mean(policy_loss, batch['action_mask'])
+        policy_loss = utils.sample_wise_masked_mean(
+            policy_loss,
+            batch['action_mask'],
+        )
     else:
         policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
 
     policy_token_kl_logging_dict = {
         f'token_kl/policy_token_kl_{k}_estimate':
-            utils.masked_mean(
+            utils.sample_wise_masked_mean(
                 v,
                 batch['action_mask'],
             ) for k, v in policy_kl_dict.items()
@@ -308,7 +314,7 @@ def online_rl_loss(
     }
     online_ift_token_kl_logging_dict = {
         f'token_kl/online_ift_token_kl_{k}_estimate':
-            utils.masked_mean(
+            utils.sample_wise_masked_mean(
                 v,
                 batch['action_mask'],
             ) for k, v in online_ift_kl_dict.items()
@@ -337,25 +343,25 @@ def online_rl_loss(
         'policy_loss/clip_frac':
             policy_clip_frac,
         'policy_loss/ratio':
-            utils.masked_mean(ratio, batch['action_mask']),
+            utils.sample_wise_masked_mean(ratio, batch['action_mask']),
         'gen/gen_length':
             batch['action_mask'].sum(dim=1).to(torch.float32),
         'gen/entropy':
             old_entropies,
         'advantages/mean':
-            utils.masked_mean(advantages, batch['action_mask']),
+            utils.sample_wise_masked_mean(advantages, batch['action_mask']),
     }
     if loss_type == 'ppo':
         return_dict.update({
             'loss/value_loss':
                 value_loss,
             'value_loss/values':
-                utils.masked_mean(
+                utils.sample_wise_masked_mean(
                     values,  # pyright: ignore
                     batch['action_mask'],
                 ),
             'value_loss/vpred':
-                utils.masked_mean(
+                utils.sample_wise_masked_mean(
                     v_preds,  # pyright: ignore
                     batch['action_mask'],
                 ),
@@ -408,7 +414,6 @@ def online_rl_loss(
         # Add value loss to total loss
         return_dict['total'
                    ] += value_loss_weight * value_loss  # pyright: ignore
-
     # If we want to directly minimize the KL Divergence, we can do so here
     # and it will not include the KL in the reward.
     if add_direct_kl_loss:
@@ -416,9 +421,7 @@ def online_rl_loss(
         return_dict['loss/online_ift_kl'] = (
             batch['ift_kl_scalar'][0] * online_ift_kl
         )
-
     if 'lbl' in outputs and outputs['lbl'] is not None:
         return_dict['loss/lbl'] = outputs['lbl']
         return_dict['total'] += outputs['lbl']
-
     return return_dict, policy_kl.detach().cpu()
