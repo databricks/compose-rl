@@ -253,7 +253,7 @@ def env_reward(
                 cur_values = cur_output['values']
                 values.append(cur_values)
         log.info(
-            f"To compute log_probs and entropies took {time.time() - start_time:.2f} seconds",
+            f"To compute log_probs and entropies took {time.time() - start_time} seconds",
         )
 
         device_train_microbatch_log_probs = torch.cat(log_probs)
