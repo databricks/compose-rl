@@ -768,6 +768,9 @@ class PPOCallback(CallbackWithConfig):
         )
 
         if self.same_reward_filter_threshold is not None:
+            print(
+                f"in reward thresholding, trying to filter with: {self.same_reward_filter_threshold}"
+            )
             start_time = time.time()
             # all_gathered_outputs = dist.all_gather_object(resolved_outputs)
 
