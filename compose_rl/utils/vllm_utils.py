@@ -261,6 +261,7 @@ def create_vllm_engines(
                 num_gpus=1,  # type: ignore
                 noset_visible_devices= # type: ignore
                 ray_noset_visible_devices(),
+                max_concurrency=5,  # type: ignore
             ),
         )
 
