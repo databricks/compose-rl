@@ -33,7 +33,7 @@ except:
 log = logging.getLogger(__name__)
 
 
-@ray.remote(concurrency_groups={"infer": 5, "update": 1})
+@ray.remote
 class LLMRayActor:
 
     def __init__(
