@@ -743,6 +743,8 @@ class PPOCallback(CallbackWithConfig):
                     )
                     padded_sequences.append(padded_sequence)
                 sequences = torch.cat(padded_sequences, dim=0)
+
+        print('after generation')
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
@@ -759,6 +761,8 @@ class PPOCallback(CallbackWithConfig):
             kl_clip_range=self.kl_clip_range,
         )
 
+        print('after reward')
+
         gen_batch_partial_outputs = (env_outputs, ref_outputs, all_rewards_dict)
         # For every partial output we want to resolve them together
         # And compute the global per iteration batch advantage's mean and variance
@@ -767,9 +771,11 @@ class PPOCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
+        print('after resolve outputs')
+
         if self.same_reward_filter_threshold is not None:
             print(
-                f"in reward thresholding, trying to filter with: {self.same_reward_filter_threshold}"
+                f"in reward thresholding, trying to filter with: {self.same_reward_filter_threshold}",
             )
             start_time = time.time()
             # all_gathered_outputs = dist.all_gather_object(resolved_outputs)
