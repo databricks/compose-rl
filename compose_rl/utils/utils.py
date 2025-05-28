@@ -1217,7 +1217,7 @@ def filter_resolved_outputs(
 
     Args:
         outputs (dict[str, torch.Tensor]): The outputs to filter.
-        filter_threshold (float): The percentage threshold for filtering. 
+        filter_threshold (float): The percentage threshold for filtering.
 
     Returns:
         dict: Filtered outputs with resolved prompts removed
@@ -1310,3 +1310,23 @@ def filter_resolved_outputs(
     log.info(f"  Remaining samples: {len(filtered_outputs['prompt_id'])}")
 
     return filtered_outputs
+
+
+def fast_gather_and_cat_dict(
+    resolved_outputs: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    out = {}
+    for key, local_tensor in resolved_outputs.items():
+        start_time = time.time()
+        print('starting to all gather ', key)
+        # Assume we want to gather along dim=0
+        local_shape = list(local_tensor.shape)
+        world_size = dist.get_world_size()
+
+        # Create a placeholder for gathered tensor
+        gathered = [torch.empty_like(local_tensor) for _ in range(world_size)]
+        dist.all_gather(gathered, local_tensor)
+
+        out[key] = torch.cat(gathered, dim=0)
+        print(f"took {time.time() - start_time} to all gather {key}.")
+    return out
