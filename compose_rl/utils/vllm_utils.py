@@ -240,28 +240,28 @@ def create_vllm_engines(
                 num_cpus=num_gpus,
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,
+                max_concurrency=5,  # type: ignore
             ).remote(
                 model=pretrain,  # type: ignore
                 revision=revision,  # type: ignore
                 tokenizer_revision=revision,  # type: ignore
                 trust_remote_code=True,  # type: ignore
-                worker_extension_cls= # type: ignore
+                worker_extension_cls=  # type: ignore
                 'compose_rl.utils.vllm_utils.WorkerWrap',
                 tensor_parallel_size=tensor_parallel_size,  # type: ignore
                 enforce_eager=enforce_eager,  # type: ignore
                 dtype='bfloat16',  # type: ignore
                 seed=seed + i,  # type: ignore
-                distributed_executor_backend= # type: ignore
+                distributed_executor_backend=  # type: ignore
                 distributed_executor_backend,
                 enable_prefix_caching=enable_prefix_caching,  # type: ignore
                 max_model_len=max_model_len,  # type: ignore
-                gpu_memory_utilization= # type: ignore
+                gpu_memory_utilization=  # type: ignore
                 vllm_gpu_memory_utilization,
                 bundle_indices=bundle_indices,  # type: ignore
                 num_gpus=1,  # type: ignore
-                noset_visible_devices= # type: ignore
+                noset_visible_devices=  # type: ignore
                 ray_noset_visible_devices(),
-                max_concurrency=5,  # type: ignore
             ),
         )
 
