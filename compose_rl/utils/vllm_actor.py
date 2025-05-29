@@ -109,7 +109,6 @@ class LLMRayActor:
         return self.llm.generate(
             *requests,
             sampling_params=sp,
-            **kwargs,
         )
 
     def chat(self, *args: Any, **kwargs: Any):
