@@ -12,6 +12,7 @@ import ray
 import torch
 from composer.utils import dist
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from vllm import TokensPrompt
 
 from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
 from compose_rl.utils import (
@@ -161,9 +162,12 @@ def vllm_generate(
                 end_idx = start_idx + vllm_batch_size
 
             cur_prompts_ids = all_prompts[start_idx:end_idx]
+            tokens_request = [
+                TokensPrompt(cur_prompt) for cur_prompt in cur_prompts_ids
+            ]
             futs.append(
                 engine.generate.remote(
-                    cur_prompts_ids,
+                    tokens_request,
                     sampling_params=sampling_params,
                 ),
             )
