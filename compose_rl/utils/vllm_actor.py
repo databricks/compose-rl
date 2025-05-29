@@ -75,6 +75,9 @@ class LLMRayActor:
             sampling_params = SamplingParams(**kwargs.pop('sampling_params'))
             log.info(f'sampling_params is: {sampling_params}')
 
+        print('generate args are: ', args)
+        print('generate kwargs are: ', kwargs)
+
         return self.llm.generate(
             sampling_params=sampling_params,
             *args,
