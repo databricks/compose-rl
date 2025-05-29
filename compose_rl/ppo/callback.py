@@ -959,10 +959,12 @@ class PPOCallback(CallbackWithConfig):
                 'Valid options are: ppo, grpo.',
             )
 
+        print ("before dist compute masked mean and var")
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
             env_outs['advantages'],
             env_outs['action_mask'],
         )
+        print ("after dist compute masked mean and var")
 
         mean_ift = masked_mean(
             env_outs['ift_kl'],
