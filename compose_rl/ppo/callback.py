@@ -990,14 +990,14 @@ class PPOCallback(CallbackWithConfig):
                 env_outs['rewards'].std().to('cpu'),
         })
 
-        print("beofre moving minibatches to cpu")
+        print('beofre moving minibatches to cpu')
 
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
             if hasattr(v, 'cpu'):
                 iter_batch[k] = v.cpu()
 
-        print("after moving minibatches to cpu")
+        print('after moving minibatches to cpu')
 
         return iter_batch
 
