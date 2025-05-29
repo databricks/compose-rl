@@ -71,7 +71,7 @@ class LLMRayActor:
 
     def generate(
         self,
-        raw_prompts: Union[str, List[Union[str, List[int]]]],
+        raw_prompts: Union[str, list[Union[str, list[int]]]],
         *args: Any,
         **kwargs: Any,
     ):
@@ -85,7 +85,8 @@ class LLMRayActor:
 
         # 2. Type‐check the top‐level
         assert isinstance(
-            raw_prompts, (str, list)
+            raw_prompts,
+            (str, list),
         ), (f"raw_prompts must be a str or a list, got {type(raw_prompts)}")
 
         # 3. Normalize into a flat list of vLLM prompt objects
