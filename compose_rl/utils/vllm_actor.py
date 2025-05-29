@@ -81,18 +81,18 @@ class LLMRayActor:
             sampling_params = SamplingParams(**kwargs.pop('sampling_params'))
             log.info(f'sampling_params is: {sampling_params}')
 
-        if isinstance(raw_prompts, str):
-            # pass through a single string
-            request = raw_prompts
+        if isinstance(raw_prompts, list):
+            tokens_request = [TokensPrompt(token_ids=ids) for ids in raw_prompts]
+            return self.llm.generate(
+                *tokens_request,
+                sampling_params=sampling_params,
+            )
         else:
-            request = [TokensPrompt(token_ids=ids) for ids in raw_prompts]
-
-        return self.llm.generate(
-            request,
-            sampling_params=sampling_params,
-            *args,
-            **kwargs,
-        )
+            # raw_prompts is a string
+            return self.llm.generate(
+                raw_prompts,
+                sampling_params=sampling_params,
+            )
 
     def chat(self, *args: Any, **kwargs: Any):
         sampling_params = None
