@@ -163,7 +163,7 @@ def vllm_generate(
 
             cur_prompts_ids = all_prompts[start_idx:end_idx]
             tokens_request = [
-                TokensPrompt(cur_prompt) for cur_prompt in cur_prompts_ids
+                TokensPrompt(token_ids=cur_prompt) for cur_prompt in cur_prompts_ids
             ]
             futs.append(
                 engine.generate.remote(
