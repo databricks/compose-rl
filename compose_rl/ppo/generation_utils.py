@@ -161,7 +161,7 @@ def vllm_generate(
             else:
                 end_idx = start_idx + vllm_batch_size
 
-            cur_prompts_ids = all_prompts[start_idx:end_idx]
+            cur_prompt_ids = all_prompts[start_idx:end_idx]
 
             futs.append(
                 engine.generate.remote(
