@@ -860,6 +860,7 @@ class PPOCallback(CallbackWithConfig):
             output_minibatch (dict): The final minibatch from the environment, with all AsyncResult
                 objects resolved and outputs processed for PPO training.
         """
+        print('in resolve outputs')
         env_outs, ref_outs, rew_dict = partial_outputs
         rew_outs = self.reward_manager.resolve_outputs(
             ref_output=ref_outs,
@@ -869,6 +870,7 @@ class PPOCallback(CallbackWithConfig):
             center_reward_mean=self.center_reward_mean,
         )
         env_outs.update(rew_outs)
+        print('after reward manager resolve')
 
         # Keep track of prompt ids, rewards and verified answers for logging
         prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
