@@ -773,29 +773,29 @@ class PPOCallback(CallbackWithConfig):
 
         print('after resolve outputs')
 
-        if self.same_reward_filter_threshold is not None:
-            print(
-                f"in reward thresholding, trying to filter with: {self.same_reward_filter_threshold}",
-            )
-            start_time = time.time()
-            # all_gathered_outputs = dist.all_gather_object(resolved_outputs)
+        # if self.same_reward_filter_threshold is not None:
+        #     print(
+        #         f"in reward thresholding, trying to filter with: {self.same_reward_filter_threshold}",
+        #     )
+        #     start_time = time.time()
+        #     # all_gathered_outputs = dist.all_gather_object(resolved_outputs)
 
-            # resolved_outputs = {}
-            # for key in resolved_outputs.keys():
-            #     # Collect all tensors under this key from each rank
-            #     tensors_to_cat = [d[key] for d in all_gathered_outputs]
-            #     out[key] = torch.cat(tensors_to_cat, dim=0)
+        #     # resolved_outputs = {}
+        #     # for key in resolved_outputs.keys():
+        #     #     # Collect all tensors under this key from each rank
+        #     #     tensors_to_cat = [d[key] for d in all_gathered_outputs]
+        #     #     out[key] = torch.cat(tensors_to_cat, dim=0)
 
-            resolved_outputs = utils.fast_gather_and_cat_dict(resolved_outputs)
+        #     resolved_outputs = utils.fast_gather_and_cat_dict(resolved_outputs)
 
-            log.info(
-                f"It took {time.time() - start_time} seconds to gather all resolved outputs.",
-            )
-            # Filter the resolved outputs based on the generation filtering values
-            resolved_outputs = utils.filter_resolved_outputs(
-                resolved_outputs,
-                self.same_reward_filter_threshold,
-            )
+        #     log.info(
+        #         f"It took {time.time() - start_time} seconds to gather all resolved outputs.",
+        #     )
+        #     # Filter the resolved outputs based on the generation filtering values
+        #     resolved_outputs = utils.filter_resolved_outputs(
+        #         resolved_outputs,
+        #         self.same_reward_filter_threshold,
+        #     )
 
         # TODO: fix
         self.prompts_and_gens.extend(prompts_and_gens)
@@ -990,10 +990,14 @@ class PPOCallback(CallbackWithConfig):
                 env_outs['rewards'].std().to('cpu'),
         })
 
+        print("beofre moving minibatches to cpu")
+
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
             if hasattr(v, 'cpu'):
                 iter_batch[k] = v.cpu()
+
+        print("after moving minibatches to cpu")
 
         return iter_batch
 
