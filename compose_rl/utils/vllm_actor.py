@@ -27,6 +27,7 @@ import torch
 try:
     # In some cases e.g. CI/CD, vLLM is not installed on cpu
     from vllm import SamplingParams
+    from vllm.inputs import TokensPrompt
 except:
     pass
 
@@ -68,17 +69,26 @@ class LLMRayActor:
 
         self.llm = vllm.LLM(*args, **kwargs)
 
-    def generate(self, *args: Any, **kwargs: Any):
+    def generate(
+        self,
+        raw_prompts: Union[str, List[List[int]]],
+        *args: Any,
+        **kwargs: Any,
+    ):
         log.info(f'Generate kwargs are: {kwargs}')
         sampling_params = None
         if 'sampling_params' in kwargs:
             sampling_params = SamplingParams(**kwargs.pop('sampling_params'))
             log.info(f'sampling_params is: {sampling_params}')
 
-        print('generate args are: ', args)
-        print('generate kwargs are: ', kwargs)
+        if isinstance(raw_prompts, str):
+            # pass through a single string
+            request = raw_prompts
+        else:
+            request = [TokensPrompt(token_ids=ids) for ids in raw_prompts]
 
         return self.llm.generate(
+            request,
             sampling_params=sampling_params,
             *args,
             **kwargs,
