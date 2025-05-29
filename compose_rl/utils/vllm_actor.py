@@ -71,7 +71,7 @@ class LLMRayActor:
 
     def generate(
         self,
-        raw_prompts: Union[str, List[List[int]]],
+        raw_prompts: Union[str, list[str], list[list[int]]],
         *args: Any,
         **kwargs: Any,
     ):
