@@ -161,14 +161,10 @@ def vllm_generate(
                 end_idx = start_idx + vllm_batch_size
 
             cur_prompts_ids = all_prompts[start_idx:end_idx]
-            cur_prompts = [
-                tokenizer.decode(prompt)  # type: ignore
-                for prompt in cur_prompts_ids
-            ]
-
             futs.append(
                 engine.generate.remote(
-                    cur_prompts,
+                    prompt_token_ids=cur_prompts_ids,
+                    use_token_ids=True,
                     sampling_params=sampling_params,
                 ),
             )
