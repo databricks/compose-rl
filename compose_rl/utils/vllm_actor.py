@@ -71,28 +71,45 @@ class LLMRayActor:
 
     def generate(
         self,
-        raw_prompts: Union[str, list[str], list[list[int]]],
+        raw_prompts: Union[str, List[Union[str, List[int]]]],
         *args: Any,
         **kwargs: Any,
     ):
-        log.info(f'Generate kwargs are: {kwargs}')
-        sampling_params = None
-        if 'sampling_params' in kwargs:
-            sampling_params = SamplingParams(**kwargs.pop('sampling_params'))
-            log.info(f'sampling_params is: {sampling_params}')
+        log.info(f"Generate kwargs are: {kwargs}")
 
-        if isinstance(raw_prompts, list):
-            tokens_request = [TokensPrompt(token_ids=ids) for ids in raw_prompts]
-            return self.llm.generate(
-                *tokens_request,
-                sampling_params=sampling_params,
-            )
+        # 1. Pull sampling_params out so we don't pass it twice
+        sp = None
+        if 'sampling_params' in kwargs:
+            sp = SamplingParams(**kwargs.pop('sampling_params'))
+            log.info(f"sampling_params is: {sp}")
+
+        # 2. Type‐check the top‐level
+        assert isinstance(
+            raw_prompts, (str, list)
+        ), (f"raw_prompts must be a str or a list, got {type(raw_prompts)}")
+
+        # 3. Normalize into a flat list of vLLM prompt objects
+        requests: List[Any] = []
+        if isinstance(raw_prompts, str):
+            requests.append(TextPrompt(raw_prompts))
         else:
-            # raw_prompts is a string
-            return self.llm.generate(
-                raw_prompts,
-                sampling_params=sampling_params,
-            )
+            for p in raw_prompts:
+                assert isinstance(p, (str, list)), (
+                    f"Each element of raw_prompts must be str or list[int], got {type(p)}"
+                )
+                if isinstance(p, str):
+                    requests.append(TextPrompt(p))
+                else:
+                    requests.append(TokensPrompt(token_ids=p))
+
+        log.info(f"About to send {len(requests)} prompt(s) to vLLM")
+
+        # 4. One single batched call
+        return self.llm.generate(
+            *requests,
+            sampling_params=sp,
+            **kwargs,
+        )
 
     def chat(self, *args: Any, **kwargs: Any):
         sampling_params = None
