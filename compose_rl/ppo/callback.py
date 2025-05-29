@@ -445,21 +445,33 @@ class PPOCallback(CallbackWithConfig):
 
         self.vllm_engines = None
         self.num_vllm_engines = 0
-        self.vllm_tensor_parallel_size = var_config.get(
-            'vllm_tensor_parallel_size',
-            None,
-        )
-        if self.vllm_tensor_parallel_size is not None:
+        self.vllm_tensor_parallel_size = 1
+        self.enable_prefix_caching = False
+        self.disable_vllm_eager = False
+
+        vllm_config = var_config.get('vllm_config', None)
+        if vllm_config is not None:
+            self.enable_prefix_caching = vllm_config.get(
+                'enable_prefix_caching',
+                False,
+            )
+            self.disable_vllm_eager = vllm_config.get(
+                'disable_vllm_eager',
+                False,
+            )
+            self.vllm_tensor_parallel_size = vllm_config.get(
+                'vllm_tensor_parallel_size',
+                1,
+            )
+
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
 
             # set vllm tensor parallel size
             total_num_nodes = os.getenv('TOTAL_NUM_NODES', None)
             num_train_nodes = os.getenv('TRAIN_NUM_NODES', None)
-            lws = os.getenv(
-                'LOCAL_WORLD_SIZE',
-                None,
-            )  # The number of GPUs available to the run on each node
+            # The number of GPUs available to the run on each node
+            lws = os.getenv('LOCAL_WORLD_SIZE', None)
             assert total_num_nodes is not None, 'TOTAL_NUM_NODES must be set.'
             assert num_train_nodes is not None, 'TRAIN_NUM_NODES must be set.'
             assert lws is not None, 'LOCAL_WORLD_SIZE must be set.'
@@ -476,7 +488,10 @@ class PPOCallback(CallbackWithConfig):
                 f'Using {self.num_vllm_engines} vllm engines with {self.vllm_tensor_parallel_size=} per engine.',
             )
 
-            self.vllm_sync_backend = var_config.get('vllm_sync_backend', 'nccl')
+            self.vllm_sync_backend = var_config.get(
+                'vllm_sync_backend',
+                'nccl',
+            )
             self.test_prompt = 'Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions.'
         else:
             # HF generate route extra checks
@@ -1046,11 +1061,11 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines = create_vllm_engines(
                 num_engines=self.num_vllm_engines,
                 tensor_parallel_size=self.vllm_tensor_parallel_size,
-                enforce_eager=True,
+                enforce_eager=not self.disable_vllm_eager,
                 pretrain=self.vllm_model_name,
                 revision=None,
                 seed=1,
-                enable_prefix_caching=False,
+                enable_prefix_caching=self.enable_prefix_caching,
                 max_model_len=self.max_seq_len,
             )
             log.info('After creating vLLM engines.')
