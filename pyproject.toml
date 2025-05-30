@@ -23,13 +23,13 @@ dependencies = [
 
 [project.optional-dependencies]
 cpu = [
-    'llm-foundry[all-cpu]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
+    'llm-foundry[all-cpu]@git+https://github.com/mosaicml/llm-foundry.git@51c96cbd280b76fa6bf45fd1f12e48f3c99e8e6#egg=llmfoundry',
 ]
 gpu = [
-    'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
+    'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@51c96cbd280b76fa6bf45fd1f12e48f3c99e8e6#egg=llmfoundry',
 ]
 dev = [
-    'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
+    'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@51c96cbd280b76fa6bf45fd1f12e48f3c99e8e6#egg=llmfoundry',
 ]
 released = [
     'llm-foundry[all]>=0.17.1',
