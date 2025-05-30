@@ -14,7 +14,7 @@ dependencies = [
     'spacy-alignments',
     'ray<3',
     'kubernetes==29.0.0',
-    'vllm>=0.8.3,<0.9.0',
+    'vllm>=0.9.0,<0.10.0',
     # for MATH dataset
     'omegaconf==2.4.0.dev3', # needed for antrl4-4.11 package
     'sympy==1.13.1', # this version is only compatible with antlr-4.11 package
