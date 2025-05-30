@@ -460,7 +460,7 @@ class PPOCallback(CallbackWithConfig):
                 False,
             )
             self.vllm_tensor_parallel_size = vllm_config.get(
-                'vllm_tensor_parallel_size',
+                'tensor_parallel_size',
                 1,
             )
 
