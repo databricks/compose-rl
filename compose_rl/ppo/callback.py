@@ -488,6 +488,11 @@ class PPOCallback(CallbackWithConfig):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
 
+        if self.actor_critic.loss_type == 'grpo':
+            assert self.generations_per_prompt > 1, \
+                'GRPO requires multiple generations per prompt. ' + \
+                f'Current generations_per_prompt is: {self.generations_per_prompt}.'
+
         # TODO (#158): do this through composer.
         for destination in ensure_tuple(logger.destinations):
             if isinstance(destination, WandBLogger):
