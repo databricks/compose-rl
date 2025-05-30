@@ -165,7 +165,7 @@ def vllm_generate(
 
             futs.append(
                 engine.generate.remote(
-                    cur_prompt_ids,
+                    prompt_token_ids=cur_prompt_ids,
                     sampling_params=sampling_params,
                 ),
             )

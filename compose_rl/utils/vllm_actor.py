@@ -71,44 +71,18 @@ class LLMRayActor:
 
     def generate(
         self,
-        raw_prompts: Union[str, list[Union[str, list[int]]]],
         *args: Any,
         **kwargs: Any,
     ):
-        log.info(f"Generate kwargs are: {kwargs}")
-
-        # 1. Pull sampling_params out so we don't pass it twice
-        sp = None
+        sampling_params = None
         if 'sampling_params' in kwargs:
-            sp = SamplingParams(**kwargs.pop('sampling_params'))
-            log.info(f"sampling_params is: {sp}")
+            sampling_params = SamplingParams(**kwargs.pop('sampling_params'))
+            log.info(f'sampling_params is: {sampling_params}')
 
-        # 2. Type‐check the top‐level
-        assert isinstance(
-            raw_prompts,
-            (str, list),
-        ), (f"raw_prompts must be a str or a list, got {type(raw_prompts)}")
-
-        # 3. Normalize into a flat list of vLLM prompt objects
-        requests: List[Any] = []
-        if isinstance(raw_prompts, str):
-            requests.append(TextPrompt(raw_prompts))
-        else:
-            for p in raw_prompts:
-                assert isinstance(p, (str, list)), (
-                    f"Each element of raw_prompts must be str or list[int], got {type(p)}"
-                )
-                if isinstance(p, str):
-                    requests.append(TextPrompt(p))
-                else:
-                    requests.append(TokensPrompt(token_ids=p))
-
-        log.info(f"About to send {len(requests)} prompt(s) to vLLM")
-
-        # 4. One single batched call
         return self.llm.generate(
-            *requests,
-            sampling_params=sp,
+            sampling_params=sampling_params,
+            *args,
+            **kwargs,
         )
 
     def chat(self, *args: Any, **kwargs: Any):
