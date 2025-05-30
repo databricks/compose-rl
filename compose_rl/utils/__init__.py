@@ -38,6 +38,7 @@ from compose_rl.utils.utils import (
     split_text_to_sentences,
     split_text_to_subsentences,
     switch_left_to_right_padding,
+    filter_resolved_outputs,
 )
 from compose_rl.utils.vllm_utils import (
     broadcast_to_vllm,
@@ -85,4 +86,5 @@ __all__ = [
     'broadcast_to_vllm',
     'flatten',
     'sample_wise_masked_mean',
+    'filter_resolved_outputs',
 ]
