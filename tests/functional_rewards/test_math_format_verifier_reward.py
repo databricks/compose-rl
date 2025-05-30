@@ -18,7 +18,9 @@ def reward() -> MATHFormatVerifierReward:
     return MATHFormatVerifierReward(reward=10.0, tokenizer=tokenizer)
 
 
-def test_call_base_verifer_invalid_input(reward: MATHFormatVerifierReward) -> None:
+def test_call_base_verifer_invalid_input(
+    reward: MATHFormatVerifierReward,
+) -> None:
     invalid_batch: dict[str, torch.Tensor] = {
         'zero_rewards': torch.zeros((2, 6)),
         'generated_lens': torch.tensor([6, 6]),
