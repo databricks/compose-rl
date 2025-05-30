@@ -27,7 +27,6 @@ import torch
 try:
     # In some cases e.g. CI/CD, vLLM is not installed on cpu
     from vllm import SamplingParams
-    from vllm.inputs import TokensPrompt
 except:
     pass
 
