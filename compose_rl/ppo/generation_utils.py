@@ -12,7 +12,6 @@ import ray
 import torch
 from composer.utils import dist
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from vllm import TokensPrompt
 
 from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
 from compose_rl.utils import (
