@@ -32,10 +32,10 @@ dev = [
     'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@51c96cbd280b76fa6bf45fd1f12e48f3c99e8e6#egg=llmfoundry',
 ]
 released = [
-    'llm-foundry[all]>=0.17.1',
+    'llm-foundry[all]>=0.17.1,<0.21.0',
 ]
 cpu_released = [
-    'llm-foundry[all-cpu]>=0.17.1',
+    'llm-foundry[all-cpu]>=0.17.1,0.21.0',
 ]
 
 # Registry entry points
