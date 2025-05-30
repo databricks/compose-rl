@@ -1,7 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the GSM8KAnswerVeriferReward class."""
+"""Tests for the MATHFormatVerifierReward class."""
 
 from typing import Any
 
@@ -9,18 +9,16 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from compose_rl.reward_learning import GSM8KAnswerVeriferReward
+from compose_rl.reward_learning import MATHFormatVerifierReward
 
 
 @pytest.fixture
-def reward() -> GSM8KAnswerVeriferReward:
+def reward() -> MATHFormatVerifierReward:
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    return GSM8KAnswerVeriferReward(reward=1.0, tokenizer=tokenizer)
+    return MATHFormatVerifierReward(reward=10.0, tokenizer=tokenizer)
 
 
-def test_call_base_verifer_invalid_input(
-    reward: GSM8KAnswerVeriferReward,
-) -> None:
+def test_call_base_verifer_invalid_input(reward: MATHFormatVerifierReward) -> None:
     invalid_batch: dict[str, torch.Tensor] = {
         'zero_rewards': torch.zeros((2, 6)),
         'generated_lens': torch.tensor([6, 6]),
@@ -36,34 +34,37 @@ def test_call_base_verifer_invalid_input(
             {
                 'zero_rewards': torch.zeros((3, 5)),
                 'raw_untokenized_texts': [
-                    ('', 'Answer is ####24'),
-                    ('', 'This is a very long string answer'),
+                    ('', 'Answer is \\boxed{24}'),
                     (
                         '',
-                        'There are 32 initial numbers, adding 64 new elements gives 32+64 = 96. Answer is \\boxed{96}',
+                        'We see that $f(y) + g(y) = y^4 -3y^3+y-3 +y^3+7y^2-2.$ Simplifying, we get $\\boxed{y^4-2y^3+7y^2+y-5}$.',
+                    ),
+                    (
+                        '',
+                        'Setting the exponents equal, we get that $36n=72$, or $n=\frac{72}{36}=####2$.',
                     ),
                 ],
-                'verified_answers': ['24', '89', '96'],
+                'verified_answers': ['24', 'y^4-2y^3+7y^2+y-4', '2'],
                 'generated_lens': torch.tensor([5, 5, 3]),
             },
-            [(0, 4, 1.0), (1, 4, 0.0), (2, 2, 1.0)],
+            [(0, 4, 10.0), (1, 4, 0.0), (2, 2, 10.0)],
         ),
         (
             {
                 'zero_rewards': torch.zeros((2, 6)),
                 'raw_untokenized_texts': [
-                    ('', '####1'),
-                    ('', '##2'),
+                    ('', '\\boxed{\frac{1}{2}}'),
+                    ('', '####45'),
                 ],
-                'verified_answers': ['1', '4'],
+                'verified_answers': ['\frac{1}{2}', '4'],
                 'generated_lens': torch.tensor([6, 6]),
             },
-            [(0, 5, 1.0), (1, 5, 0.0)],
+            [(0, 5, 10.0), (1, 5, 0.0)],
         ),
     ],
 )
-def test_gms8k_answer_verifier(
-    reward: GSM8KAnswerVeriferReward,
+def test_math_verifier(
+    reward: MATHFormatVerifierReward,
     batch: dict[str, Any],
     expected_rewards: list[tuple[int, int, float]],
 ) -> None:

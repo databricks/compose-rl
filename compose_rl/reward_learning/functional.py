@@ -357,7 +357,7 @@ class BaseVerifierReward(Reward):
         )
 
 
-class GSM8KAnswerVeriferReward(BaseVerifierReward):
+class GSM8KVeriferReward(BaseVerifierReward):
 
     def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
         super().__init__(tokenizer=tokenizer, reward=reward)
