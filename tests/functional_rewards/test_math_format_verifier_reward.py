@@ -47,7 +47,7 @@ def test_call_base_verifer_invalid_input(reward: MATHFormatVerifierReward) -> No
                 'verified_answers': ['24', 'y^4-2y^3+7y^2+y-4', '2'],
                 'generated_lens': torch.tensor([5, 5, 3]),
             },
-            [(0, 4, 10.0), (1, 4, 0.0), (2, 2, 10.0)],
+            [(0, 4, 10.0), (1, 4, 10.0), (2, 2, 0.0)],
         ),
         (
             {
