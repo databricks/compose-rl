@@ -363,14 +363,7 @@ class GSM8KAnswerVeriferReward(BaseVerifierReward):
         super().__init__(tokenizer=tokenizer, reward=reward)
 
     def extract_solution(self, text: str) -> str:
-        """Extract numerical solution from GSM8K-style responses.
-
-        Args:
-            text (str): The generated text.
-
-        Returns:
-            str: The extracted numerical answer.
-        """
+        """Extract numerical solution from GSM8K-style responses."""
         numbers = re.findall(r'-?[\d,]*\.?\d+', text)
         final_answer = ''
         if len(numbers) > 0:
@@ -382,15 +375,7 @@ class GSM8KAnswerVeriferReward(BaseVerifierReward):
         return final_answer
 
     def score_generations(self, answer: str, label: str) -> float:
-        """Score based on exact match.
-
-        Args:
-            answer (str): The extracted answer.
-            label (str): The verified answer.
-
-        Returns:
-            float: self.reward for match, 0.0 otherwise.
-        """
+        """Score based on exact match."""
         return self.reward if answer == label else 0.0
 
 
@@ -404,7 +389,7 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
         return False
 
     def score_generations(self, answer: str, label: str) -> float:
-        """Check if the answer follows the expected format with '####' marker.
+        """Check if the answer follows the format with '####' marker.
 
         Note: The label parameter is not used in this implementation but is required
         by the interface.
@@ -419,14 +404,7 @@ class MATHVerifierReward(BaseVerifierReward):
         super().__init__(tokenizer=tokenizer, reward=reward)
 
     def extract_solution(self, text: str) -> str:
-        """Extract numerical solution from GSM8K-style responses.
-
-        Args:
-            text (str): The generated text.
-
-        Returns:
-            str: The extracted numerical answer.
-        """
+        """Extract numerical solution from MATH-style responses."""
         last_boxed_string = last_boxed_only_string(text)
         if not last_boxed_string:
             # No boxed string found, so we can't evaluate
@@ -436,15 +414,26 @@ class MATHVerifierReward(BaseVerifierReward):
         return normalize_final_answer(unnormalized_answer)
 
     def score_generations(self, answer: str, label: str) -> float:
-        """Score based on exact match.
-
-        Args:
-            answer (str): The extracted answer.
-            label (str): The verified answer.
-
-        Returns:
-            float: self.reward for match, 0.0 otherwise.
-        """
+        """Score based on exact match or sympy equivalence checks."""
         if answer.strip() == label.strip() or is_equiv(answer, label):
             return self.reward
         return 0.0
+
+
+class MATHFormatVerifierReward(BaseVerifierReward):
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+
+    def needs_extraction(self) -> bool:
+        """Indicate that this verifier doesn't need extraction."""
+        return False
+
+    def score_generations(self, answer: str, label: str) -> float:
+        r"""Check if the answer follows the format with '\\boxed{{}}' marker.
+
+        Note: The label parameter is not used in this implementation but is required
+        by the interface.
+        """
+        last_boxed_string = last_boxed_only_string(answer)
+        return 0.0 if not last_boxed_string else self.reward
