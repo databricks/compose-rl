@@ -68,8 +68,11 @@ class LLMRayActor:
 
         self.llm = vllm.LLM(*args, **kwargs)
 
-    def generate(self, *args: Any, **kwargs: Any):
-        log.info(f'Generate kwargs are: {kwargs}')
+    def generate(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ):
         sampling_params = None
         if 'sampling_params' in kwargs:
             sampling_params = SamplingParams(**kwargs.pop('sampling_params'))
