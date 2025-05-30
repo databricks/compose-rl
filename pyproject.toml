@@ -35,7 +35,7 @@ released = [
     'llm-foundry[all]>=0.17.1,<0.21.0',
 ]
 cpu_released = [
-    'llm-foundry[all-cpu]>=0.17.1,0.21.0',
+    'llm-foundry[all-cpu]>=0.17.1,<0.21.0',
 ]
 
 # Registry entry points
