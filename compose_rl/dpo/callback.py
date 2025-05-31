@@ -66,6 +66,7 @@ class DPOCallback(CallbackWithConfig):
         )
 
         if load_checkpoint_callback is not None:
+            self.reference_model.should_save_peft_only = False
             load_checkpoint(
                 path=load_checkpoint_callback.parsed_path,
                 state=fake_trainer.state,
