@@ -14,7 +14,8 @@ from llmfoundry.interfaces import CallbackWithConfig
 from llmfoundry.utils import build_composer_model
 # pyright does not recognize process_init_device though it is a declared export
 from llmfoundry.utils.config_utils import process_init_device  # type: ignore
-
+from composer.callbacks import LoadCheckpoint
+from composer.utils.checkpoint import load_checkpoint
 
 class DPOCallback(CallbackWithConfig):
     """Callback to run DPO in an offline RL setting.
@@ -47,9 +48,15 @@ class DPOCallback(CallbackWithConfig):
         )
 
         original_load_path = self.train_config.get('load_path', None)
+        load_checkpoint_callback = None
+        for callback in state.callbacks:
+            if isinstance(callback, LoadCheckpoint):
+                load_checkpoint_callback = callback
+                break
+
         # For HF checkpoint, load_path is unset and should be handled in llmfoundry code.
         # Create a Trainer object to load model into FSDP
-        _ = Trainer(
+        fake_trainer = Trainer(
             model=self.reference_model,
             parallelism_config={'fsdp': state.fsdp_config},
             precision=state.precision,
@@ -57,6 +64,17 @@ class DPOCallback(CallbackWithConfig):
             load_strict_model_weights=False,
             load_path=original_load_path,
         )
+
+        if load_checkpoint_callback is not None:
+            load_checkpoint(
+                path=load_checkpoint_callback.parsed_path,
+                state=fake_trainer.state,
+                logger=logger,
+                object_store=load_checkpoint_callback.load_object_store,
+                strict_model_weights=load_checkpoint_callback.strict_model_weights,
+                ignore_keys=load_checkpoint_callback.ignore_keys,
+                load_weights_only=load_checkpoint_callback.load_weights_only,
+            )
 
     def before_forward(self, state: State, logger: Logger) -> Optional[int]:
         # Before every batch we need to do a forwards pass over the reference model
