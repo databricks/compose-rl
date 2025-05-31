@@ -94,7 +94,7 @@ class RewardModelConfig(PretrainedConfig):
     def __init__(
         self,
         base_model: Optional[Union[str, os.PathLike]
-                            ] = 'meta-llama/Meta-Llama-3-70B-Instruct',
+                            ] = None,
         base_config: Optional[PretrainedConfig] = None,
         p_dropout: float = 0.0,
         n_labels: int = 1,
