@@ -34,7 +34,9 @@ jobs:
       with:
         repository: mosaicml/ci-testing
         ref: v0.3.5
-        path: ./ci-testing
+        path: ci-testing 
+    - name: Validate action 
+      run: cat ci-testing/.github/actions/code-quality/action.yml
     - uses: ./ci-testing/.github/actions/code-quality
       with:
         python_version: ${{ matrix.python_version }}
