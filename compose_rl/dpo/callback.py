@@ -11,6 +11,7 @@ from composer import Trainer
 from composer.callbacks import LoadCheckpoint
 from composer.core import State, get_precision_context
 from composer.loggers import Logger
+from composer.models.huggingface import HuggingFaceModel
 from composer.utils.checkpoint import load_checkpoint
 from llmfoundry.interfaces import CallbackWithConfig
 from llmfoundry.utils import build_composer_model
@@ -67,6 +68,7 @@ class DPOCallback(CallbackWithConfig):
         )
 
         if load_checkpoint_callback is not None:
+            assert isinstance(self.reference_model, HuggingFaceModel)
             self.reference_model.should_save_peft_only = False
             load_checkpoint(
                 path=load_checkpoint_callback.parsed_path,
