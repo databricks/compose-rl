@@ -8,7 +8,7 @@ packages = { find = { include = ["compose_rl*"] } }
 
 [project]
 name = "compose_rl"
-version = "0.5.0.dev0"
+version = "0.7.0.dev0"
 dependencies = [
     'spacy==3.7.5',
     'spacy-alignments',
@@ -32,10 +32,10 @@ dev = [
     'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
 ]
 released = [
-    'llm-foundry[all]>=0.17.1,<0.22.0',
+    'llm-foundry[all]>=0.21.0',
 ]
 cpu_released = [
-    'llm-foundry[all-cpu]>=0.17.1,<0.22.0',
+    'llm-foundry[all-cpu]>=0.21.0',
 ]
 
 # Registry entry points
