@@ -8,14 +8,15 @@ from typing import Optional
 
 import torch
 from composer import Trainer
+from composer.callbacks import LoadCheckpoint
 from composer.core import State, get_precision_context
 from composer.loggers import Logger
+from composer.utils.checkpoint import load_checkpoint
 from llmfoundry.interfaces import CallbackWithConfig
 from llmfoundry.utils import build_composer_model
 # pyright does not recognize process_init_device though it is a declared export
 from llmfoundry.utils.config_utils import process_init_device  # type: ignore
-from composer.callbacks import LoadCheckpoint
-from composer.utils.checkpoint import load_checkpoint
+
 
 class DPOCallback(CallbackWithConfig):
     """Callback to run DPO in an offline RL setting.
@@ -72,7 +73,8 @@ class DPOCallback(CallbackWithConfig):
                 state=fake_trainer.state,
                 logger=logger,
                 object_store=load_checkpoint_callback.load_object_store,
-                strict_model_weights=load_checkpoint_callback.strict_model_weights,
+                strict_model_weights=load_checkpoint_callback.
+                strict_model_weights,
                 ignore_keys=load_checkpoint_callback.ignore_keys,
                 load_weights_only=load_checkpoint_callback.load_weights_only,
             )
