@@ -64,15 +64,17 @@ class DPOCallback(CallbackWithConfig):
 
         # The base model checkpoint may have been supplied by a LoadCheckpoint callback,
         # so we need to check and apply that checkpoint to the reference model.
-        load_checkpoint_callbacks = []
-        for callback in state.callbacks:
-            if isinstance(callback, LoadCheckpoint):
-                load_checkpoint_callbacks.append(callback)
-        
-        if original_load_path is not None and len(load_checkpoint_callbacks) > 0:
+        load_checkpoint_callbacks = [
+            callback for callback in state.callbacks
+            if isinstance(callback, LoadCheckpoint)
+        ]
+
+        if original_load_path is not None and len(
+            load_checkpoint_callbacks,
+        ) > 0:
             raise ValueError(
-                'Cannot use `load_path` in the train config when using `LoadCheckpoint` callback. ' +
-                'Please remove `load_path` from the train config.',
+                'Cannot use `load_path` in the train config when using `LoadCheckpoint` callback. '
+                + 'Please remove `load_path` from the train config.',
             )
 
         # For any LoadCheckpoint callbacks we found, we will load the checkpoint into the reference model.
