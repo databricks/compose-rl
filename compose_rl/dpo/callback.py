@@ -50,11 +50,6 @@ class DPOCallback(CallbackWithConfig):
         )
 
         original_load_path = self.train_config.get('load_path', None)
-        load_checkpoint_callback = None
-        for callback in state.callbacks:
-            if isinstance(callback, LoadCheckpoint):
-                load_checkpoint_callback = callback
-                break
 
         # For HF checkpoint, load_path is unset and should be handled in llmfoundry code.
         # Create a Trainer object to load model into FSDP
@@ -67,8 +62,28 @@ class DPOCallback(CallbackWithConfig):
             load_path=original_load_path,
         )
 
-        if load_checkpoint_callback is not None:
+        # The base model checkpoint may have been supplied by a LoadCheckpoint callback,
+        # so we need to check and apply that checkpoint to the reference model.
+        load_checkpoint_callbacks = []
+        for callback in state.callbacks:
+            if isinstance(callback, LoadCheckpoint):
+                load_checkpoint_callbacks.append(callback)
+        
+        if original_load_path is not None and len(load_checkpoint_callbacks) > 0:
+            raise ValueError(
+                'Cannot use `load_path` in the train config when using `LoadCheckpoint` callback. ' +
+                'Please remove `load_path` from the train config.',
+            )
+
+        # For any LoadCheckpoint callbacks we found, we will load the checkpoint into the reference model.
+        # If none are found, this for loop is a no-op.
+        for load_checkpoint_callback in load_checkpoint_callbacks:
             assert isinstance(self.reference_model, HuggingFaceModel)
+
+            # If using PEFT, we need to _not_ filter the state dict to only include the PEFT weights.
+            # This is so the checkpoint can load the base model weights. Since the reference model is
+            # not being update, we don't need to respect the `should_save_peft_only` flag from the original model
+            # and can just hardcode it to False.
             self.reference_model.should_save_peft_only = False
             load_checkpoint(
                 path=load_checkpoint_callback.parsed_path,
