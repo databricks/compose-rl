@@ -101,11 +101,12 @@ class InferenceRewardModel(RewardModel):
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
-        super().__init__(cfg, tokenizer)
-        self.max_retries = self.cfg.get('max_retries', 5)
-        self.timeout = self.cfg.get('timeout', None)
-        self.apply_sigmoid = self.cfg.get('apply_sigmoid', False)
+    def __init__(self, config: dict[Any, Any], tokenizer: Tokenizer):
+        super().__init__(config, tokenizer)
+        self.config = config
+        self.max_retries = self.config.get('max_retries', 5)
+        self.timeout = self.config.get('timeout', None)
+        self.apply_sigmoid = self.config.get('apply_sigmoid', False)
         if 'qwen2.5-coder' in tokenizer.name_or_path.lower():
             self.input_str_to_messages_formatter = undo_qwen_chat_template
         elif 'llama3' in tokenizer.name_or_path.lower():
@@ -137,7 +138,7 @@ class InferenceRewardModel(RewardModel):
         Returns:
             deployment_details: dict[str, str]. Contains the post_url and api_key for the inference deployment.
         """
-        deployment_details = fetch_bpt_details(self.cfg)
+        deployment_details = fetch_bpt_details(self.config)
         deployment_details['post_url'] = f"{deployment_details['base_url']}/chat/completions"
         return deployment_details
     
