@@ -19,7 +19,7 @@ dependencies = [
     # for MATH dataset
     'omegaconf==2.4.0.dev3', # needed for antrl4-4.11 package
     'sympy==1.13.3', # this version is only compatible with antlr-4.11 package
-    'antlr4-python3-runtime==4.11', # this is the version compatible with minieval
+    'antlr4-python3-runtime==4.11.1', # this is the version compatible with minieval
 ]
 
 [project.optional-dependencies]
