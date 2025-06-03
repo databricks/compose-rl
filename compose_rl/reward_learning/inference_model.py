@@ -4,13 +4,13 @@
 """Inference based reward model."""
 
 import logging
-from typing import MutableMapping, Optional
+from typing import Any, MutableMapping
 
 import backoff
 import requests
 import torch
 from composer.utils import dist
-from mcli import config as mcli_config
+from mcli import config as mcli_config, get_run as mcli_get_run
 
 from compose_rl.reward_learning.base_reward import RewardModel, Tokenizer
 from compose_rl.utils import get_remote_name
@@ -18,25 +18,43 @@ from compose_rl.utils import get_remote_name
 log = logging.getLogger(__name__)
 
 
+def fetch_bpt_details(config_or_bpt_run: dict[str, Any] | str):
+    """Fetch the BPT details for a given run.
+
+    Args:
+        config_or_bpt_run: Either a config dict with a 'bpt_run' key, or a BPT run name.
+
+    Returns:
+        dict[str, str]
+    """
+    if isinstance(config_or_bpt_run, str):
+        bpt_run_name = config_or_bpt_run
+    else:
+        assert 'bpt_run' in config_or_bpt_run, 'InferenceRewardModel requires a BPT run name.'
+        bpt_run_name = config_or_bpt_run['bpt_run']
+
+    log.info(f'Fetching BPT details for run {bpt_run_name}')
+    run = mcli_get_run(bpt_run_name, timeout=60)
+    if (status := str(run.status)) != "RUNNING":
+        raise RuntimeError(f"BPT run {bpt_run_name} is not running, got status {status}")
+    metadata = run.metadata
+    return {
+        "base_url": metadata["base_url"],
+        "api_key": metadata["api_key"],
+        "model": metadata["model_name"],
+        "bpt_run_name": bpt_run_name,
+    }
+
 class InferenceRewardModel(RewardModel):
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(
-        self,
-        deployment: str,
-        tokenizer: Tokenizer,
-        max_retries: int = 5,
-        timeout: Optional[int] = None,
-        threshold: Optional[float] = None,
-    ):
-        super().__init__(tokenizer=tokenizer)
-        self.deployment_name = get_remote_name(deployment)
-        log.info(f'Reward deployment name is: {self.deployment_name}')
-        self.max_retries = max_retries
-        self.timeout = timeout
-        self.threshold = threshold
+    def __init__(self, cfg: dict[Any, Any], tokenizer: Tokenizer):
+        super().__init__(cfg, tokenizer)
+        self.max_retries = self.cfg.get('max_retries', 5)
+        self.timeout = self.cfg.get('timeout', None)
+        self.apply_sigmoid = self.cfg.get('apply_sigmoid', False)
 
         if self.max_retries < 0:
             raise ValueError(
@@ -47,29 +65,50 @@ class InferenceRewardModel(RewardModel):
             raise NotImplementedError(
                 'timeout not currently supported for the latest inference setup',
             )
-
+        
+        self._deployment_details = self.get_deployment_details()
         self._headers = {
-            'Authorization': mcli_config.MCLIConfig.load_config().api_key,
-            'Content-Type': 'application/json',
+            "Authorization": f"Bearer {self._deployment_details['api_key']}",
+            "Content-Type": "application/json",
         }
 
         # If there is an issue reaching/using the deployment, we want to surface that error now.
         # To do so, we just call this RM with a dummy input.
         if dist.get_local_rank() == 0:
-            right_padded_obses = torch.tensor([[0] * 16])
-            seq_lens = [[12, 15]]
-            dummy_batch = {
-                'input_ids': right_padded_obses,
-                'seq_lens': seq_lens,
-                'seq_reward': True,
-                'is_inference': True,
-            }
-            self(dummy_batch)  # Indices here are arbitrary.
+            self.perform_health_check_on_model()
         dist.barrier()
 
+    def get_deployment_details(self) -> tuple[dict[str, str], dict[str, str]]:
+        """Gets the details of the inference deployment.
+
+        Returns:
+            deployment_details: dict[str, str]. Contains the post_url and api_key for the inference deployment.
+        """
+        deployment_details = fetch_bpt_details(self.cfg)
+        deployment_details['post_url'] = f"{deployment_details['base_url']}/rewards"
+        return deployment_details
+    
+    def perform_health_check_on_model(self):
+        """
+        Performs a health check on the model by passing a dummy batch through it.
+        """
+        right_padded_obses = torch.tensor([[0] * 16])
+        seq_lens = [[12, 15]]
+        dummy_batch = {
+            'input_ids': right_padded_obses,
+            'raw_untokenized_texts': [['Hello World']],
+            'seq_lens': seq_lens,
+            'seq_reward': True,
+            'is_inference': True,
+        }
+        self(dummy_batch)  # Indices here are arbitrary.
+
+    def validate_config(self):
+        # Incorrect config settings will raise errors already in __init__ above
+        # Maybe refactor in the future to use this method?
+        return
+
     def postprocess_reward(self, reward: torch.Tensor) -> torch.Tensor:
-        # if self.threshold is not None:
-        # reward = self.model_cls.apply_threshold(reward, self.threshold)
         reward_shape = reward.shape
         if len(reward_shape) == 3:
             reward = reward.mean(dim=2)
@@ -77,6 +116,8 @@ class InferenceRewardModel(RewardModel):
             raise ValueError(
                 f'reward must be [batch_size, seq_len] or [batch_size, seq_len, n_labels], but has {reward_shape=}',
             )
+        if self.apply_sigmoid:
+            reward = torch.nn.functional.sigmoid(reward)
         return reward
 
     def __call__(
@@ -120,8 +161,6 @@ class InferenceRewardModel(RewardModel):
                 batch_indices.append(bidx)
                 reward_indices.append(seq_reward_index)
 
-        # If this is happening as part of an MCLI run, your Mosaic API key needs to be registered
-        # as an environment variable or this mcli.predict call will fail.
         @backoff.on_exception(  # pyright: ignore[reportUntypedFunctionDecorator]
             backoff.expo,
             exception=Exception,
@@ -129,7 +168,6 @@ class InferenceRewardModel(RewardModel):
             max_value=30,
         )
         def call_predict_with_backoff(
-            deployment: str,
             inputs: list[torch.Tensor],
         ):
             data = {
@@ -137,21 +175,17 @@ class InferenceRewardModel(RewardModel):
                 'prompt': 'UNUSED',
             }
             response = requests.post(
-                deployment,
+                self._deployment_details['post_url'],
                 headers=self._headers,
                 json=data,
             )
             response = response.json()
             # Currently, all outputs will contain a single reward, coming from the last token.
-            rewards = [
-                choice['metadata']['rewards'][-1]
-                for choice in response['choices']
-            ]
+            rewards = [r['score'][0] for r in response['data']]
             return rewards
 
         try:
             inf_outputs = call_predict_with_backoff(
-                self.deployment_name,
                 deployment_inputs,
             )
         except Exception as e:
