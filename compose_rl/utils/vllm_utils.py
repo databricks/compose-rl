@@ -157,7 +157,8 @@ class WorkerWrap:
         weight = torch.empty(shape, dtype=dtype, device='cuda')
         print('before broadcast in workerwrap')
         print(dir(self._model_update_group))
-        print(self._model_update_group.rank(), self._model_update_group.size())
+        print(self._model_update_group.rank())
+        print(self._model_update_group.size())
         torch.distributed.broadcast(
             weight,
             0,
@@ -519,7 +520,8 @@ def broadcast_to_vllm(
                                 refss.extend(refs)
                                 log.debug('Before broadcast on rank 0')
                                 log.debug(dir(model_update_group))
-                                log.debug(model_update_group.rank(), model_update_group.size())
+                                log.debug(model_update_group.rank())
+                                log.debug(model_update_group.size())
                                 torch.distributed.broadcast(
                                     param.data,
                                     0,
