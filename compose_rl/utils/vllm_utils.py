@@ -384,21 +384,34 @@ def broadcast_to_vllm(
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
     """
     # avoid OOM
+    log.debug("Inside broadcast_to_vllm, emptying CUDA cache")
     torch.cuda.empty_cache()
+    log.debug("CUDA cache emptied")
     if loss_type == 'ppo':
         # Extract the lm_backbone params from the model
         count, num_params = 0, len(
             list(model.model.lm_backbone.named_parameters()),  # type: ignore
         )
     elif loss_type == 'grpo':
+        log.debug(
+            'Using GRPO loss type, skipping critic head parameters',
+        )
         # Directly use the model params
         count, num_params = 0, len(
             list(model.model.named_parameters()),  # type: ignore
+        )
+        log.debug(
+            f'Number of parameters in the model: {num_params}',
         )
     else:
         raise ValueError(
             f'Unsupported loss type: {loss_type}. Supported types are: ppo, grpo',
         )
+    
+    log.debug(
+        f'Broadcasting model weights to vllm engines: {num_params} parameters',
+    )
+
     refss = []
     # This is needed to get the correct model device
     cur_device = batch['prompt'].device
@@ -446,6 +459,9 @@ def broadcast_to_vllm(
             if module not in seen_fsdp_modules:
                 seen_fsdp_modules.add(module)
 
+                log.debug(
+                    f'Processing FSDP module: {module_name}, type: {type(module)}',
+                )
                 # Materializes parameters for this specific FSDP module
                 with FSDP.summon_full_params(
                     module,
@@ -457,6 +473,10 @@ def broadcast_to_vllm(
                         if dist.get_global_rank() == 0:
                             full_name = param_2_full_name[param]
                             parsed_name = simplify_param_path(full_name)
+
+                            log.debug(
+                                f'Processing parameter: {parsed_name}, full name: {full_name}',
+                            )
 
                             if 'critic_head' in parsed_name:
                                 log.info('Critic head found, skipping sending')
