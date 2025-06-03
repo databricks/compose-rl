@@ -15,11 +15,11 @@ dependencies = [
     'ray<3',
     'kubernetes==29.0.0',
     'vllm>=0.9.0,<0.10.0',
-    'https://download.pytorch.org/whl/cu128/flashinfer/flashinfer_python-0.2.5%2Bcu128torch2.7-cp38-abi3-linux_x86_64.whl' # Flastinfer wheel
     # for MATH dataset
     'omegaconf==2.4.0.dev3', # needed for antrl4-4.11 package
     'sympy==1.13.3', # this version is only compatible with antlr-4.11 package
     'antlr4-python3-runtime==4.11.1', # this is the version compatible with minieval
+    'https://download.pytorch.org/whl/cu128/flashinfer/flashinfer_python-0.2.5%2Bcu128torch2.7-cp38-abi3-linux_x86_64.whl', # Flastinfer wheel
 ]
 
 [project.optional-dependencies]
