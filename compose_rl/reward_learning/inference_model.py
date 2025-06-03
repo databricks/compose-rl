@@ -64,6 +64,7 @@ def undo_qwen_chat_template(text: str) -> list[dict[str, str]]:
     The parser is *best-effort*: any malformed fragments are skipped rather
     than raising
     """
+    assert isinstance(text, str), f"Expected a string, got {type(text)}"
     START, END = "<|im_start|>", "<|im_end|>"
     messages = []
     # 1. Extract every <|im_start|> ... (<|im_end|> or EOF) chunk.
@@ -74,7 +75,12 @@ def undo_qwen_chat_template(text: str) -> list[dict[str, str]]:
         rf"(?:(?:{re.escape(END)})|$)",     # until <|im_end|> *or* end-of-file
         flags=re.DOTALL,
     )
-    for m in pattern.finditer(text):
+    potential_messages = list(pattern.finditer(text))
+    if len(potential_messages) == 0:
+        # we are likely seeing a single message, not a chatml string
+        log.debug(f"No chatml string found in text. Returning as single user message. Raw text is:\n{text}")
+        return [{"role": "user", "content": text}]
+    for m in potential_messages:
         payload = m.group(1)
 
         # Empty payload → skip (can happen if the very first split is empty)
