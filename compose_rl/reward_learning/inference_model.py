@@ -4,6 +4,7 @@
 """Inference based reward model."""
 
 import logging
+import re
 from typing import Any, MutableMapping
 
 import backoff
@@ -45,6 +46,56 @@ def fetch_bpt_details(config_or_bpt_run: dict[str, Any] | str):
         "bpt_run_name": bpt_run_name,
     }
 
+def undo_llama3_chat_template(text: str) -> list[dict[str, str]]:
+    messages = []
+    # Regular expression to match the role and content
+    pattern = re.compile(r"<\|start_header_id\|>(.*?)<\|end_header_id\|>\n(.*?)<\|eot_id\|>", re.DOTALL)
+    for match in pattern.finditer(text):
+        role = match.group(1).strip()
+        content = match.group(2).strip()
+        messages.append({"role": role, "content": content})
+    return messages
+
+def undo_qwen_chat_template(text: str) -> list[dict[str, str]]:
+    """
+    Parse a ChatML-formatted string produced by Qwen-2.5 *instruct* tokenizers
+    back into a list of {role, content} dictionaries.
+
+    The parser is *best-effort*: any malformed fragments are skipped rather
+    than raising
+    """
+    START, END = "<|im_start|>", "<|im_end|>"
+    messages = []
+    # 1. Extract every <|im_start|> ... (<|im_end|> or EOF) chunk.
+    #    The END tag is optional so we capture until the *next* START or EOF.
+    pattern = re.compile(
+        rf"{re.escape(START)}"              # literal <|im_start|>
+        r"(.*?)"                            # non-greedy payload
+        rf"(?:(?:{re.escape(END)})|$)",     # until <|im_end|> *or* end-of-file
+        flags=re.DOTALL,
+    )
+    for m in pattern.finditer(text):
+        payload = m.group(1)
+
+        # Empty payload → skip (can happen if the very first split is empty)
+        if not payload.strip():
+            continue
+
+        # 2. Split payload into role  +  content (first newline separates them)
+        if "\n" in payload:
+            role, content = payload.split("\n", 1)
+            role = role.strip()
+            content = content.lstrip("\n")  # keep intentional leading \n in msg
+        else:
+            # No newline → could be the bare generation prompt 'assistant'
+            role, content = payload.strip(), ""
+        # 3. Basic sanity check on role; if weird, label as 'user'
+        if role not in {"system", "user", "assistant", "tool"}:
+            role = "user"
+        messages.append({"role": role, "content": content})
+    return messages
+
+
 class InferenceRewardModel(RewardModel):
 
     # This can be run async
@@ -55,15 +106,17 @@ class InferenceRewardModel(RewardModel):
         self.max_retries = self.cfg.get('max_retries', 5)
         self.timeout = self.cfg.get('timeout', None)
         self.apply_sigmoid = self.cfg.get('apply_sigmoid', False)
+        if 'qwen2.5-coder' in tokenizer.name_or_path.lower():
+            self.input_str_to_messages_formatter = undo_qwen_chat_template
+        elif 'llama3' in tokenizer.name_or_path.lower():
+            self.input_str_to_messages_formatter = undo_llama3_chat_template
+        else:
+            raise ValueError(f"Tokenizer {tokenizer.name_or_path} not supported for inference reward model")
+        
 
         if self.max_retries < 0:
             raise ValueError(
                 f'max_retries must be at least 0 but was {self.max_retries}',
-            )
-
-        if self.timeout is not None:
-            raise NotImplementedError(
-                'timeout not currently supported for the latest inference setup',
             )
         
         self._deployment_details = self.get_deployment_details()
@@ -85,7 +138,7 @@ class InferenceRewardModel(RewardModel):
             deployment_details: dict[str, str]. Contains the post_url and api_key for the inference deployment.
         """
         deployment_details = fetch_bpt_details(self.cfg)
-        deployment_details['post_url'] = f"{deployment_details['base_url']}/rewards"
+        deployment_details['post_url'] = f"{deployment_details['base_url']}/chat/completions"
         return deployment_details
     
     def perform_health_check_on_model(self):
@@ -120,92 +173,64 @@ class InferenceRewardModel(RewardModel):
             reward = torch.nn.functional.sigmoid(reward)
         return reward
 
-    def __call__(
-        self,
-        batch: MutableMapping,
-    ) -> torch.Tensor:
-
-        if not batch['seq_reward']:
-            raise NotImplementedError(
-                'InferenceRewardModel currently requires seq_reward=True',
-            )
-        if not batch['is_inference']:
-            raise NotImplementedError(
-                'InferenceRewardModel currently requires `is_inference`=True',
-            )
-
-        input_ids = batch['input_ids']
-        seq_lens = batch['seq_lens']
-
-        # We'll work in lists because we have to send some version of this through the inference request
-        if isinstance(input_ids, torch.Tensor):
-            input_ids = input_ids.tolist()
-        assert isinstance(input_ids, list)
-
-        if len(input_ids) != len(seq_lens):
-            raise ValueError(
-                'The batch dimension of input_ids and the length of seq_lens do not match.',
-            )
-
-        # We need to send each input sequence through one per reward index that it needs.
-        # Build that out here.
-        deployment_inputs = []
-        batch_indices = []
-        reward_indices = []
-        for bidx, (seq_input_ids,
-                   seq_reward_indices) in enumerate(zip(input_ids, seq_lens)):
-            for seq_reward_index in seq_reward_indices:
-                deployment_inputs.append({
-                    'input_ids': seq_input_ids[:seq_reward_index + 1],
-                })
-                batch_indices.append(bidx)
-                reward_indices.append(seq_reward_index)
-
+    def __call__(self, batch: MutableMapping) -> torch.Tensor:
+        log.debug(f'InferenceRewardModel __call__ received batch: {batch}')
+        if 'raw_untokenized_texts' not in batch:
+            raise ValueError(f"InferenceRewardModel requires raw_untokenized_texts in batch, got {batch=}")
+        batch_size = batch['input_ids'].shape[0]
+        
         @backoff.on_exception(  # pyright: ignore[reportUntypedFunctionDecorator]
             backoff.expo,
             exception=Exception,
             max_tries=self.max_retries + 1,
-            max_value=30,
+            max_value=60,
         )
-        def call_predict_with_backoff(
-            inputs: list[torch.Tensor],
-        ):
-            data = {
-                'custom_input': inputs,
-                'prompt': 'UNUSED',
-            }
-            response = requests.post(
-                self._deployment_details['post_url'],
-                headers=self._headers,
-                json=data,
-            )
-            response = response.json()
-            # Currently, all outputs will contain a single reward, coming from the last token.
-            rewards = [r['score'][0] for r in response['data']]
-            return rewards
-
+        def call_predict_with_backoff(batch: MutableMapping) -> list[float]:
+            messages: list[dict[str, str]] = self.input_str_to_messages_formatter(batch['raw_untokenized_texts'])
+            unprocessed_rewards = self._call_rm(messages)
+            return unprocessed_rewards
+        
         try:
-            inf_outputs = call_predict_with_backoff(
-                deployment_inputs,
-            )
+            unprocessed_rewards = call_predict_with_backoff(batch)
         except Exception as e:
             # Retry limit has been reached. Raise the error :(
             error_msg = (
-                'REWARD MODEL DEPLOYMENT BACKOFF LIMIT EXCEEDED. ' +
-                'Printing deployment inputs then raising last error...' +
-                f'\nDeployment inputs:\n{deployment_inputs}'
+                'PROMPT GUIDED REWARD MODEL BACKOFF LIMIT EXCEEDED. ' +
+                'Printing batch then raising last error...' +
+                f'\n\n{batch=}'
             )
             raise RuntimeError(error_msg) from e
-
+        
         # Zero-pad and batch the rewards from the outputs (this is the sequence reward)
-        max_len = max([len(seq) for seq in input_ids])
-        padded_reward_seqs = torch.zeros((len(input_ids), max_len))
-        for reward, bidx, ridx in zip(
-            inf_outputs,
-            batch_indices,
-            reward_indices,
-        ):
-            padded_reward_seqs[bidx, ridx] = reward
-        reward = torch.tensor(padded_reward_seqs)
+        # TODO: check that this is equivalent to the more verbose version in the original inference_model (e.g., lines 193-onwards)
+        padded_reward_seqs = torch.zeros(batch['input_ids'].shape)
+        padded_reward_seqs[torch.arange(batch_size), torch.tensor(batch['seq_lens']).squeeze()] = torch.tensor(unprocessed_rewards)
+        return self.postprocess_reward(padded_reward_seqs)
+    
+    def _call_rm(self, messages: list[dict[str, str]]) -> list[float]:
+        """
+        Calls the prompt-guided reward model.
 
-        return self.postprocess_reward(reward)
+        Args:
+            messages (list[dict[str, str]]): The messages to call the reward model with.
+
+        Returns:
+            list[float]: The rewards from the reward model.
+        """
+        response = requests.post(
+            self._deployment_details['post_url'],
+            headers=self._headers,
+            json={
+                'model': self._deployment_details['model'],
+                'messages': messages,
+                'max_tokens': 1,
+                'logprobs': True,
+                'temperature': 0.0,
+                'add_generation_prompt': False,
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()  # checking that the response is successful
+        response = response.json()
+        # These are document-level rewards, so only 1 reward score per "document" (i.e. per messages chain)
+        return response['choices'][0]['logprobs']['content'][0]['logprob']
