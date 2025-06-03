@@ -153,7 +153,10 @@ class WorkerWrap:
             shape (Union[Tuple[int, ...], List[int], torch.Size]): Shape of the weight
             empty_cache (bool): Whether to empty cache after updating weights
         """
+        print("+" * 30, "update_weight in workerwrap")
         weight = torch.empty(shape, dtype=dtype, device='cuda')
+        print('before broadcast in workerwrap')
+        print(self._model_update_group, dir(self._model_update_group))
         torch.distributed.broadcast(
             weight,
             0,
@@ -496,11 +499,13 @@ def broadcast_to_vllm(
 
                             # Usually if we have to skip a module, it's because we cannot
                             if update:
+                                log.debug('inside update')
                                 start_update_time = time.time()
                                 seen_updated_parsed_names.add(parsed_name)
 
                                 count += 1
                                 shape = param.shape
+                                log.debug('Making refs')
                                 refs = [
                                     engine.update_weight.remote(
                                         parsed_name,
@@ -509,12 +514,16 @@ def broadcast_to_vllm(
                                         empty_cache=(count == num_params),
                                     ) for engine in vllm_engines
                                 ]
+                                log.debug('Refs made')
                                 refss.extend(refs)
+                                log.debug('Before broadcast on rank 0')
+                                log.debug(model_update_group, dir(model_update_group))
                                 torch.distributed.broadcast(
                                     param.data,
                                     0,
                                     group=model_update_group,
                                 )
+                                log.debug('After broadcast on rank 0')
                                 update_time += time.time() - start_update_time
 
     # Issue (#67): Note this code will likely need to be updated for PEFT for efficiency reasons.
