@@ -8,34 +8,34 @@ packages = { find = { include = ["compose_rl*"] } }
 
 [project]
 name = "compose_rl"
-version = "0.4.0"
+version = "0.7.0.dev0"
 dependencies = [
     'spacy==3.7.5',
     'spacy-alignments',
     'ray<3',
     'kubernetes==29.0.0',
-    'vllm>=0.8.3,<0.9.0',
+    'vllm>=0.9.0,<0.10.0',
     # for MATH dataset
     'omegaconf==2.4.0.dev3', # needed for antrl4-4.11 package
-    'sympy==1.13.1', # this version is only compatible with antlr-4.11 package
+    'sympy==1.13.3', # this version is only compatible with antlr-4.11 package
     'antlr4-python3-runtime==4.11', # this is the version compatible with minieval
 ]
 
 [project.optional-dependencies]
 cpu = [
-    'llm-foundry[all-cpu]@git+https://github.com/mosaicml/llm-foundry.git@a51c96cbd280b76fa6bf45fd1f12e48f3c99e8e6#egg=llmfoundry',
+    'llm-foundry[all-cpu]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
 ]
 gpu = [
-    'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@a51c96cbd280b76fa6bf45fd1f12e48f3c99e8e6#egg=llmfoundry',
+    'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
 ]
 dev = [
-    'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@a51c96cbd280b76fa6bf45fd1f12e48f3c99e8e6#egg=llmfoundry',
+    'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
 ]
 released = [
-    'llm-foundry[all]>=0.17.1,<0.21.0',
+    'llm-foundry[all]>=0.21.0',
 ]
 cpu_released = [
-    'llm-foundry[all-cpu]>=0.17.1,<0.21.0',
+    'llm-foundry[all-cpu]>=0.21.0',
 ]
 
 # Registry entry points
