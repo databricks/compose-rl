@@ -126,6 +126,9 @@ class RewardManager:
                 )
 
                 if reward_cls == InferenceRewardModel:
+                    assert reward_config.get('granularity', 'document') == 'document', \
+                        'InferenceRewardModel only currently supports document granularity'
+                    self.granularities[reward_name] = 'document'
                     model = build_reward(
                         name=reward_type,
                         tokenizer=self.tokenizer,
@@ -466,6 +469,8 @@ class RewardManager:
             ).type(base_batch['attention_mask'].dtype)
 
             return {
+                'raw_untokenized_texts': 
+                    raw_untokenized_texts,
                 'tok_formatted_reward_inputs':
                     tok_formatted_reward_inputs,
                 'tok_formatted_reward_attn_masks':
