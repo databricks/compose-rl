@@ -1,7 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the GSM8KAnswerVeriferReward class."""
+"""Tests for the GSM8KVeriferReward class."""
 
 from typing import Any
 
@@ -9,17 +9,17 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from compose_rl.reward_learning import GSM8KAnswerVeriferReward
+from compose_rl.reward_learning import GSM8KVeriferReward
 
 
 @pytest.fixture
-def reward() -> GSM8KAnswerVeriferReward:
+def reward() -> GSM8KVeriferReward:
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    return GSM8KAnswerVeriferReward(reward=1.0, tokenizer=tokenizer)
+    return GSM8KVeriferReward(reward=1.0, tokenizer=tokenizer)
 
 
 def test_call_base_verifer_invalid_input(
-    reward: GSM8KAnswerVeriferReward,
+    reward: GSM8KVeriferReward,
 ) -> None:
     invalid_batch: dict[str, torch.Tensor] = {
         'zero_rewards': torch.zeros((2, 6)),
@@ -63,7 +63,7 @@ def test_call_base_verifer_invalid_input(
     ],
 )
 def test_gms8k_answer_verifier(
-    reward: GSM8KAnswerVeriferReward,
+    reward: GSM8KVeriferReward,
     batch: dict[str, Any],
     expected_rewards: list[tuple[int, int, float]],
 ) -> None:
