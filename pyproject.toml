@@ -16,9 +16,9 @@ dependencies = [
     'kubernetes==29.0.0',
     'vllm>=0.9.0,<0.10.0',
     # for MATH dataset
-    'omegaconf==2.4.0.dev3', # needed for antrl4-4.11 package
-    'sympy==1.13.3', # this version is only compatible with antlr-4.11 package
-    'antlr4-python3-runtime==4.11', # this is the version compatible with minieval
+    'omegaconf==2.4.0.dev3', # needed for antrl4-4.11+ versions
+    'sympy==1.13.3', # this version is compatible with torch-2.7 package
+    'antlr4-python3-runtime~=4.11.1', # this is the version compatible with minieval
 ]
 
 [project.optional-dependencies]
