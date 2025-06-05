@@ -19,8 +19,8 @@ from llmfoundry.utils import build_composer_model
 from llmfoundry.utils.config_utils import process_init_device  # type: ignore
 
 
-class DPOCallback(CallbackWithConfig):
-    """Callback to run DPO in an offline RL setting.
+class ReferencePolicyCallback(CallbackWithConfig):
+    """Callback to run reference policy in algoirthms like DPO in an offline RL setting.
 
     Args:
         train_config (dict): Training config passed to callback via foundry train.py as

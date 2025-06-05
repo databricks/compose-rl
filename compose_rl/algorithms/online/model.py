@@ -1,7 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""PPO Composer Policy implementations."""
+"""On-Policy Online RL Composer Model implementations."""
 
 import collections
 import logging
@@ -16,13 +16,13 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from compose_rl.ppo.modeling_hf import ComposerHFPolicy
-from compose_rl.ppo.modeling_mpt import MPTForPolicy
-from compose_rl.ppo.modeling_utils import (
+from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
+from compose_rl.algorithms.online.modeling_mpt import MPTForPolicy
+from compose_rl.algorithms.online.model_methods import (
     composer_online_rl_forward,
     online_rl_loss,
 )
-from compose_rl.ppo.policy_configuration import MPTPolicyConfig
+from compose_rl.algorithms.online.policy_configuration import MPTPolicyConfig
 from compose_rl.utils import (
     clear_mb_load_balancing_loss,
     get_mb_load_balancing_loss,

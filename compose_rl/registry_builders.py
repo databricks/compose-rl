@@ -12,8 +12,8 @@ from transformers import (
 )
 
 from compose_rl import registry
-from compose_rl.ppo.kl_controller import BaseKLController
-from compose_rl.reward_learning import BaseReward
+from compose_rl.algorithms.online.kl_controller import BaseKLController
+from compose_rl.algorithms.reward_modeling import BaseReward
 
 __all__ = ['build_kl_controller', 'build_reward']
 

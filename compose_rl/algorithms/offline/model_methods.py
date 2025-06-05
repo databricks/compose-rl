@@ -26,7 +26,7 @@ from compose_rl.utils import (
 )
 
 
-class DPOEnum(Enum):
+class PairwiseOfflineEnum(Enum):
     DPO = 'dpo'
     RPO = 'rpo'
     RCDPO = 'rcdpo'
@@ -35,7 +35,7 @@ class DPOEnum(Enum):
     KTO = 'kto'
 
 
-def dpo_forward(
+def pairwise_offline_forward(
     model: nn.Module,
     tokenizer: Tokenizer,
     batch: MutableMapping,
@@ -165,17 +165,17 @@ def dpo_forward(
     return outputs
 
 
-def dpo_loss(
+def pairwise_offline_loss(
     outputs: CausalLMOutputWithPast,
     batch: Mapping,
-    loss_type: DPOEnum,
+    loss_type: PairwiseOfflineEnum,
     beta: float,
     label_smoothing: float,
     sft_alpha: float,
 ) -> dict[str, torch.Tensor]:
-    """Computes DPO loss.
+    """Computes pairwise offline RL losses.
 
-    Given precomputed values, the batch, and dpo-oriented specific values, this will compute the dpo_loss.
+    Given precomputed values, the batch, and RL specific values, this will compute the specified loss.
 
     Args:
         outputs (CausalLMOutputWithPast): Outputs from forwarding the model over the batch.
@@ -205,12 +205,12 @@ def dpo_loss(
     logits = pi_logratios - ref_logratios  # Also known as h_{\pi_\theta}^{y_w,y_l}
 
     losses = torch.zeros_like(logits)
-    if loss_type == DPOEnum.DPO:
+    if loss_type == PairwiseOfflineEnum.DPO:
         losses = (
             -F.logsigmoid(beta * logits) * (1 - label_smoothing) -
             F.logsigmoid(-beta * logits) * label_smoothing
         )
-    elif loss_type == DPOEnum.RCDPO:
+    elif loss_type == PairwiseOfflineEnum.RCDPO:
         # Adding reward-difference based label_smoothing = 1 - reward_bt_prob
         chosen_reward = outputs['chosen_reward']
         rejected_reward = outputs['rejected_reward']
@@ -222,7 +222,7 @@ def dpo_loss(
             -beta * logits,
         ) * (1 - reward_bt_prob)
         losses = rcdpo_losses
-    elif loss_type == DPOEnum.RPO:
+    elif loss_type == PairwiseOfflineEnum.RPO:
         # Reproducing the RPO loss from NVIDIA's paper: https://arxiv.org/pdf/2406.11704v1 page 13
         # Code: https://github.com/NVIDIA/NeMo-Aligner/blob/c92a3bf9c2d6312581982a8d1db30591855394c5/nemo_aligner/models/nlp/gpt/megatron_gpt_dpo_model.py#L261-L273
         eta = 1  # NOTE: Hardcoding this to be 1 as per the paper's recommendation
@@ -238,7 +238,7 @@ def dpo_loss(
         losses = torch.exp(logsigmoid_b) * (
             logsigmoid_b - logsigmoid_a
         ) + torch.exp(logsigmoid_not_b) * (logsigmoid_not_b - logsigmoid_not_a)
-    elif loss_type == DPOEnum.REBEL:
+    elif loss_type == PairwiseOfflineEnum.REBEL:
         # Reproducing the REBEL loss from paper: https://arxiv.org/pdf/2404.16767 page 4
         # Code: https://github.com/ZhaolinGao/REBEL/blob/e0a6a190108a45c70b4920b58a4ccac8a09ab22b/src/tldr/rebel.py#L761-L777
         pi_logratios = policy_chosen_logp - policy_rejected_logp
@@ -251,9 +251,9 @@ def dpo_loss(
         reward_diff = chosen_reward - rejected_reward
         losses = (beta * logits - reward_diff)**2
         # beta represents 1/eta hparam from the paper
-    elif loss_type == DPOEnum.IPO:
+    elif loss_type == PairwiseOfflineEnum.IPO:
         losses = (logits - 1 / (2 * beta))**2
-    elif loss_type == DPOEnum.KTO:
+    elif loss_type == PairwiseOfflineEnum.KTO:
         chosen_KL = (policy_chosen_logp - ref_chosen_logp).mean().clamp(min=0)
         rejected_KL = (policy_rejected_logp -
                        ref_rejected_logp).mean().clamp(min=0)
@@ -269,6 +269,7 @@ def dpo_loss(
         )
     else:
         raise ValueError(f'Loss type: {loss_type} is not supported.')
+
     if sft_alpha > 0:
         sft_losses = -1 * sft_alpha * policy_chosen_logp
         sft_losses_normalized = sft_losses / outputs['chosen_len']
@@ -294,7 +295,7 @@ def dpo_loss(
         'margin_KL': margin_KL,
         'accuracy': (chosen_rewards > rejected_rewards).to(torch.float32),
     }
-    if loss_type in [DPOEnum.RPO, DPOEnum.RCDPO, DPOEnum.REBEL]:
+    if loss_type in [PairwiseOfflineEnum.RPO, PairwiseOfflineEnum.RCDPO, PairwiseOfflineEnum.REBEL]:
         # reward_diff is always defined if loss_type is RPO, RCDPO, or REBEL
         loss_dict['reward_diff'] = reward_diff.detach()  # type: ignore
     if sft_alpha > 0:

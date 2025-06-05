@@ -9,9 +9,9 @@ from typing import Any, Mapping, MutableMapping, Optional
 import torch
 from llmfoundry.models import ComposerMPTCausalLM
 
-from compose_rl.reward_learning.base_reward import RewardModel, Tokenizer
-from compose_rl.reward_learning.hf_utils import SequenceClassifierOutput
-from compose_rl.reward_learning.model_methods import (
+from compose_rl.algorithms.reward_modeling.base_reward import RewardModel, Tokenizer
+from compose_rl.algorithms.reward_modeling.hf_utils import SequenceClassifierOutput
+from compose_rl.algorithms.reward_modeling.model_methods import (
     ClassifierRewardEnum,
     PairwiseRewardEnum,
     classifier_forward,
@@ -19,9 +19,9 @@ from compose_rl.reward_learning.model_methods import (
     pairwise_forward,
     pairwise_loss,
 )
-from compose_rl.reward_learning.modeling_hf import \
+from compose_rl.algorithms.reward_modeling.modeling_hf import \
     ComposerHFSequenceClassification
-from compose_rl.reward_learning.modeling_mpt import MPTForSequenceClassification
+from compose_rl.algorithms.reward_modeling.modeling_mpt import MPTForSequenceClassification
 
 log = logging.getLogger(__name__)
 

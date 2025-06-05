@@ -13,7 +13,7 @@ import torch
 from composer.utils import dist
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
+from compose_rl.algorithms.online.model import ComposerHFPolicyModel, ComposerMosaicPolicy
 from compose_rl.utils import (
     flip_pad_token_usage_for_generate,
     flip_pad_token_usage_in_ffn,
