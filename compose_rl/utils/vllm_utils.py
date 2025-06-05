@@ -184,6 +184,7 @@ def create_vllm_engines(
     seed: int,
     enable_prefix_caching: bool,
     max_model_len: int,
+    max_num_batched_tokens: int,
     vllm_gpu_memory_utilization: float = 0.9,
 ):
     """Creates vllm engines.
@@ -197,6 +198,7 @@ def create_vllm_engines(
         seed (int): Seed for random number generation
         enable_prefix_caching (bool): Whether to enable prefix caching
         max_model_len (int): Maximum model length
+        max_num_batched_tokens (int): Maximum number of batched tokens for chunked prefill
         vllm_gpu_memory_utilization (float): GPU memory utilization for vllm
     """
     bundles = [{
@@ -245,22 +247,23 @@ def create_vllm_engines(
                 revision=revision,  # type: ignore
                 tokenizer_revision=revision,  # type: ignore
                 trust_remote_code=True,  # type: ignore
-                worker_extension_cls= # type: ignore
+                worker_extension_cls=  # type: ignore
                 'compose_rl.utils.vllm_utils.WorkerWrap',
                 tensor_parallel_size=tensor_parallel_size,  # type: ignore
                 enforce_eager=enforce_eager,  # type: ignore
                 dtype='bfloat16',  # type: ignore
                 seed=seed + i,  # type: ignore
-                distributed_executor_backend= # type: ignore
+                distributed_executor_backend=  # type: ignore
                 distributed_executor_backend,
                 enable_prefix_caching=enable_prefix_caching,  # type: ignore
                 max_model_len=max_model_len,  # type: ignore
-                gpu_memory_utilization= # type: ignore
+                gpu_memory_utilization=  # type: ignore
                 vllm_gpu_memory_utilization,
                 bundle_indices=bundle_indices,  # type: ignore
                 num_gpus=1,  # type: ignore
-                noset_visible_devices= # type: ignore
+                noset_visible_devices=  # type: ignore
                 ray_noset_visible_devices(),
+                max_num_batched_tokens=max_num_batched_tokens,  # type: ignore
             ),
         )
 

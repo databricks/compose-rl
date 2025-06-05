@@ -445,9 +445,6 @@ class PPOCallback(CallbackWithConfig):
 
         self.vllm_engines = None
         self.num_vllm_engines = 0
-        self.vllm_tensor_parallel_size = 1
-        self.vllm_enable_prefix_caching = False
-        self.vllm_enforce_eager = True
 
         vllm_config = var_config.get('vllm_config', None)
         if vllm_config is not None:
@@ -461,6 +458,13 @@ class PPOCallback(CallbackWithConfig):
                 1,
             )
             self.vllm_sync_backend = vllm_config.get('sync_backend', 'nccl')
+            # This document: https://docs.vllm.ai/en/latest/configuration/optimization.html?h=chun#performance-tuning-with-chunked-prefill
+            # recommends setting this to anything above 8096 for tuning smaller models on larger GPUs
+            # Enabling this as a variable allows us to tune this for different models (since with v1 vLLM, chunked prefill is enabled by default)
+            self.vllm_max_num_batched_tokens = vllm_config.get(
+                'max_num_batched_tokens',
+                8192,
+            )
 
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
@@ -1065,6 +1069,7 @@ class PPOCallback(CallbackWithConfig):
                 seed=1,
                 enable_prefix_caching=self.vllm_enable_prefix_caching,
                 max_model_len=self.max_seq_len,
+                max_num_batched_tokens=self.vllm_max_num_batched_tokens,
             )
             log.info('After creating vLLM engines.')
 
