@@ -12,7 +12,7 @@ import torch
 
 log = logging.getLogger(__name__)
 
-from compose_rl.data.rlvr_utils import (
+from compose_rl.data.math_utils import (
     is_equiv,
     last_boxed_only_string,
     normalize_final_answer,
