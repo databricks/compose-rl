@@ -23,7 +23,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from compose_rl.interfaces.base_kl_controller import BaseKLController
 from compose_rl.registry import rewards as rewards_registry
 from compose_rl.registry_builders import build_reward
-from compose_rl.reward_learning import (
+from compose_rl.algorithms.reward_modeling import (
     BadGenerationEndReward,
     BaseReward,
     InferenceRewardModel,
