@@ -214,7 +214,6 @@ def extract_math_answer(sample: Any) -> str | None:
 
 def prepare_math_prompt(sample: Any) -> str:
     """Prepare the prompt for Math dataset."""
-    prompt = sample['problem'].strip()
-    _instruction = " Let's think step by step and output the final answer within \\boxed{}."
-    final_prompt = f'Question: {prompt} ' + _instruction
-    return final_prompt
+    _template = """Solve the math problem below step by step, showing your reasoning clearly.\n\nEnd with your final answer with the format: \\boxed{{}}\n\n{problem}""".strip(
+    )
+    return _template.format(problem=sample['problem'].strip())
