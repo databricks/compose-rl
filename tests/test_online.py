@@ -22,6 +22,7 @@ from compose_rl.algorithms.online import (
     ComposerMosaicPolicy,
     OnPolicyCallback,
 )
+from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
 from compose_rl.data import prompt_dataset_collate_fn
 from tests.common import PromptDataset, VerifiablePromptDataset, world_size
@@ -41,13 +42,13 @@ def test_hf_ppo_model_construction(
         'pretrained_model_name_or_path': local_save_path,
         'pretrained': False,
         'attn_implementation': 'sdpa',
-        'loss_type': 'hi',
+        'loss_type': 'ppo',
     }
     model = ComposerHFPolicyModel(**model_config)
     assert isinstance(model, ComposerHFPolicyModel)
     assert isinstance(model.model.lm_backbone, GPT2LMHeadModel)
 
-    assert model.loss_type == 'hi'
+    assert model.loss_type == OnPolicyEnum.PPO
     assert model.model.lm_backbone.config._attn_implementation == 'sdpa'
     assert model.shift_labels is True
 
