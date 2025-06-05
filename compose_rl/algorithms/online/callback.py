@@ -390,6 +390,7 @@ class OnPolicyCallback(CallbackWithConfig):
         # Per-device generate size.
         self.device_generate_batch_size: int = var_config.get(
             'device_generate_batch_size',
+            1,
         )
         self.device_train_batch_size: int = train_config.get(
             'device_train_batch_size',
