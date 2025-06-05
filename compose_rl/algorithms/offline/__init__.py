@@ -4,11 +4,11 @@
 from compose_rl.algorithms.offline.callback import ReferencePolicyCallback
 from compose_rl.algorithms.offline.model import (
     ComposerHFPairwiseOfflinePolicyLM,
-    ComposerPairwiseOfflinePolicyLM,
+    ComposerMPTPairwiseOfflinePolicyLM,
 )
 
 __all__ = [
-    'ComposerPairwiseOfflinePolicyLM',
+    'ComposerMPTPairwiseOfflinePolicyLM',
     'ComposerHFPairwiseOfflinePolicyLM',
     'ReferencePolicyCallback',
 ]

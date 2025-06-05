@@ -24,7 +24,7 @@ Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 log = logging.getLogger(__name__)
 
 
-class ComposerPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
+class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
     """MPT model wrapper for DPO model."""
 
     def __init__(

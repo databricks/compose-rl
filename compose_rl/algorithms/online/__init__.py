@@ -11,9 +11,9 @@ from compose_rl.algorithms.online.kl_controller import (
 from compose_rl.algorithms.online.load_planner import \
     ActorCriticModelLoadPlanner
 from compose_rl.algorithms.online.model import (
-    ComposerHFCriticFreePolicyModel,
-    ComposerHFPolicyModel,
-    ComposerMosaicPolicy,
+    ComposerHFCriticFreePolicyLM,
+    ComposerHFPolicyLM,
+    ComposerMPTPolicyLM,
 )
 from compose_rl.algorithms.online.model_methods import \
     CausalLMOutputWithPastAndValues
@@ -30,9 +30,9 @@ kl_controllers.register('ball', func=BallKLController)
 
 __all__ = [
     'OnPolicyCallback',
-    'ComposerMosaicPolicy',
-    'ComposerHFPolicyModel',
-    'ComposerHFCriticFreePolicyModel',
+    'ComposerMPTPolicyLM',
+    'ComposerHFPolicyLM',
+    'ComposerHFCriticFreePolicyLM',
     'HFPolicyConfig',
     'MPTPolicyConfig',
     'CausalLMOutputWithPastAndValues',

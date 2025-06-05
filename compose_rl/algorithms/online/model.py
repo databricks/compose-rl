@@ -34,7 +34,7 @@ Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 log = logging.getLogger(__name__)
 
 
-class ComposerMosaicPolicy(HuggingFaceModel):
+class ComposerMPTPolicyLM(HuggingFaceModel):
 
     def __init__(
         self,
@@ -130,7 +130,7 @@ class ComposerMosaicPolicy(HuggingFaceModel):
         self.batch_stats = batch_stats  # pyright: ignore
 
 
-class ComposerHFPolicyModel(ComposerHFPolicy):
+class ComposerHFPolicyLM(ComposerHFPolicy):
 
     def __init__(
         self,
@@ -243,7 +243,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
         self.batch_stats = batch_stats
 
 
-class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
+class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
     """HF class wrapper for Critic Free Policy model."""
     default_train_metrics: tuple = ()
     default_eval_metrics: tuple = ()
