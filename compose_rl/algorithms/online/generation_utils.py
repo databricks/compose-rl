@@ -14,8 +14,8 @@ from composer.utils import dist
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from compose_rl.algorithms.online.model import (
-    ComposerHFPolicyModel,
-    ComposerMosaicPolicy,
+    ComposerHFPolicyLM,
+    ComposerMPTPolicyLM,
 )
 from compose_rl.utils import (
     flip_pad_token_usage_for_generate,
@@ -23,7 +23,7 @@ from compose_rl.utils import (
 )
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
-Policy = Union[ComposerHFPolicyModel, ComposerMosaicPolicy]
+Policy = Union[ComposerHFPolicyLM, ComposerMPTPolicyLM]
 
 log = logging.getLogger(__name__)
 
