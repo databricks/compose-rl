@@ -8,14 +8,19 @@ from compose_rl.algorithms.online.kl_controller import (
     FixedKLController,
     KLPIDController,
 )
-from compose_rl.algorithms.online.load_planner import ActorCriticModelLoadPlanner
+from compose_rl.algorithms.online.load_planner import \
+    ActorCriticModelLoadPlanner
 from compose_rl.algorithms.online.model import (
     ComposerHFCriticFreePolicyModel,
     ComposerHFPolicyModel,
     ComposerMosaicPolicy,
 )
-from compose_rl.algorithms.online.model_methods import CausalLMOutputWithPastAndValues
-from compose_rl.algorithms.online.policy_configuration import HFPolicyConfig, MPTPolicyConfig
+from compose_rl.algorithms.online.model_methods import \
+    CausalLMOutputWithPastAndValues
+from compose_rl.algorithms.online.policy_configuration import (
+    HFPolicyConfig,
+    MPTPolicyConfig,
+)
 from compose_rl.registry import kl_controllers
 
 kl_controllers.register('adaptive', func=AdaptiveKLController)

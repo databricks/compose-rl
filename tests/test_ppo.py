@@ -17,13 +17,13 @@ from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 from transformers.models.gpt2 import GPT2LMHeadModel
 
-from compose_rl.data import prompt_dataset_collate_fn
 from compose_rl.algorithms.online import (
     ComposerHFPolicyModel,
     ComposerMosaicPolicy,
     OnPolicyCallback,
 )
 from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
+from compose_rl.data import prompt_dataset_collate_fn
 from tests.common import PromptDataset, VerifiablePromptDataset, world_size
 
 

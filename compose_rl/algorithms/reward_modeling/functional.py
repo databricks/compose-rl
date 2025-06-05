@@ -12,13 +12,13 @@ import torch
 
 log = logging.getLogger(__name__)
 
+from compose_rl.algorithms.reward_modeling.base_reward import Reward, Tokenizer
 from compose_rl.utils.rlvr_utils import (
     is_equiv,
     last_boxed_only_string,
     normalize_final_answer,
     remove_boxed,
 )
-from compose_rl.algorithms.reward_modeling.base_reward import Reward, Tokenizer
 
 
 class IncreasingNumbersReward(Reward):

@@ -29,7 +29,7 @@ Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
 
 class ComposerHFPolicy(BaseHuggingFaceModel):
-    """Configures a :class:`.ComposerMosaicPolicy` as a Policy for online algorithms.
+    """Configures a :class:`.ComposerMosaicPolicy` as a Policy for online RL.
 
     See base class for argument documentation.
     """

@@ -16,12 +16,12 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
-from compose_rl.algorithms.online.modeling_mpt import MPTForPolicy
 from compose_rl.algorithms.online.model_methods import (
     composer_online_rl_forward,
     online_rl_loss,
 )
+from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
+from compose_rl.algorithms.online.modeling_mpt import MPTForPolicy
 from compose_rl.algorithms.online.policy_configuration import MPTPolicyConfig
 from compose_rl.utils import (
     clear_mb_load_balancing_loss,

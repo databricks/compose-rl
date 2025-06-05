@@ -15,8 +15,6 @@ from typing import Any, Optional, Union
 import ray
 import torch
 import wandb
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-
 from composer.core import (
     Precision,
     State,
@@ -29,9 +27,16 @@ from composer.loggers import Logger, MLFlowLogger, WandBLogger
 from composer.trainer.trainer import _get_initial_device_train_microbatch_size
 from composer.utils import dist, ensure_tuple
 from llmfoundry.interfaces import CallbackWithConfig
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from compose_rl.algorithms.online.generation_utils import hf_generate, vllm_generate
-from compose_rl.algorithms.online.model import ComposerHFPolicyModel, ComposerMosaicPolicy
+from compose_rl.algorithms.online.generation_utils import (
+    hf_generate,
+    vllm_generate,
+)
+from compose_rl.algorithms.online.model import (
+    ComposerHFPolicyModel,
+    ComposerMosaicPolicy,
+)
 from compose_rl.algorithms.online.reward_manager import (
     ReferenceOutput,
     RewardManager,

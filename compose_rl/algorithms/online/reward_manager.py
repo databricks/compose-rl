@@ -20,9 +20,6 @@ from llmfoundry.utils.config_utils import process_init_device  # type: ignore
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from compose_rl.interfaces.base_kl_controller import BaseKLController
-from compose_rl.registry import rewards as rewards_registry
-from compose_rl.registry_builders import build_reward
 from compose_rl.algorithms.reward_modeling import (
     BadGenerationEndReward,
     BaseReward,
@@ -30,6 +27,9 @@ from compose_rl.algorithms.reward_modeling import (
     Reward,
     RewardModel,
 )
+from compose_rl.interfaces.base_kl_controller import BaseKLController
+from compose_rl.registry import rewards as rewards_registry
+from compose_rl.registry_builders import build_reward
 from compose_rl.utils import (
     approx_kl,
     batch_process_fine_granularities,

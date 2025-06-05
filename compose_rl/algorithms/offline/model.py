@@ -13,7 +13,11 @@ from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from compose_rl.algorithms.offline.model_methods import PairwiseOfflineEnum, pairwise_offline_forward, pairwise_offline_loss
+from compose_rl.algorithms.offline.model_methods import (
+    PairwiseOfflineEnum,
+    pairwise_offline_forward,
+    pairwise_offline_loss,
+)
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 

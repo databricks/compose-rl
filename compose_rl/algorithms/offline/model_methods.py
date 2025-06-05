@@ -295,7 +295,11 @@ def pairwise_offline_loss(
         'margin_KL': margin_KL,
         'accuracy': (chosen_rewards > rejected_rewards).to(torch.float32),
     }
-    if loss_type in [PairwiseOfflineEnum.RPO, PairwiseOfflineEnum.RCDPO, PairwiseOfflineEnum.REBEL]:
+    if loss_type in [
+        PairwiseOfflineEnum.RPO,
+        PairwiseOfflineEnum.RCDPO,
+        PairwiseOfflineEnum.REBEL,
+    ]:
         # reward_diff is always defined if loss_type is RPO, RCDPO, or REBEL
         loss_dict['reward_diff'] = reward_diff.detach()  # type: ignore
     if sft_alpha > 0:

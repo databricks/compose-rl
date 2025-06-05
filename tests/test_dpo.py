@@ -15,9 +15,9 @@ from composer.utils import dist
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer
 
-from compose_rl.data import pairwise_preference_dataset_collate_fn
 from compose_rl.algorithms.offline import ComposerPairwiseOfflinePolicyLM
 from compose_rl.algorithms.offline.callback import ReferencePolicyCallback
+from compose_rl.data import pairwise_preference_dataset_collate_fn
 from tests.common import PairwisePreference, world_size
 
 

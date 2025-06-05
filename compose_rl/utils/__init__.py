@@ -11,7 +11,6 @@ from compose_rl.utils.rlvr_utils import (
     prepare_math_prompt,
     remove_boxed,
 )
-
 from compose_rl.utils.utils import (
     add_right_padding,
     approx_kl,

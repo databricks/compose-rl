@@ -20,7 +20,8 @@ from compose_rl.algorithms.reward_modeling.hf_utils import (
     AutoModelForCausalLMWithRM,
     RewardModelConfig,
 )
-from compose_rl.algorithms.reward_modeling.inference_model import InferenceRewardModel
+from compose_rl.algorithms.reward_modeling.inference_model import \
+    InferenceRewardModel
 from compose_rl.algorithms.reward_modeling.model import (
     ComposerHFClassifierRewardModel,
     ComposerHFPairwiseRewardModel,
