@@ -18,12 +18,12 @@ from transformers import PreTrainedModel, PreTrainedTokenizerBase
 from transformers.models.gpt2 import GPT2LMHeadModel
 
 from compose_rl.data import prompt_dataset_collate_fn
-from compose_rl.ppo import (
+from compose_rl.algorithms.online import (
     ComposerHFPolicyModel,
     ComposerMosaicPolicy,
-    PPOCallback,
+    OnPolicyCallback,
 )
-from compose_rl.ppo.modeling_hf import ComposerHFPolicy
+from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
 from tests.common import PromptDataset, VerifiablePromptDataset, world_size
 
 
@@ -278,7 +278,7 @@ def test_ppo_train(
     trainer = Trainer(
         model=model,
         optimizers=optimizer,
-        callbacks=PPOCallback(train_config=copy.deepcopy(train_config)),
+        callbacks=OnPolicyCallback(train_config=copy.deepcopy(train_config)),
         train_dataloader=dataloader,
         precision=precision,
         parallelism_config={'fsdp': fsdp_config},
@@ -309,7 +309,7 @@ def test_ppo_train(
     trainer_2 = Trainer(
         model=model,
         optimizers=optimizer,
-        callbacks=PPOCallback(train_config=copy.deepcopy(train_config)),
+        callbacks=OnPolicyCallback(train_config=copy.deepcopy(train_config)),
         train_dataloader=dataloader,
         precision=precision,
         parallelism_config={'fsdp': fsdp_config},

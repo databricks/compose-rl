@@ -28,7 +28,7 @@ from compose_rl.data import (
     finegrained_preference_dataset_collate_fn,
     pairwise_preference_dataset_collate_fn,
 )
-from compose_rl.reward_learning.hf_utils import AutoModelForCausalLMWithRM
+from compose_rl.algorithms.reward_modeling.hf_utils import AutoModelForCausalLMWithRM
 from tests.common import FineGrainedPreference, PairwisePreference, world_size
 
 
