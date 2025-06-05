@@ -159,7 +159,7 @@ def get_entropies_from_logits(
     logits: torch.Tensor,
     action_mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Calculates the full entropy of the probability distribution represented by logits.
+    """Calculates the entropy of full the probability distribution.
 
     Args:
         logits (torch.Tensor): Logits tensor of shape (batch_size, seq_len, vocab_size).
