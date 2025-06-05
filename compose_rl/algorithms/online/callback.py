@@ -34,8 +34,8 @@ from compose_rl.algorithms.online.generation_utils import (
     vllm_generate,
 )
 from compose_rl.algorithms.online.model import (
-    ComposerHFPolicyModel,
-    ComposerMosaicPolicy,
+    ComposerHFPolicyLM,
+    ComposerMPTPolicyLM,
 )
 from compose_rl.algorithms.online.reward_manager import (
     ReferenceOutput,
@@ -62,7 +62,7 @@ from compose_rl.utils import (
 )
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
-Policy = Union[ComposerHFPolicyModel, ComposerMosaicPolicy]
+Policy = Union[ComposerHFPolicyLM, ComposerMPTPolicyLM]
 
 __all__ = ['OnPolicyCallback', 'env_reward']
 
