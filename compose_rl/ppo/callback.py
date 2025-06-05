@@ -1109,10 +1109,11 @@ class PPOCallback(CallbackWithConfig):
         log.info('Before broadcast to vLLM')
         assert self.vllm_engines is not None
         broadcast_to_vllm(
-            self.actor_critic,
-            self.vllm_engines,
-            self.model_update_group,
-            batch,
+            model=self.actor_critic,
+            vllm_engines=self.vllm_engines,
+            enable_prefix_caching=self.enable_prefix_caching,
+            model_update_group=self.model_update_group,
+            batch=batch,
             loss_type=self.actor_critic.loss_type,  # type: ignore
         )
         log.info('Finished broadcasting to vLLM')

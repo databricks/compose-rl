@@ -370,6 +370,7 @@ def should_update_torch_module(
 def broadcast_to_vllm(
     model: nn.Module,
     vllm_engines: list,
+    enable_prefix_caching: bool,
     model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
     loss_type: str = 'ppo',
@@ -379,10 +380,17 @@ def broadcast_to_vllm(
     Args:
         model (nn.Module): The model to broadcast
         vllm_engines (list): List of vllm engines
+        enable_prefix_caching (bool): Whether to enable prefix caching in vllm
         model_update_group (torch.distributed.ProcessGroup): The process group for model updates
         batch (dict[str, torch.Tensor]): The batch to use for the forward pass
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
     """
+    cache_reset_refss = []
+    if enable_prefix_caching and dist.get_global_rank() == 0:
+        cache_reset_refss = [
+            engine.reset_prefix_cache.remote() for engine in vllm_engines
+        ]
+
     # avoid OOM
     torch.cuda.empty_cache()
     if loss_type == 'ppo':
@@ -509,6 +517,8 @@ def broadcast_to_vllm(
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
     ray.get(refss)
+    if enable_prefix_caching:
+        ray.get(cache_reset_refss)
     log.info(f'ray refs took: {time.time() - start_time}')
     log.info(f'update time is: {update_time}')
     log.info(f'number of parameters updated is: {count}')
