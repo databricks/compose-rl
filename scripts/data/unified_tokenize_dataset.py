@@ -14,7 +14,7 @@ from streaming import MDSWriter
 from torch.utils.data import IterableDataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from compose_rl.data.rlvr_utils import (
+from compose_rl.utils.rlvr_utils import (
     extract_gsm8k_answer,
     extract_math_answer,
     prepare_gsm8k_prompt,
