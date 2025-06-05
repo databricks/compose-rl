@@ -21,7 +21,7 @@ from compose_rl.data import pairwise_preference_dataset_collate_fn
 from tests.common import PairwisePreference, world_size
 
 
-def test_dpo_callback_forward(tiny_gpt2_tokenizer: PreTrainedTokenizer):
+def test_reference_policy_callback_forward(tiny_gpt2_tokenizer: PreTrainedTokenizer):
     # Build DataLoader
     max_seq_len = 10
     dataset = PairwisePreference(max_seq_len=max_seq_len)
@@ -46,7 +46,7 @@ def test_dpo_callback_forward(tiny_gpt2_tokenizer: PreTrainedTokenizer):
         'tokenizer': tiny_gpt2_tokenizer,
     }
     model = ComposerPairwiseOfflinePolicyLM(**model_config)
-    model_config['name'] = 'mpt_dpo_lm'
+    model_config['name'] = 'mpt_pairwise_offline_lm'
     train_config = {
         'model': model_config,
         'fsdp_config': {},
@@ -126,7 +126,7 @@ def test_train(
         'tokenizer': tiny_gpt2_tokenizer,
     }
     model = ComposerPairwiseOfflinePolicyLM(**model_config)
-    model_config['name'] = 'mpt_dpo_lm'
+    model_config['name'] = 'mpt_pairwise_offline_lm'
     fsdp_config = {}
     train_config = {
         'model': model_config,
@@ -178,7 +178,7 @@ def test_checkpoint_reloading(
     # Making a dummy reference model so we can make sure the KL is 0
     tmp_model = ComposerPairwiseOfflinePolicyLM(**model_config)
     tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
-    model_config['name'] = 'mpt_dpo_lm'
+    model_config['name'] = 'mpt_pairwise_offline_lm'
     fsdp_config = {}
     parallelism_config = {'fsdp': fsdp_config}
 
@@ -203,7 +203,7 @@ def test_checkpoint_reloading(
 
     model = ComposerPairwiseOfflinePolicyLM(**model_config)
     # Add more model_config specific to DPO
-    model_config['name'] = 'mpt_dpo_lm'
+    model_config['name'] = 'mpt_pairwise_offline_lm'
     model_config['loss_type'] = 'dpo'
     model_config['beta'] = 0.1
     model_config['sft_alpha'] = 0.2
