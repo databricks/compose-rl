@@ -2,12 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import MutableMapping, Optional
 
 import torch
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 import compose_rl.utils as utils
+
+
+class OnPolicyEnum(Enum):
+    PPO = 'ppo'
+    GRPO = 'grpo'
 
 
 @dataclass
@@ -88,7 +94,7 @@ def prepare_critic_values_for_training(
 def composer_online_rl_forward(
     batch: MutableMapping,
     model: torch.nn.Module,
-    loss_type: str = 'ppo',
+    loss_type: OnPolicyEnum,
 ) -> MutableMapping:
     """Forward pass for the Composer PPO model.
 
@@ -122,7 +128,7 @@ def composer_online_rl_forward(
         'logits': logits,
     }
 
-    if loss_type == 'ppo':
+    if loss_type == OnPolicyEnum.PPO:
         if 'values' not in actor_output:
             raise ValueError(
                 'The actor output does not contain values. Please check the model.',
@@ -136,7 +142,7 @@ def composer_online_rl_forward(
 def online_rl_loss(
     outputs: MutableMapping,
     batch: MutableMapping,
-    loss_type: str = 'ppo',
+    loss_type: OnPolicyEnum,
     value_clip_range: float = 0.2,
     value_loss_weight: float = 0.2,
     policy_clip_ratio: float = 0.15,
@@ -161,10 +167,6 @@ def online_rl_loss(
         kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
         kl_clip_range (float): The clip range for the KL divergence. Default: ``40.0``.
     """
-    if loss_type not in ['ppo', 'grpo']:
-        raise ValueError(
-            f'Unknown loss type: {loss_type}. Please use either "ppo" or "grpo".',
-        )
     # log_probs: [bs, gen_len] log probability of each action
     # action_mask: [bs, gen_len] action mask
 
@@ -176,7 +178,7 @@ def online_rl_loss(
     returns_mean = None
     returns_var = None
     val_error = None
-    if loss_type == 'ppo':
+    if loss_type == OnPolicyEnum.PPO:
         # advantages: [bs, gen_len] advantage computation from PPO or GRPO
         # v_preds: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
         # values: [bs, gen_len + 1] maps each sequence to a scalar. With zero padding
@@ -351,7 +353,7 @@ def online_rl_loss(
         'advantages/mean':
             utils.sample_wise_masked_mean(advantages, batch['action_mask']),
     }
-    if loss_type == 'ppo':
+    if loss_type == OnPolicyEnum.PPO:
         return_dict.update({
             'loss/value_loss':
                 value_loss,
@@ -410,7 +412,7 @@ def online_rl_loss(
         return_dict[key] = value.detach().cpu()
 
     return_dict['total'] = policy_loss
-    if loss_type == 'ppo':
+    if loss_type == OnPolicyEnum.PPO:
         # Add value loss to total loss
         return_dict['total'
                    ] += value_loss_weight * value_loss  # pyright: ignore

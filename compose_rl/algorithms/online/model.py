@@ -17,6 +17,7 @@ from transformers import (
 )
 
 from compose_rl.algorithms.online.model_methods import (
+    OnPolicyEnum,
     composer_online_rl_forward,
     online_rl_loss,
 )
@@ -75,7 +76,11 @@ class ComposerMosaicPolicy(HuggingFaceModel):
             self.model.transformer,  # type: ignore
         )
 
-        ret_val = composer_online_rl_forward(batch, self.model)
+        ret_val = composer_online_rl_forward(
+            batch,
+            self.model,
+            OnPolicyEnum.PPO,
+        )
 
         lbl = get_mb_load_balancing_loss(
             self.config,
@@ -95,7 +100,7 @@ class ComposerMosaicPolicy(HuggingFaceModel):
         return_dict, kl_loss = online_rl_loss(
             outputs=outputs,
             batch=batch,
-            loss_type='ppo',
+            loss_type=OnPolicyEnum.PPO,
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
@@ -154,7 +159,7 @@ class ComposerHFPolicyModel(ComposerHFPolicy):
             self.compute_kl_loss = config_overrides.get('compute_kl_loss')
             self.target_kl = config_overrides.get('target_kl')
 
-        self.loss_type = loss_type
+        self.loss_type = OnPolicyEnum(loss_type)
 
         # Validating the input types
         assert isinstance(self.compute_kl_loss, bool)
@@ -271,7 +276,7 @@ class ComposerHFCriticFreePolicyModel(ComposerHFCausalLM):
         """
         super().__init__(**kwargs)
         self.policy_kl = []
-        self.loss_type = loss_type
+        self.loss_type = OnPolicyEnum(loss_type)
         self.normalize_advantage = normalize_advantage
         self.length_normalize_policy_loss = length_normalize_policy_loss
         self.policy_clip_ratio = policy_clip_ratio

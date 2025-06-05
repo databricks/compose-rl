@@ -21,7 +21,9 @@ from compose_rl.data import pairwise_preference_dataset_collate_fn
 from tests.common import PairwisePreference, world_size
 
 
-def test_reference_policy_callback_forward(tiny_gpt2_tokenizer: PreTrainedTokenizer):
+def test_reference_policy_callback_forward(
+    tiny_gpt2_tokenizer: PreTrainedTokenizer,
+):
     # Build DataLoader
     max_seq_len = 10
     dataset = PairwisePreference(max_seq_len=max_seq_len)
