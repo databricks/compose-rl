@@ -211,7 +211,7 @@ class QueuePromptDataLoader:
                     time.sleep(1)
         return self.queue
     
-    def get_batch(self) -> Optional[dict[str, torch.Tensor]]:
+    def get_batch(self):
         """Get a single batch from the queue.
         
         Returns:
