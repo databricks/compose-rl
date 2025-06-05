@@ -13,6 +13,9 @@ import ray
 log = logging.getLogger(__name__)
 
 
+# Ray queue supports actor_options for naming - no custom wrapper needed
+
+
 @ray.remote
 class PromptDataProducer:
     """Ray actor that produces prompt data and populates a distributed queue."""
@@ -61,12 +64,20 @@ class PromptDataProducer:
             self.queue = ray.get_actor(self.queue_name, namespace=self.namespace)
             log.info(f"Connected to existing queue: {self.queue_name}")
         except ValueError:
-            # Queue doesn't exist, create it
+            # Queue doesn't exist, create it with proper actor options
             max_queue_size = self.preload_batches * 2  # Allow some buffer
-            self.queue = Queue.options(
-                name=self.queue_name, 
-                namespace=self.namespace
-            ).remote(maxsize=max_queue_size)
+            
+            # Use Ray's built-in queue with actor_options for naming
+            actor_options = {
+                "name": self.queue_name,
+                "namespace": self.namespace
+            }
+            
+            self.queue = Queue(
+                maxsize=max_queue_size,
+                actor_options=actor_options
+            )
+            
             log.info(f"Created new queue: {self.queue_name} with max size {max_queue_size}")
     
     def _setup_dataloader(self):
