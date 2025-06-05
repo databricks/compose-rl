@@ -48,6 +48,11 @@ hf_pairwise_offline_lm = "compose_rl.algorithms.offline:ComposerHFPairwiseOfflin
 mpt_actor_critic_lm = "compose_rl.algorithms.online:ComposerMosaicPolicy"
 hf_actor_critic_lm = "compose_rl.algorithms.online:ComposerHFPolicyModel"
 hf_critic_free_lm = "compose_rl.algorithms.online:ComposerHFCriticFreePolicyModel"
+# Backwards Compatibility
+mpt_dpo_lm = "compose_rl.algorithms.offline:ComposerPairwiseOfflinePolicyLM"
+hf_dpo_lm = "compose_rl.algorithms.offline:ComposerHFPairwiseOfflinePolicyLM"
+mpt_ppo_lm = "compose_rl.algorithms.online:ComposerMosaicPolicy"
+hf_ppo_lm = "compose_rl.algorithms.online:ComposerHFPolicyModel"
 
 [project.entry-points."llmfoundry_dataloaders"]
 pairwise_preference = "compose_rl.data:build_pairwise_preference_dataloader"
@@ -56,7 +61,10 @@ prompt = "compose_rl.data:build_prompt_dataloader"
 
 [project.entry-points."llmfoundry_callbacks_with_config"]
 offline_rl = "compose_rl.algorithms.offline:ReferencePolicyCallback"
-on_policy_rl= "compose_rl.algorithms.online:OnPolicyCallback"
+on_policy_rl = "compose_rl.algorithms.online:OnPolicyCallback"
+# Backwards Compatibility
+dpo = "compose_rl.algorithms.offline:ReferencePolicyCallback"
+ppo = "compose_rl.algorithms.online:OnPolicyCallback"
 
 [project.entry-points."llmfoundry_metrics"]
 pairwise_rm_accuracy = "compose_rl.metrics.reward_model_metrics:PairwiseRewardClassificationAccuracy"
@@ -64,6 +72,8 @@ classifier_accuracy = "compose_rl.metrics.reward_model_metrics:BinaryRewardClass
 
 [project.entry-points."llmfoundry_load_planners"]
 actor_critic_load_planner = "compose_rl.algorithms.online.load_planner:ActorCriticModelLoadPlanner"
+# Backwards Compatibility
+ppo_load_planner = "compose_rl.algorithms.online.load_planner:ActorCriticModelLoadPlanner"
 
 # iSort
 [tool.isort]
