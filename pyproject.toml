@@ -45,9 +45,9 @@ hf_pairwise_rm = "compose_rl.algorithms.reward_modeling:ComposerHFPairwiseReward
 hf_classifier_rm = "compose_rl.algorithms.reward_modeling:ComposerHFClassifierRewardModel"
 mpt_pairwise_offline_lm = "compose_rl.algorithms.offline:ComposerPairwiseOfflinePolicyLM"
 hf_pairwise_offline_lm = "compose_rl.algorithms.offline:ComposerHFPairwiseOfflinePolicyLM"
-mpt_actor_critic_lm = "compose_rl.ppo:ComposerMosaicPolicy"
-hf_actor_critic_lm = "compose_rl.ppo:ComposerHFPolicyModel"
-hf_critic_free_lm = "compose_rl.ppo:ComposerHFCriticFreePolicyModel"
+mpt_actor_critic_lm = "compose_rl.algorithms.online:ComposerMosaicPolicy"
+hf_actor_critic_lm = "compose_rl.algorithms.online:ComposerHFPolicyModel"
+hf_critic_free_lm = "compose_rl.algorithms.online:ComposerHFCriticFreePolicyModel"
 
 [project.entry-points."llmfoundry_dataloaders"]
 pairwise_preference = "compose_rl.data:build_pairwise_preference_dataloader"
