@@ -11,6 +11,10 @@ from compose_rl.data.preference_data import (
     pairwise_preference_dataset_collate_fn,
 )
 from compose_rl.data.prompt_data import prompt_dataset_collate_fn
+from compose_rl.data.queue_dataloader import (
+    QueuePromptDataLoader,
+    build_queue_prompt_dataloader,
+)
 from compose_rl.data.rlvr_utils import (
     extract_gsm8k_answer,
     extract_math_answer,
@@ -26,6 +30,8 @@ __all__ = [
     'build_pairwise_preference_dataloader',
     'build_finegrained_preference_dataloader',
     'build_prompt_dataloader',
+    'build_queue_prompt_dataloader',
+    'QueuePromptDataLoader',
     'extract_gsm8k_answer',
     'finegrained_preference_dataset_collate_fn',
     'pairwise_preference_dataset_collate_fn',
