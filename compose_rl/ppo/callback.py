@@ -446,23 +446,21 @@ class PPOCallback(CallbackWithConfig):
         self.vllm_engines = None
         self.num_vllm_engines = 0
         self.vllm_tensor_parallel_size = 1
-        self.enable_prefix_caching = False
-        self.disable_vllm_eager = False
+        self.vllm_enable_prefix_caching = False
+        self.vllm_enforce_eager = True
 
         vllm_config = var_config.get('vllm_config', None)
         if vllm_config is not None:
-            self.enable_prefix_caching = vllm_config.get(
+            self.vllm_enable_prefix_caching = vllm_config.get(
                 'enable_prefix_caching',
                 False,
             )
-            self.disable_vllm_eager = vllm_config.get(
-                'disable_vllm_eager',
-                False,
-            )
+            self.vllm_enforce_eager = vllm_config.get('enforce_eager', True)
             self.vllm_tensor_parallel_size = vllm_config.get(
                 'tensor_parallel_size',
                 1,
             )
+            self.vllm_sync_backend = vllm_config.get('sync_backend', 'nccl')
 
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
@@ -486,11 +484,6 @@ class PPOCallback(CallbackWithConfig):
 
             log.info(
                 f'Using {self.num_vllm_engines} vllm engines with {self.vllm_tensor_parallel_size=} per engine.',
-            )
-
-            self.vllm_sync_backend = var_config.get(
-                'vllm_sync_backend',
-                'nccl',
             )
             self.test_prompt = 'Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions.'
         else:
@@ -1066,11 +1059,11 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines = create_vllm_engines(
                 num_engines=self.num_vllm_engines,
                 tensor_parallel_size=self.vllm_tensor_parallel_size,
-                enforce_eager=not self.disable_vllm_eager,
+                enforce_eager=self.vllm_enforce_eager,
                 pretrain=self.vllm_model_name,
                 revision=None,
                 seed=1,
-                enable_prefix_caching=self.enable_prefix_caching,
+                enable_prefix_caching=self.vllm_enable_prefix_caching,
                 max_model_len=self.max_seq_len,
             )
             log.info('After creating vLLM engines.')
@@ -1111,7 +1104,7 @@ class PPOCallback(CallbackWithConfig):
         broadcast_to_vllm(
             model=self.actor_critic,
             vllm_engines=self.vllm_engines,
-            enable_prefix_caching=self.enable_prefix_caching,
+            enable_prefix_caching=self.vllm_enable_prefix_caching,
             model_update_group=self.model_update_group,
             batch=batch,
             loss_type=self.actor_critic.loss_type,  # type: ignore
