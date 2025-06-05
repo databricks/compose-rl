@@ -6,19 +6,9 @@
 import logging
 import threading
 import time
-from functools import partial
 from typing import Any, Optional
 
 import ray
-import torch
-from ray.util.queue import Queue
-from streaming import Stream, StreamingDataLoader
-from transformers import PreTrainedTokenizer
-
-from compose_rl.data.prompt_data import (
-    PromptStreamingDataset,
-    prompt_dataset_collate_fn,
-)
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +19,7 @@ class PromptDataProducer:
     
     def __init__(
         self,
-        tokenizer: PreTrainedTokenizer,
+        tokenizer_config: dict[str, Any],  # Pass config instead of object
         device_batch_size: int,
         dataset_config: dict[str, Any],
         max_seq_len: int,
@@ -40,7 +30,7 @@ class PromptDataProducer:
         """Initialize the data producer.
         
         Args:
-            tokenizer: The model's tokenizer
+            tokenizer_config: Tokenizer configuration (to recreate tokenizer)
             device_batch_size: Batch size per device
             dataset_config: Dataset configuration 
             max_seq_len: Maximum sequence length
@@ -48,35 +38,55 @@ class PromptDataProducer:
             namespace: Ray namespace for the queue
             preload_batches: Number of batches to preload in queue
         """
-        self.tokenizer = tokenizer
+        # Store lightweight config instead of heavy objects
+        self.tokenizer_config = tokenizer_config
         self.device_batch_size = device_batch_size
+        self.dataset_config = dataset_config
         self.max_seq_len = max_seq_len
         self.queue_name = queue_name
         self.namespace = namespace
         self.preload_batches = preload_batches
         self.running = False
         self.producer_thread = None
+        self.dataloader = None
         
-        # Initialize the dataloader
-        self._setup_dataloader(dataset_config)
+        # Setup queue - this is lightweight
+        self._setup_queue()
+    
+    def _setup_queue(self):
+        """Setup the Ray queue."""
+        from ray.util.queue import Queue
         
-        # Get or create the queue
         try:
-            self.queue = ray.get_actor(queue_name, namespace=namespace)
-            log.info(f"Connected to existing queue: {queue_name}")
+            self.queue = ray.get_actor(self.queue_name, namespace=self.namespace)
+            log.info(f"Connected to existing queue: {self.queue_name}")
         except ValueError:
             # Queue doesn't exist, create it
-            max_queue_size = preload_batches * 2  # Allow some buffer
+            max_queue_size = self.preload_batches * 2  # Allow some buffer
             self.queue = Queue.options(
-                name=queue_name, 
-                namespace=namespace
+                name=self.queue_name, 
+                namespace=self.namespace
             ).remote(maxsize=max_queue_size)
-            log.info(f"Created new queue: {queue_name} with max size {max_queue_size}")
+            log.info(f"Created new queue: {self.queue_name} with max size {max_queue_size}")
     
-    def _setup_dataloader(self, dataset_config: dict[str, Any]):
-        """Setup the underlying streaming dataloader."""
-        dataset_cfg = dataset_config.copy()
+    def _setup_dataloader(self):
+        """Setup the underlying streaming dataloader - done lazily when needed."""
+        # Import heavy dependencies only when needed
+        from functools import partial
+        import torch
+        from streaming import Stream, StreamingDataLoader
+        from transformers import AutoTokenizer
+        from compose_rl.data.prompt_data import (
+            PromptStreamingDataset,
+            prompt_dataset_collate_fn,
+        )
         
+        # Recreate tokenizer from config
+        tokenizer = AutoTokenizer.from_pretrained(**self.tokenizer_config)
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        
+        dataset_cfg = self.dataset_config.copy()
         streams_dict = dataset_cfg.pop('streams', None)
         
         # Build streams
@@ -90,12 +100,9 @@ class PromptDataProducer:
             **dataset_cfg,
         )
         
-        if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-        
         self.dataloader = StreamingDataLoader(
             streaming_dataset,
-            collate_fn=partial(prompt_dataset_collate_fn, self.tokenizer, self.max_seq_len),
+            collate_fn=partial(prompt_dataset_collate_fn, tokenizer, self.max_seq_len),
             batch_size=self.device_batch_size,
             drop_last=True,
             num_workers=4,  # Use multiple workers for the producer
@@ -111,6 +118,10 @@ class PromptDataProducer:
         if self.running:
             log.warning("Producer already running")
             return
+        
+        # Setup dataloader now (lazy initialization)
+        if self.dataloader is None:
+            self._setup_dataloader()
         
         self.running = True
         self.producer_thread = threading.Thread(target=self._produce_data)
@@ -236,7 +247,7 @@ class QueuePromptDataLoader:
 
 
 def build_queue_prompt_dataloader(
-    tokenizer: PreTrainedTokenizer,
+    tokenizer,  # Can be tokenizer object or config
     device_batch_size: int,
     dataset: dict[str, Any],
     drop_last: bool = True,
@@ -283,12 +294,30 @@ def build_queue_prompt_dataloader(
     # Start producer if this is the producer rank
     if is_producer_rank:
         log.info("Starting prompt data producer on global rank 0")
+        
+        # Extract tokenizer config to pass to actor (avoid heavy object serialization)
+        if hasattr(tokenizer, 'name_or_path'):
+            tokenizer_config = {
+                'pretrained_model_name_or_path': tokenizer.name_or_path,
+                'model_max_length': getattr(tokenizer, 'model_max_length', None),
+                'padding_side': getattr(tokenizer, 'padding_side', 'right'),
+                'trust_remote_code': True,
+            }
+        else:
+            # Fallback for cases where tokenizer doesn't have name_or_path
+            tokenizer_config = {
+                'pretrained_model_name_or_path': 'gpt2',  # Default fallback
+                'model_max_length': dataset.get('max_seq_len', 2048),
+                'padding_side': 'left',
+                'trust_remote_code': True,
+            }
+        
         producer = PromptDataProducer.options(
             name="prompt_producer",
             namespace=namespace,
             num_cpus=2,  # Give producer some CPU resources
         ).remote(
-            tokenizer=tokenizer,
+            tokenizer_config=tokenizer_config,
             device_batch_size=device_batch_size,
             dataset_config=dataset,
             max_seq_len=max_seq_len,
