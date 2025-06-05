@@ -135,7 +135,7 @@ def get_log_probs(
 
 def get_entropies(
     logits: torch.Tensor,
-    actions: torch.Tensor,
+    action_mask: torch.Tensor,
     prompt_len: torch.Tensor,
     max_gen_len: Union[torch.Tensor, int],
 ) -> torch.Tensor:
@@ -143,7 +143,7 @@ def get_entropies(
 
     Args:
         logits (torch.Tensor): the logits of the actions. Size (bs, seq_len + gen_len, vocab_size)
-        actions (torch.Tensor): the actions taken, typically tokens generated. Size (bs, gen_len)
+        action_mask (torch.Tensor): the actions taken, typically tokens generated. Size (bs, gen_len)
         prompt_len (torch.Tensor): length of the prompt.
         max_gen_len (int): maximum generation length.
 
@@ -151,7 +151,41 @@ def get_entropies(
         entropies (torch.Tensor): the entropies of the sequence. Size (bs)
     """
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
-    return get_entropies_from_logits(gen_logits, actions)
+    # print(f"!!!!In get_entropies")
+    # print(f"{logits.shape=}")
+    # print(f"{prompt_len=}")
+    # print(f"{action_mask.shape=}")
+    # print(f"{max_gen_len=}")
+    # print(f"{gen_logits.shape=}")
+    # print(f"{gen_logits.device=}")
+    entropies = get_entropies_from_logits(gen_logits, action_mask)
+    # print(f"{entropies.shape=}")
+    # print(f"{entropies=}")
+    return entropies
+
+
+def get_entropies_from_logits(
+    logits: torch.Tensor,
+    action_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Calculates the full entropy of the probability distribution represented by logits.
+    
+    Args:
+        logits (torch.Tensor): Logits tensor of shape (batch_size, seq_len, vocab_size).
+        action_mask (torch.Tensor): Mask tensor of shape (batch_size, seq_len) where 1 indicates
+                                    tokens to include in the entropy calculation.
+    
+    Returns:
+        torch.Tensor: Entropy values for each item in the batch (batch_size,).
+    """
+    # Calculate entropy using the logsumexp trick
+    pd = F.softmax(logits, dim=-1)
+    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    
+    # Apply action mask and calculate mean entropy across valid positions
+    masked_entropy = entropy * action_mask
+    num_valid_positions = action_mask.sum(dim=-1) + 1e-10  # avoid division by zero
+    return masked_entropy.sum(dim=-1) / num_valid_positions
 
 
 def switch_left_to_right_padding(
@@ -1012,32 +1046,6 @@ def get_log_probs_from_logits(logits: torch.Tensor, actions: torch.Tensor):
     logpy = torch.gather(logp, 2, actions.unsqueeze(2).long()).squeeze(-1)
     return logpy
 
-
-def get_entropies_from_logits(
-    logits: torch.Tensor,
-    actions: torch.Tensor,
-) -> torch.Tensor:
-    """Gets the entropies from a set of logits and actions mask.
-
-    Args:
-        logits (torch.Tensor): The logits over the entire sequence (batch_size, seq_len, vocab_size).
-        actions (torch.Tensor): The actions taken (tokens generated) (batch_size, seq_len).
-
-    Returns:
-        torch.Tensor: The entropies for the entire sequence (batch_size).
-    """
-    # Get probability distribution
-    pd = F.softmax(logits, dim=2)
-
-    # Get probabilities for the specific actions
-    actions_probs = torch.gather(pd, 2, actions.unsqueeze(2).long()).squeeze(-1)
-
-    # Calculate entropy for those specific actions: -p*log(p)
-    # Adding small epsilon to avoid log(0)
-    pointwise_entropies = -actions_probs * torch.log(actions_probs + 1e-10)
-
-    # Mean over sequence length (dim=1) to get one entropy value per sequence
-    return torch.mean(pointwise_entropies, dim=1)
 
 
 def extract_packed_chosen_rejected(
