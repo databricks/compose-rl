@@ -7,7 +7,7 @@ import torch
 from llmfoundry.models.mpt.configuration_mpt import MPTConfig
 from llmfoundry.models.mpt.modeling_mpt import MPTForCausalLM
 
-from compose_rl.reward_learning.hf_utils import (
+from compose_rl.algorithms.reward_modeling.hf_utils import (
     SequenceClassifierOutput,
     ValueHead,
 )

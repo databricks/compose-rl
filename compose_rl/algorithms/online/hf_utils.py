@@ -17,11 +17,11 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from compose_rl.ppo.modeling_utils import (
+from compose_rl.algorithms.online.model_methods import (
     CausalLMOutputWithPastAndValues,
     prepare_critic_values_for_training,
 )
-from compose_rl.ppo.policy_configuration import HFPolicyConfig
+from compose_rl.algorithms.online.policy_configuration import HFPolicyConfig
 from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]

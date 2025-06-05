@@ -15,13 +15,15 @@ from composer.utils import dist
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer
 
+from compose_rl.algorithms.offline import ComposerMPTPairwiseOfflinePolicyLM
+from compose_rl.algorithms.offline.callback import ReferencePolicyCallback
 from compose_rl.data import pairwise_preference_dataset_collate_fn
-from compose_rl.dpo import ComposerDPOLM
-from compose_rl.dpo.callback import DPOCallback
 from tests.common import PairwisePreference, world_size
 
 
-def test_dpo_callback_forward(tiny_gpt2_tokenizer: PreTrainedTokenizer):
+def test_reference_policy_callback_forward(
+    tiny_gpt2_tokenizer: PreTrainedTokenizer,
+):
     # Build DataLoader
     max_seq_len = 10
     dataset = PairwisePreference(max_seq_len=max_seq_len)
@@ -45,14 +47,14 @@ def test_dpo_callback_forward(tiny_gpt2_tokenizer: PreTrainedTokenizer):
         'loss_fn': 'torch_crossentropy',
         'tokenizer': tiny_gpt2_tokenizer,
     }
-    model = ComposerDPOLM(**model_config)
-    model_config['name'] = 'mpt_dpo_lm'
+    model = ComposerMPTPairwiseOfflinePolicyLM(**model_config)
+    model_config['name'] = 'mpt_pairwise_offline_lm'
     train_config = {
         'model': model_config,
         'fsdp_config': {},
         'seed': 17,
     }
-    callback = DPOCallback(train_config=train_config)
+    callback = ReferencePolicyCallback(train_config=train_config)
     Trainer(
         model=model,
         callbacks=callback,
@@ -92,7 +94,7 @@ def test_model_forward(tiny_gpt2_tokenizer: PreTrainedTokenizer):
         'loss_fn': 'torch_crossentropy',
         'tokenizer': tiny_gpt2_tokenizer,
     }
-    model = ComposerDPOLM(**model_config)
+    model = ComposerMPTPairwiseOfflinePolicyLM(**model_config)
     for sample in dataloader:
         output = model(sample)
         assert output is not None
@@ -125,8 +127,8 @@ def test_train(
         },
         'tokenizer': tiny_gpt2_tokenizer,
     }
-    model = ComposerDPOLM(**model_config)
-    model_config['name'] = 'mpt_dpo_lm'
+    model = ComposerMPTPairwiseOfflinePolicyLM(**model_config)
+    model_config['name'] = 'mpt_pairwise_offline_lm'
     fsdp_config = {}
     train_config = {
         'model': model_config,
@@ -136,7 +138,7 @@ def test_train(
     trainer = Trainer(
         model=model,
         train_dataloader=dataloader,
-        callbacks=DPOCallback(train_config=train_config),
+        callbacks=ReferencePolicyCallback(train_config=train_config),
         parallelism_config={'fsdp': fsdp_config},
         max_duration='1ep',
     )
@@ -176,9 +178,9 @@ def test_checkpoint_reloading(
     }
 
     # Making a dummy reference model so we can make sure the KL is 0
-    tmp_model = ComposerDPOLM(**model_config)
+    tmp_model = ComposerMPTPairwiseOfflinePolicyLM(**model_config)
     tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
-    model_config['name'] = 'mpt_dpo_lm'
+    model_config['name'] = 'mpt_pairwise_offline_lm'
     fsdp_config = {}
     parallelism_config = {'fsdp': fsdp_config}
 
@@ -201,9 +203,9 @@ def test_checkpoint_reloading(
     # After making the reference model, we can proceed with the DPO training
     init_checkpoint_path = os.path.join(init_checkpoint_dir, 'latest-rank0.pt')
 
-    model = ComposerDPOLM(**model_config)
+    model = ComposerMPTPairwiseOfflinePolicyLM(**model_config)
     # Add more model_config specific to DPO
-    model_config['name'] = 'mpt_dpo_lm'
+    model_config['name'] = 'mpt_pairwise_offline_lm'
     model_config['loss_type'] = 'dpo'
     model_config['beta'] = 0.1
     model_config['sft_alpha'] = 0.2
@@ -222,7 +224,7 @@ def test_checkpoint_reloading(
         model=model,
         train_dataloader=dataloader,
         loggers=in_memory_logger,
-        callbacks=DPOCallback(train_config=train_config),
+        callbacks=ReferencePolicyCallback(train_config=train_config),
         parallelism_config={'fsdp': fsdp_config},
         max_duration='8ba',
         autoresume=True,
@@ -239,12 +241,12 @@ def test_checkpoint_reloading(
 
     # Restart the training from the intermediate checkpoint
     in_memory_logger = InMemoryLogger()
-    model = ComposerDPOLM(**model_config)
+    model = ComposerMPTPairwiseOfflinePolicyLM(**model_config)
     trainer2 = Trainer(
         model=model,
         train_dataloader=dataloader,
         loggers=in_memory_logger,
-        callbacks=DPOCallback(train_config=train_config),
+        callbacks=ReferencePolicyCallback(train_config=train_config),
         parallelism_config={'fsdp': fsdp_config},
         max_duration='8ba',
         save_overwrite=True,
