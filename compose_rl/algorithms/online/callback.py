@@ -241,6 +241,7 @@ def env_reward(
             cur_logits = cur_output['logits']
             # need to pull out current actions and prompt len
             cur_actions = curr_kwargs['actions']
+            cur_action_mask = curr_kwargs['action_mask']
             cur_prompt_len = curr_kwargs['prompt_len']
 
             cur_log_probs = get_log_probs(
@@ -249,14 +250,6 @@ def env_reward(
                 prompt_len=cur_prompt_len,
                 max_gen_len=max_gen_len,
             )
-            # print(f"{curr_kwargs.keys()=}")
-            cur_action_mask = curr_kwargs['action_mask']
-            # print(f"{cur_actions.shape=}")
-            # print(f"{cur_action_mask.shape=}")
-            # print(f"{cur_logits.shape=}")
-            # print(f"{cur_prompt_len=}")
-            # print(f"{max_gen_len=}")
-            # breakpoint()
             cur_entropies = get_entropies(
                 logits=cur_logits,
                 action_mask=cur_action_mask,
