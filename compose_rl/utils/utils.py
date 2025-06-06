@@ -1223,7 +1223,9 @@ def filter_resolved_outputs(
         dict: Filtered outputs with resolved prompts removed
     """
     prompt_id = outputs['prompt_id']
-    rewards = outputs['rewards']
+
+    # We are trying to resolve only the filtered 
+    rewards = outputs['env_rewards']
 
     # Get unique prompt IDs and their indices
     unique_prompt_ids, inverse_indices = torch.unique(
@@ -1243,12 +1245,19 @@ def filter_resolved_outputs(
     for i, unique_id in enumerate(unique_prompt_ids):
         mask = inverse_indices == i
         prompt_rewards = rewards[mask]
-        n_samples = len(prompt_rewards)
+        n_samples = prompt_rewards
+
+        print ("prompt rewards shape is: ", prompt_rewards.shape)
+        print ("rewards shape is: ", rewards.shape)
 
         # Find the most common reward value and its percentage
         unique_values, counts = torch.unique(prompt_rewards, return_counts=True)
         max_count = torch.max(counts).item()
         max_percentage = max_count / n_samples
+
+        print ("n samples is: ", n_samples)
+        print ("max count is: ", max_count)
+        print ("prompt rewards size is: ", prompt_rewards.size())
 
         # Find which value is most common
         most_common_idx = torch.argmax(counts)
