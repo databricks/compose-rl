@@ -584,7 +584,9 @@ class PPOCallback(CallbackWithConfig):
         if self.vllm_engines is not None:
             self._update_inference_model(batch)
 
+        log.debug('interacting with env')
         self._interact_with_env(batch)
+        log.debug('interacted with env')
         # Reset and initialize state train dataloader
         log.warning(
             'trainer._train_data_spec should be updated whenever the dataloader is updated',
@@ -747,6 +749,9 @@ class PPOCallback(CallbackWithConfig):
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
+        log.debug("Beginning reward computation for the rollout.")
+        start_reward_time = time.time()
+
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore
             reward_manager=self.reward_manager,
@@ -760,6 +765,10 @@ class PPOCallback(CallbackWithConfig):
             kl_clip_range=self.kl_clip_range,
         )
 
+        end_reward_time = time.time()
+        total_reward_time = end_reward_time - start_reward_time
+        log.debug(f"Finished reward computation for the rollout in {total_reward_time:.4f} seconds.")
+
         self.prompts_and_gens.extend(prompts_and_gens)
 
         gen_batch_partial_outputs = (env_outputs, ref_outputs, all_rewards_dict)
@@ -770,6 +779,7 @@ class PPOCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
+        log.debug('extracting minibatches from resolved outputs')
         # We need to split the resolved outputs into minibatches
         for idx in range(self.iter_batch_size // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
@@ -778,11 +788,14 @@ class PPOCallback(CallbackWithConfig):
                 self.device_train_batch_size,
             )
             self.buffer.add(minibatch)
+        log.debug('added minibatch to buffer')
 
         # Making sure we correctly parsed the minibatches
         assert len(self.buffer) == self.num_batches_per_update
 
+        log.debug('setting actor critic to train')
         self.actor_critic.train()
+        log.debug('set actor critic to train')
 
     def _extract_minibatch(
         self,
@@ -831,6 +844,7 @@ class PPOCallback(CallbackWithConfig):
                 objects resolved and outputs processed for PPO training.
         """
         env_outs, ref_outs, rew_dict = partial_outputs
+        log.debug('in resolving outputs')
         rew_outs = self.reward_manager.resolve_outputs(
             ref_output=ref_outs,
             reward_output=rew_dict,
@@ -838,6 +852,7 @@ class PPOCallback(CallbackWithConfig):
             action_mask=env_outs['action_mask'],
             center_reward_mean=self.center_reward_mean,
         )
+        log.debug('resolved outputs')
         env_outs.update(rew_outs)
 
         # Keep track of prompt ids, rewards and verified answers for logging
@@ -852,6 +867,7 @@ class PPOCallback(CallbackWithConfig):
             torch.eq(env_outs['obs'], self.pad_token_idx),  # type: ignore
         )
 
+        log.debug('computing advantages')
         # Now that rewards are resolved, we can compute advantages
         if self.actor_critic.loss_type == 'ppo':
             env_outs['advantages'] = compute_advantages(
@@ -926,7 +942,10 @@ class PPOCallback(CallbackWithConfig):
                 f'Invalid loss type: {self.actor_critic.loss_type}. ' +
                 'Valid options are: ppo, grpo.',
             )
+        
+        log.debug('advantages computed')
 
+        log.debug('computing ift kl')
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
             env_outs['advantages'],
             env_outs['action_mask'],
@@ -936,6 +955,7 @@ class PPOCallback(CallbackWithConfig):
             env_outs['ift_kl'],
             env_outs['action_mask'],
         )
+        log.debug('ift kl computed')
 
         self.kl_ift.append(mean_ift.cpu())
 
@@ -955,11 +975,13 @@ class PPOCallback(CallbackWithConfig):
                 torch.ones(self.iter_batch_size) *
                 env_outs['rewards'].std().to('cpu'),
         })
-
+        
+        log.debug('moving iter_batch to cpu')
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
             if hasattr(v, 'cpu'):
                 iter_batch[k] = v.cpu()
+        log.debug('iter_batch moved to cpu')
 
         return iter_batch
 
