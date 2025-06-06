@@ -347,6 +347,7 @@ class RewardManager:
                 async, the associated value is an AsyncResult object that will return
                 the reward tensor from its `.get()` method.
         """
+        log.debug('inside reward manager call')
         device = right_padded_obses.device.type
 
         # Only process text for the existing granularity types of the rewards
@@ -383,6 +384,7 @@ class RewardManager:
             self.inference_rewards,
             self.local_reward_models,
         ):
+            log.debug(f'Computing reward for {reward_name}')
             curr_reward = self.all_rewards[reward_name]
             curr_batch = self._create_batch(
                 self.all_rewards[reward_name],
@@ -420,6 +422,8 @@ class RewardManager:
                 raise TypeError(
                     f'Unknown reward model type {type(curr_reward)}. Expected `Reward` or `RewardModel`.',
                 )
+            log.debug(f'Finished computing reward for {reward_name}')
+        log.debug('finished computing rewards for all reward models')
 
         batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
         # Lastly, call the reference model
@@ -430,6 +434,7 @@ class RewardManager:
             kl_clip_range,
         )
 
+        log.debug('finished reward manager call')
         return ref_output, computed_rewards
 
     def _create_batch(
