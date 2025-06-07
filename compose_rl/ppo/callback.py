@@ -970,10 +970,15 @@ class PPOCallback(CallbackWithConfig):
         )
         log.debug('ift kl computed')
 
+        log.debug('moving ift kl to cpu')
         self.kl_ift.append(mean_ift.cpu())
+        log.debug('ift kl moved to cpu')
 
+        log.debug('updating iter_batch with env outputs')
         iter_batch.update(env_outs)
+        log.debug('iter_batch updated with env outputs')
 
+        log.debug('updating iter_batch with ref outputs')
         iter_batch.update({
             'max_gen_len':
                 torch.ones(self.iter_batch_size).to(torch.int32) *
@@ -988,6 +993,7 @@ class PPOCallback(CallbackWithConfig):
                 torch.ones(self.iter_batch_size) *
                 env_outs['rewards'].std().to('cpu'),
         })
+        log.debug('iter_batch updated with ref outputs')
         
         log.debug('moving iter_batch to cpu')
         # Moving minibatches to CPU to not take additional GPU memory
