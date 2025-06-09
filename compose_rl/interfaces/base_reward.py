@@ -29,6 +29,7 @@ class BaseReward(ABC):
 
     # Whether the class blocks (True) or can be run async (False)
     BLOCKING: bool = True
+    BLOCKING_TIMEOUT: float = 10.0  # seconds
 
     def __init__(
         self,
