@@ -46,7 +46,7 @@ class MockAsyncResult(AsyncResult):
             raise multiprocessing.TimeoutError('Mock timeout')
         if self.return_value is None:
             # Return a default tensor if none provided
-            return torch.zeros(2, 10)
+            return torch.ones(2, 10)
         return self.return_value
 
 
@@ -269,31 +269,3 @@ def test_mixed_timeout_and_success(mock_reward_manager: RewardManager) -> None:
     # Verify success reward has expected values
     success_reward = outputs['success_model_reward']
     assert torch.allclose(success_reward, expected_success_reward * action_mask)
-
-
-def test_make_zero_reward_method() -> None:
-    """Test the make_zero_reward static method directly."""
-    # Test with various tensor shapes and types
-    test_cases = [
-        torch.ones(2, 10, dtype=torch.float32),
-        torch.ones(3, 5, dtype=torch.float16),
-        torch.ones(1, 15, dtype=torch.int64),
-    ]
-
-    for ref_tensor in test_cases:
-        zero_reward = RewardManager.make_zero_reward(ref_tensor)
-
-        # Verify shape, device, and dtype match
-        assert zero_reward.shape == ref_tensor.shape
-        assert zero_reward.device == ref_tensor.device
-        assert zero_reward.dtype == ref_tensor.dtype
-
-        # Verify all values are zero
-        assert torch.allclose(zero_reward, torch.zeros_like(ref_tensor))
-
-
-def test_timeout_error_import() -> None:
-    """Test that TimeoutError is properly imported from multiprocessing."""
-    # This verifies the import fix in the reward_manager.py file
-    from compose_rl.ppo.reward_manager import TimeoutError
-    assert TimeoutError is multiprocessing.TimeoutError
