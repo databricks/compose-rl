@@ -762,7 +762,7 @@ class PPOCallback(CallbackWithConfig):
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
-        log.debug("Beginning reward computation for the rollout.")
+        log.debug('Beginning reward computation for the rollout.')
         start_reward_time = time.time()
 
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
@@ -780,7 +780,9 @@ class PPOCallback(CallbackWithConfig):
 
         end_reward_time = time.time()
         total_reward_time = end_reward_time - start_reward_time
-        log.debug(f"Finished reward computation for the rollout in {total_reward_time:.4f} seconds.")
+        log.debug(
+            f'Finished reward computation for the rollout in {total_reward_time:.4f} seconds.',
+        )
 
         self.prompts_and_gens.extend(prompts_and_gens)
 
@@ -955,7 +957,7 @@ class PPOCallback(CallbackWithConfig):
                 f'Invalid loss type: {self.actor_critic.loss_type}. ' +
                 'Valid options are: ppo, grpo.',
             )
-        
+
         log.debug('advantages computed')
 
         log.debug('computing ift kl')
@@ -994,7 +996,7 @@ class PPOCallback(CallbackWithConfig):
                 env_outs['rewards'].std().to('cpu'),
         })
         log.debug('iter_batch updated with ref outputs')
-        
+
         log.debug('moving iter_batch to cpu')
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():

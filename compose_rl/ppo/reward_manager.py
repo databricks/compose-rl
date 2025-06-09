@@ -5,7 +5,7 @@
 
 import logging
 from itertools import chain
-from multiprocessing import get_context, TimeoutError
+from multiprocessing import TimeoutError, get_context
 from multiprocessing.pool import AsyncResult, Pool
 from typing import Any, MutableMapping, Optional, Union
 
@@ -592,13 +592,17 @@ class RewardManager:
             if isinstance(subreward, AsyncResult):
                 log.debug(f'Waiting for {name} reward to finish')
                 try:
-                    resolved_reward: torch.Tensor = subreward.get(timeout=self.all_rewards[name].BLOCKING_TIMEOUT)
+                    resolved_reward: torch.Tensor = subreward.get(
+                        timeout=self.all_rewards[name].BLOCKING_TIMEOUT,
+                    )
                 except TimeoutError:
                     log.error(
                         f'Timeout while waiting for {name} reward to finish. ' +
                         'This may indicate a problem with the reward. Using a default reward of 0.',
                     )
-                    resolved_reward = self.make_zero_reward(action_mask).to(torch.float32)
+                    resolved_reward = self.make_zero_reward(action_mask).to(
+                        torch.float32,
+                    )
                 log.debug(f'Finished waiting for {name} reward')
             else:
                 resolved_reward: torch.Tensor = subreward
