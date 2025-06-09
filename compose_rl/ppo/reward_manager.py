@@ -598,7 +598,7 @@ class RewardManager:
                         f'Timeout while waiting for {name} reward to finish. ' +
                         'This may indicate a problem with the reward. Using a default reward of 0.',
                     )
-                    resolved_reward = self.make_zero_reward(action_mask)
+                    resolved_reward = self.make_zero_reward(action_mask).to(torch.float32)
                 log.debug(f'Finished waiting for {name} reward')
             else:
                 resolved_reward: torch.Tensor = subreward
