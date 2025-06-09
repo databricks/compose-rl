@@ -365,7 +365,6 @@ def dist_compute_masked_mean_and_var(
     unbiased: Optional[bool] = True,
 ):
     """Computes the distributed masked mean and variance of a tensor."""
-    log.debug('inside dist mean and var')
     assert len(tensor.shape) == 2
 
     num_unmasked_elements = mask.sum()
@@ -374,9 +373,7 @@ def dist_compute_masked_mean_and_var(
     masked_tensor_sum = (tensor * mask).sum()
 
     dist.all_reduce(num_unmasked_elements)
-    dist.barrier()
     dist.all_reduce(masked_tensor_sum)
-    dist.barrier()
 
     global_tensor_mean = masked_tensor_sum / num_unmasked_elements
 
@@ -385,7 +382,6 @@ def dist_compute_masked_mean_and_var(
     centered_values = centered_values.sum()
 
     dist.all_reduce(centered_values)
-    dist.barrier()
     global_variance = centered_values / num_unmasked_elements
     if unbiased:
         bessel_correction = num_unmasked_elements / (num_unmasked_elements - 1)

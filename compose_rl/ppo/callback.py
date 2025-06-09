@@ -201,8 +201,6 @@ def env_reward(
                                             max_gen_len))
             untokenized_prompt_and_responses.append((prompt, generated_text),)
 
-        log.debug('ckpt4')
-
         # Making logits [batch_size, generated_len, vocab_size]
         # We need to recompute the logits here. Otherwise there are numerical differences
         # We also need to do it on the size of `device_train_microbatch_size` otherwise
