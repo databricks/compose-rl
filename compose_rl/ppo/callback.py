@@ -112,7 +112,6 @@ def env_reward(
     Note:
         Use the .get() method on an AsyncResult object (see Returns, above) to resolve it.
     """
-    log.debug('running env_reward')
     prompt_tokens = batch['prompt']
 
     batch_size, _ = prompt_tokens.shape
@@ -158,7 +157,6 @@ def env_reward(
                 dim=-1,  # type: ignore
             )
 
-        log.debug('ckpt1')
         # Sanity checking we're adding max_gen_len to prompt_tokens
         if prompt_tokens.size(1) + max_gen_len != sequences.size(1):
             raise ValueError(
@@ -178,8 +176,6 @@ def env_reward(
             torch.eq(right_padded_obs, pad_token_id),  # type: ignore
         )
 
-        log.debug('ckpt2')
-
         (
             right_padded_obs,
             right_padded_attn_mask,
@@ -195,7 +191,6 @@ def env_reward(
             eos_token_ids=eos_token_ids,  # type: ignore
             pad_token=pad_token_id,  # type: ignore
         )
-        log.debug('ckpt3')
 
         untokenized_prompt_and_responses = []
         for i in range(batch_size):
@@ -259,8 +254,6 @@ def env_reward(
                 cur_values = cur_output['values']
                 values.append(cur_values)
 
-        log.debug('ckpt5')
-
         device_train_microbatch_log_probs = torch.cat(log_probs)
         device_train_microbatch_entropies = torch.cat(entropies)
 
@@ -288,7 +281,6 @@ def env_reward(
         # e.g., if special formatting is applied
         reward_seq_len = prompt_len + generated_len
 
-        log.debug('ckpt6')
         ref_output, all_rewards = reward_manager(
             raw_untokenized_texts=untokenized_prompt_and_responses,
             right_padded_obses=right_padded_obs,
@@ -304,9 +296,6 @@ def env_reward(
             kl_clip_range=kl_clip_range,
             verified_answers=verified_answers,
         )
-        log.debug('ckpt7')
-
-    log.debug('finished env_reward')
 
     return (
         partial_env_output,
@@ -597,9 +586,7 @@ class PPOCallback(CallbackWithConfig):
         if self.vllm_engines is not None:
             self._update_inference_model(batch)
 
-        log.debug('interacting with env')
         self._interact_with_env(batch)
-        log.debug('interacted with env')
         # Reset and initialize state train dataloader
         log.warning(
             'trainer._train_data_spec should be updated whenever the dataloader is updated',
@@ -794,7 +781,6 @@ class PPOCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
-        log.debug('extracting minibatches from resolved outputs')
         # We need to split the resolved outputs into minibatches
         for idx in range(self.iter_batch_size // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
@@ -803,14 +789,11 @@ class PPOCallback(CallbackWithConfig):
                 self.device_train_batch_size,
             )
             self.buffer.add(minibatch)
-        log.debug('added minibatch to buffer')
 
         # Making sure we correctly parsed the minibatches
         assert len(self.buffer) == self.num_batches_per_update
 
-        log.debug('setting actor critic to train')
         self.actor_critic.train()
-        log.debug('set actor critic to train')
 
     def _extract_minibatch(
         self,
@@ -859,7 +842,6 @@ class PPOCallback(CallbackWithConfig):
                 objects resolved and outputs processed for PPO training.
         """
         env_outs, ref_outs, rew_dict = partial_outputs
-        log.debug('in resolving outputs')
         rew_outs = self.reward_manager.resolve_outputs(
             ref_output=ref_outs,
             reward_output=rew_dict,
@@ -867,7 +849,6 @@ class PPOCallback(CallbackWithConfig):
             action_mask=env_outs['action_mask'],
             center_reward_mean=self.center_reward_mean,
         )
-        log.debug('resolved outputs')
         env_outs.update(rew_outs)
 
         # Keep track of prompt ids, rewards and verified answers for logging
@@ -882,7 +863,6 @@ class PPOCallback(CallbackWithConfig):
             torch.eq(env_outs['obs'], self.pad_token_idx),  # type: ignore
         )
 
-        log.debug('computing advantages')
         # Now that rewards are resolved, we can compute advantages
         if self.actor_critic.loss_type == 'ppo':
             env_outs['advantages'] = compute_advantages(
@@ -958,9 +938,6 @@ class PPOCallback(CallbackWithConfig):
                 'Valid options are: ppo, grpo.',
             )
 
-        log.debug('advantages computed')
-
-        log.debug('computing ift kl')
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
             env_outs['advantages'],
             env_outs['action_mask'],
@@ -970,17 +947,10 @@ class PPOCallback(CallbackWithConfig):
             env_outs['ift_kl'],
             env_outs['action_mask'],
         )
-        log.debug('ift kl computed')
-
-        log.debug('moving ift kl to cpu')
         self.kl_ift.append(mean_ift.cpu())
-        log.debug('ift kl moved to cpu')
 
-        log.debug('updating iter_batch with env outputs')
         iter_batch.update(env_outs)
-        log.debug('iter_batch updated with env outputs')
 
-        log.debug('updating iter_batch with ref outputs')
         iter_batch.update({
             'max_gen_len':
                 torch.ones(self.iter_batch_size).to(torch.int32) *
@@ -995,14 +965,11 @@ class PPOCallback(CallbackWithConfig):
                 torch.ones(self.iter_batch_size) *
                 env_outs['rewards'].std().to('cpu'),
         })
-        log.debug('iter_batch updated with ref outputs')
 
-        log.debug('moving iter_batch to cpu')
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
             if hasattr(v, 'cpu'):
                 iter_batch[k] = v.cpu()
-        log.debug('iter_batch moved to cpu')
 
         return iter_batch
 

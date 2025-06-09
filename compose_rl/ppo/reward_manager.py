@@ -578,7 +578,6 @@ class RewardManager:
                 aggregate reward for RL training, as well as the rewards from each
                 reward model.
         """
-        log.debug('inside reward manager resolve outputs')
         device = action_mask.device
 
         # Resolve any output elements that are being computed async,
@@ -587,10 +586,7 @@ class RewardManager:
         bad_end_generation_mask = None
         bad_end_generation_name = None
         for name, subreward in reward_output.items():
-            log.debug(f'Resolving reward for {name}')
-            log.debug(f'subreward type: {type(subreward)}')
             if isinstance(subreward, AsyncResult):
-                log.debug(f'Waiting for {name} reward to finish')
                 try:
                     resolved_reward: torch.Tensor = subreward.get(
                         timeout=self.all_rewards[name].BLOCKING_TIMEOUT,
@@ -603,7 +599,6 @@ class RewardManager:
                     resolved_reward = self.make_zero_reward(action_mask).to(
                         torch.float32,
                     )
-                log.debug(f'Finished waiting for {name} reward')
             else:
                 resolved_reward: torch.Tensor = subreward
             resolved_reward_outputs[name] = resolved_reward.to(device=device)
@@ -618,7 +613,6 @@ class RewardManager:
                     device=device,
                 )
 
-        log.debug('finished resolving all rewards')
         ref_kl = ref_output[0].to(device=device)
         ref_log_probs = ref_output[1].to(device=device)
 
@@ -642,8 +636,6 @@ class RewardManager:
             out_name = name + '_reward' if 'reward' not in name else ''
             rews_dict_out[out_name] = subreward.detach() * action_mask
 
-        log.debug('rr1')
-
         # Masking out all rewards if the generation ends with a bad token
         # And strictly adding a penalty for bad generation ending.
         if bad_end_generation_mask is not None and bad_end_generation_name is not None:
@@ -663,7 +655,6 @@ class RewardManager:
         # Zero rewards at padded tokens
         rewards *= action_mask
         env_rewards *= action_mask
-        log.debug('rr2')
         outputs = {
             'rewards': rewards.detach(),
             'env_rewards': env_rewards.detach(),
@@ -672,5 +663,4 @@ class RewardManager:
         }
         outputs.update(rews_dict_out)
 
-        log.debug('finished reward manager resolve outputs')
         return outputs
