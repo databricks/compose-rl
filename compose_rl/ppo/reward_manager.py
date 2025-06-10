@@ -486,6 +486,7 @@ class RewardManager:
                     base_batch['generated_lens'],
                 'seq_lens':
                     base_batch['seq_lens'],
+                'raw_untokenized_texts': raw_untokenized_texts,
             }
         else:
             raise TypeError(
