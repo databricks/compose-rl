@@ -459,6 +459,10 @@ class PPOCallback(CallbackWithConfig):
                 1,
             )
             self.vllm_sync_backend = vllm_config.get('sync_backend', 'nccl')
+            self.vllm_max_num_batched_tokens = vllm_config.get(
+                'max_num_batched_tokens',
+                8192,
+            )
 
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
@@ -1071,6 +1075,7 @@ class PPOCallback(CallbackWithConfig):
                 seed=1,
                 enable_prefix_caching=self.vllm_enable_prefix_caching,
                 max_model_len=self.max_seq_len,
+                max_num_batched_tokens=self.vllm_max_num_batched_tokens,
             )
             log.info('After creating vLLM engines.')
 

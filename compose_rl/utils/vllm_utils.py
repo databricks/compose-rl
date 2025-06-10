@@ -184,6 +184,7 @@ def create_vllm_engines(
     seed: int,
     enable_prefix_caching: bool,
     max_model_len: int,
+    max_num_batched_tokens: int,
     vllm_gpu_memory_utilization: float = 0.9,
 ):
     """Creates vllm engines.
@@ -197,6 +198,7 @@ def create_vllm_engines(
         seed (int): Seed for random number generation
         enable_prefix_caching (bool): Whether to enable prefix caching
         max_model_len (int): Maximum model length
+        max_num_batched_tokens (int): Maximum number of batched tokens for chunked prefill
         vllm_gpu_memory_utilization (float): GPU memory utilization for vllm
     """
     bundles = [{
@@ -218,7 +220,6 @@ def create_vllm_engines(
         distributed_executor_backend = 'uni'
 
     num_gpus = int(tensor_parallel_size == 1)
-
     vllm_engines = []
     for i in range(num_engines):
         bundle_indices = None
@@ -255,6 +256,7 @@ def create_vllm_engines(
                 distributed_executor_backend,
                 enable_prefix_caching=enable_prefix_caching,  # type: ignore
                 max_model_len=max_model_len,  # type: ignore
+                max_num_batched_tokens=max_num_batched_tokens,  # type: ignore
                 gpu_memory_utilization=  # type: ignore
                 vllm_gpu_memory_utilization,
                 bundle_indices=bundle_indices,  # type: ignore
