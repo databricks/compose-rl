@@ -185,6 +185,7 @@ def create_vllm_engines(
     enable_prefix_caching: bool,
     max_model_len: int,
     vllm_gpu_memory_utilization: float = 0.9,
+    load_format: str = 'dummy',
 ):
     """Creates vllm engines.
 
@@ -198,6 +199,7 @@ def create_vllm_engines(
         enable_prefix_caching (bool): Whether to enable prefix caching
         max_model_len (int): Maximum model length
         vllm_gpu_memory_utilization (float): GPU memory utilization for vllm
+        load_format (str): Load format for the model, defaults to 'dummy'
     """
     bundles = [{
         'GPU': 1,
@@ -261,6 +263,7 @@ def create_vllm_engines(
                 num_gpus=1,  # type: ignore
                 noset_visible_devices= # type: ignore
                 ray_noset_visible_devices(),
+                load_format=load_format,  # type: ignore
             ),
         )
 
