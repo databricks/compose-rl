@@ -218,3 +218,8 @@ def prepare_math_prompt(sample: Any) -> str:
     _instruction = " Let's think step by step and output the final answer within \\boxed{}."
     final_prompt = f'Question: {prompt} ' + _instruction
     return final_prompt
+
+def extract_open_r1_answer(sample: Any) -> str:
+    """Extract the ground truth from the answer column for Open R1."""
+    answer = sample['answer']
+    return normalize_final_answer(answer.strip())

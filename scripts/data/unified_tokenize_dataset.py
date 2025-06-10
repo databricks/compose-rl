@@ -13,15 +13,17 @@ import numpy as np
 from streaming import MDSWriter
 from torch.utils.data import IterableDataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
-
+from tqdm import tqdm
 from compose_rl.data.rlvr_utils import (
     extract_gsm8k_answer,
     extract_math_answer,
     prepare_gsm8k_prompt,
     prepare_math_prompt,
+    extract_open_r1_answer,
 )
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
 
 
 class UnifiedTokenizedDataset(IterableDataset):
@@ -53,11 +55,11 @@ class UnifiedTokenizedDataset(IterableDataset):
         self.dataset_type = dataset_type
         self.dataset_name = dataset_name.lower()
 
-        log.info(f'Dataset name: {dataset_name}')
+        print(f'Dataset name: {dataset_name}')
         if subset:
-            log.info(f'Processing subset: {subset}')
-        log.info(f'Processing split: {split}')
-        log.info(f'Processing dataset type: {dataset_type}')
+            print(f'Processing subset: {subset}')
+        print(f'Processing split: {split}')
+        print(f'Processing dataset type: {dataset_type}')
 
         self.hf_dataset = hf_datasets.load_dataset(
             path=dataset_name,
@@ -162,6 +164,9 @@ class UnifiedTokenizedDataset(IterableDataset):
         elif 'math' in self.dataset_name:
             prompt_fn = prepare_math_prompt
             answer_fn = extract_math_answer
+        elif 'open_r1' in self.dataset_name:
+            prompt_fn = prepare_math_prompt
+            answer_fn = extract_open_r1_answer
         else:
             raise ValueError(
                 f'Unknown dataset name: {self.dataset_name}. Please provide a valid name.',
@@ -186,14 +191,15 @@ class UnifiedTokenizedDataset(IterableDataset):
                 'content': prompt,
             },
         ]
-
+        # print(f"Messages: {messages}")
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
             add_generation_prompt=True,
         )
+        # print(f'Encoded prompt: {encoded_prompt}')
         if len(encoded_prompt) > self.max_length:
-            log.info(f'Prompt too long: {len(encoded_prompt)}')
+            print(f'Prompt too long: {len(encoded_prompt)}')
             return None
 
         verified_answer = answer_fn(sample)
@@ -277,7 +283,7 @@ def main(
     )
     tokenizer.model_max_length = int(1e30)
 
-    log.info(f'Using tokenizer: {tokenizer}')
+    print(f'Using tokenizer: {tokenizer}')
 
     num_written = 0
     for split in splits:
@@ -297,14 +303,16 @@ def main(
                 token=token,
             )
 
-            log.info('Converting to MDS format')
+            print('Converting to MDS format')
 
-            for sample in dataset:
+            for sample in tqdm(dataset, desc=f'Processing {split} split'):
                 num_written += 1
+                # print(sample)
+                # breakpoint()
                 out.write(sample)
 
-        log.info(f'Finished writing {num_written} samples')
-    log.info(f'Dataset has: {num_written} samples')
+        print(f'Finished writing {num_written} samples')
+    print(f'Dataset has: {num_written} samples')
 
 
 if __name__ == '__main__':
