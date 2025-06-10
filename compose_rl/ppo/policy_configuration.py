@@ -65,8 +65,7 @@ class HFPolicyConfig(PretrainedConfig):
 
     def __init__(
         self,
-        base_model: Optional[Union[str, os.PathLike]
-                            ] = 'meta-llama/Meta-Llama-3-70B-Instruct',
+        base_model: Optional[Union[str, os.PathLike]] = None,
         base_config: Optional[PretrainedConfig] = None,
         pretrain_cfg: Optional[dict[str, Any]] = None,
         pretrained: bool = False,
@@ -88,6 +87,10 @@ class HFPolicyConfig(PretrainedConfig):
             )
         super().__init__(**kwargs)
 
+        if base_model is None and base_config is None:
+            raise ValueError(
+                'base_model or base_config is required. Please set base_model to the path of the base model or base_config to the config of the base model.',
+            )
         self.base_model = base_model
         self.base_config = base_config if base_config is not None else AutoConfig.from_pretrained(
             base_model,
