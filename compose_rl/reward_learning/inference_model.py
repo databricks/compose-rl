@@ -113,12 +113,18 @@ class InferenceRewardModel(RewardModel):
         self.max_retries = self.config.get('max_retries', 5)
         self.timeout = self.config.get('timeout', None)
         self.apply_sigmoid = self.config.get('apply_sigmoid', False)
-        if 'qwen2.5-coder' in tokenizer.name_or_path.lower():
+        if 'model_name' in self.config:
+            self.model_name = self.config['model_name']
+        else:
+            log.warning(f"model_name not found in config, using tokenizer.name_or_path: {tokenizer.name_or_path}")
+            self.model_name = tokenizer.name_or_path
+        # setting up the input_str_to_messages_formatter    
+        if 'qwen2.5-coder' in self.model_name.lower():
             self.input_str_to_messages_formatter = undo_qwen_chat_template
-        elif 'llama3' in tokenizer.name_or_path.lower():
+        elif 'llama-3' in self.model_name.lower():
             self.input_str_to_messages_formatter = undo_llama3_chat_template
         else:
-            raise ValueError(f"Tokenizer {tokenizer.name_or_path} not supported for inference reward model")
+            raise ValueError(f"Model '{self.model_name}' not supported for inference reward model")
         
 
         if self.max_retries < 0:
