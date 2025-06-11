@@ -383,6 +383,7 @@ class PPOCallback(CallbackWithConfig):
         # Per-device generate size.
         self.device_generate_batch_size: int = var_config.get(
             'device_generate_batch_size',
+            1,
         )
         self.device_train_batch_size: int = train_config.get(
             'device_train_batch_size',
@@ -492,6 +493,11 @@ class PPOCallback(CallbackWithConfig):
     def init(self, state: State, logger: Logger):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
+
+        if self.actor_critic.loss_type == 'grpo':
+            assert self.generations_per_prompt > 1, \
+                'GRPO requires multiple generations per prompt. ' + \
+                f'Current generations_per_prompt is: {self.generations_per_prompt}.'
 
         # TODO (#158): do this through composer.
         for destination in ensure_tuple(logger.destinations):
@@ -748,6 +754,9 @@ class PPOCallback(CallbackWithConfig):
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
+        log.debug('Beginning reward computation for the rollout.')
+        start_reward_time = time.time()
+
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore
             reward_manager=self.reward_manager,
@@ -761,7 +770,11 @@ class PPOCallback(CallbackWithConfig):
             kl_clip_range=self.kl_clip_range,
         )
 
-        print('after reward')
+        end_reward_time = time.time()
+        total_reward_time = end_reward_time - start_reward_time
+        log.debug(
+            f'Finished reward computation for the rollout in {total_reward_time:.4f} seconds.',
+        )
 
         gen_batch_partial_outputs = (env_outputs, ref_outputs, all_rewards_dict)
         # For every partial output we want to resolve them together
@@ -1007,7 +1020,6 @@ class PPOCallback(CallbackWithConfig):
             env_outs['ift_kl'],
             env_outs['action_mask'],
         )
-
         self.kl_ift.append(mean_ift.cpu())
 
         iter_batch.update(env_outs)
