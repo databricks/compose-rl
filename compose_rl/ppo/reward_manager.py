@@ -163,8 +163,7 @@ class RewardManager:
         self._num_reward_procs = None
         if self.inference_rewards or self.functional_rewards:
             self._num_reward_procs = (
-                len(self.inference_rewards) +
-                len(self.functional_rewards)
+                len(self.inference_rewards) + len(self.functional_rewards)
             )
             self.pool = Pool(
                 processes=self._num_reward_procs,
