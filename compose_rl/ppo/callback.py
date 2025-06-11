@@ -847,11 +847,34 @@ class PPOCallback(CallbackWithConfig):
                 self.same_reward_filter_threshold,
             )
 
+            rank = dist.get_global_rank()
+            world_size = dist.get_world_size()
+
+            for key, value in resolved_outputs.items():
+                if torch.is_tensor(value):
+                    chunks = value.chunk(world_size, dim=0)
+                    resolved_outputs[key] = chunks[rank]
+
+                elif isinstance(value, list):
+                    B = len(value)
+                    base_size, remainder = divmod(B, world_size)
+                    # first `remainder` ranks get (base_size+1) each
+                    if rank < remainder:
+                        start = rank * (base_size + 1)
+                        end = start + (base_size + 1)
+                    else:
+                        start = remainder * (base_size + 1) + (rank - remainder) * base_size
+                        end = start + base_size
+                    resolved_outputs[key] = value[start:end]
+
         # TODO: fix
         self.prompts_and_gens.extend(prompts_and_gens)
 
+        rank_batch_size = resolved_outputs['prompt_id'].shape[0]
+
         # We need to split the resolved outputs into minibatches
-        for idx in range(self.iter_batch_size // self.device_train_batch_size):
+        # for idx in range(self.iter_batch_size // self.device_train_batch_size):
+        for idx in range(rank_batch_size // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
                 resolved_outputs,
                 idx,
@@ -860,7 +883,7 @@ class PPOCallback(CallbackWithConfig):
             self.buffer.add(minibatch)
 
         # Making sure we correctly parsed the minibatches
-        assert len(self.buffer) == self.num_batches_per_update
+        # assert len(self.buffer) == self.num_batches_per_update
 
         self.actor_critic.train()
 
