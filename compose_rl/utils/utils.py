@@ -150,13 +150,9 @@ def get_entropies(
     Returns:
         entropies (torch.Tensor): the entropies of the sequence. Size (bs)
     """
+    # get_batched_generated_values extracts tokens from prompt_len-1 to prompt_len+max_gen_len-1
+    # This includes the last token of the prompt and excludes the last token of the generation
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
-    print(f"logits = {logits.shape}")
-    print(f"prompt len = {prompt_len}")
-    print(f"max_gen_len = {max_gen_len}")
-    print(f"gen_logits = {gen_logits.shape}")
-    print(f"{torch.allclose(gen_logits, logits[:, prompt_len:prompt_len + max_gen_len])=}")
-    breakpoint()
     entropies = get_sequence_entropies(gen_logits, action_mask)
     return entropies
 
@@ -193,8 +189,7 @@ def get_sequence_entropies(
     """
     # Calculate per-token entropies
     token_entropies = get_token_entropies(logits)
-    print(f"{logits=}")
-    print(f"{token_entropies=}")
+
     # Apply action mask and calculate mean entropy across valid positions
     masked_entropy = token_entropies * action_mask
     num_valid_positions = action_mask.sum(

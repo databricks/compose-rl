@@ -598,7 +598,7 @@ def mock_batched_generated_values(monkeypatch):
     
     monkeypatch.setattr(
         'compose_rl.utils.utils.get_batched_generated_values',
-        mock_fn,
+        mock_fn
     )
 
 
@@ -612,7 +612,7 @@ def mock_sequence_entropies(monkeypatch):
     
     monkeypatch.setattr(
         'compose_rl.utils.utils.get_sequence_entropies',
-        mock_fn,
+        mock_fn
     )
 
 
@@ -643,12 +643,25 @@ def test_get_entropies_integration():
     logits = torch.zeros((batch_size, prompt_seq_len + gen_len, vocab_size))
     
     # Fill with different distributions
-    # For prompt tokens (these shouldn't matter as they'll be filtered out)
+    # For prompt tokens (these shouldn't matter except for the last prompt token)
     logits[:, :prompt_seq_len, :] = torch.randn((batch_size, prompt_seq_len, vocab_size))
-    
-    # For generated tokens
+
+    # IMPORTANT: get_batched_generated_values will extract tokens from prompt_len-1 to prompt_len+max_gen_len-1
+    # This includes the last token of the prompt and excludes the last token of the generation
+    # So we need to be careful about which indices we fill with test values
+
     for b in range(batch_size):
-        for s in range(gen_len):
+        # Last token of prompt (will be included in entropy calculation)
+        if b == 0:
+            # First batch: uniform distribution (high entropy) for last prompt token
+            logits[b, prompt_seq_len - 1, :] = torch.zeros(vocab_size)
+        else:
+            # Second batch: peaky distribution (low entropy) for last prompt token
+            logits[b, prompt_seq_len - 1, 0] = 10.0
+            logits[b, prompt_seq_len - 1, 1:] = -2.0
+
+        # First two tokens of generation (the third/last one won't be used in entropy calculation)
+        for s in range(gen_len - 1):
             # Create distributions with different entropy patterns
             if b == 0:
                 # First batch: uniform distribution (high entropy)
@@ -657,7 +670,7 @@ def test_get_entropies_integration():
                 # Second batch: peaky distribution (low entropy)
                 logits[b, prompt_seq_len + s, 0] = 10.0
                 logits[b, prompt_seq_len + s, 1:] = -2.0
-    
+
     prompt_len = torch.tensor([prompt_seq_len] * batch_size)
     action_mask = torch.ones((batch_size, gen_len))
     
@@ -665,10 +678,16 @@ def test_get_entropies_integration():
     entropies = get_entropies(logits, action_mask, prompt_len, max_gen_len)
     
     # First batch should have high entropy (close to log(vocab_size))
-    # Second batch should have low entropy (close to 0)
+    # Second batch should have calculated low entropy
     assert entropies.shape == (batch_size,)
     assert entropies[0] > entropies[1]
     assert torch.isclose(entropies[0], torch.log(torch.tensor(vocab_size, dtype=torch.float)), atol=0.1)
-    assert entropies[1] < 0.1
-
-
+    
+    # Calculate expected entropy for the peaky distribution in batch 1
+    # Softmax of [10.0, -2.0, -2.0, ..., -2.0]
+    peaky_logits = torch.zeros(vocab_size)
+    peaky_logits[0] = 10.0
+    peaky_logits[1:] = -2.0
+    peaky_probs = F.softmax(peaky_logits, dim=0)
+    expected_entropy = -torch.sum(peaky_probs * torch.log(peaky_probs))
+    assert torch.isclose(entropies[1], expected_entropy, atol=1e-5)
