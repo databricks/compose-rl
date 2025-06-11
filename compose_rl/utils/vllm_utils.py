@@ -184,6 +184,7 @@ def create_vllm_engines(
     seed: int,
     enable_prefix_caching: bool,
     max_model_len: int,
+    max_num_batched_tokens: int,
     vllm_gpu_memory_utilization: float = 0.9,
     load_format: str = 'dummy',
 ):
@@ -198,6 +199,7 @@ def create_vllm_engines(
         seed (int): Seed for random number generation
         enable_prefix_caching (bool): Whether to enable prefix caching
         max_model_len (int): Maximum model length
+        max_num_batched_tokens (int): Maximum number of batched tokens for chunked prefill
         vllm_gpu_memory_utilization (float): GPU memory utilization for vllm
         load_format (str): Load format for the model, defaults to 'dummy'
     """
@@ -220,7 +222,6 @@ def create_vllm_engines(
         distributed_executor_backend = 'uni'
 
     num_gpus = int(tensor_parallel_size == 1)
-
     vllm_engines = []
     for i in range(num_engines):
         bundle_indices = None
@@ -257,6 +258,7 @@ def create_vllm_engines(
                 distributed_executor_backend,
                 enable_prefix_caching=enable_prefix_caching,  # type: ignore
                 max_model_len=max_model_len,  # type: ignore
+                max_num_batched_tokens=max_num_batched_tokens,  # type: ignore
                 gpu_memory_utilization=  # type: ignore
                 vllm_gpu_memory_utilization,
                 bundle_indices=bundle_indices,  # type: ignore
@@ -373,6 +375,7 @@ def should_update_torch_module(
 def broadcast_to_vllm(
     model: nn.Module,
     vllm_engines: list,
+    enable_prefix_caching: bool,
     model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
     loss_type: str = 'ppo',
@@ -382,10 +385,17 @@ def broadcast_to_vllm(
     Args:
         model (nn.Module): The model to broadcast
         vllm_engines (list): List of vllm engines
+        enable_prefix_caching (bool): Whether to enable prefix caching in vllm
         model_update_group (torch.distributed.ProcessGroup): The process group for model updates
         batch (dict[str, torch.Tensor]): The batch to use for the forward pass
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
     """
+    cache_reset_refss = []
+    if enable_prefix_caching and dist.get_global_rank() == 0:
+        cache_reset_refss = [
+            engine.reset_prefix_cache.remote() for engine in vllm_engines
+        ]
+
     # avoid OOM
     torch.cuda.empty_cache()
     if loss_type == 'ppo':
@@ -512,6 +522,8 @@ def broadcast_to_vllm(
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
     ray.get(refss)
+    if enable_prefix_caching:
+        ray.get(cache_reset_refss)
     log.info(f'ray refs took: {time.time() - start_time}')
     log.info(f'update time is: {update_time}')
     log.info(f'number of parameters updated is: {count}')
