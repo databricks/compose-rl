@@ -193,7 +193,11 @@ class InferenceRewardModel(RewardModel):
             max_value=60,
         )
         def call_predict_with_backoff(batch: MutableMapping) -> list[float]:
-            batch_messages: list[list[dict[str, str]]] = [self.input_str_to_messages_formatter(text) for text in batch['raw_untokenized_texts']]
+            batch_messages: list[list[dict[str, str]]] = [] 
+            for text in batch['raw_untokenized_texts']:
+                if isinstance(text, list) and len(text) == 1:
+                    text = text[0]
+                batch_messages.append(self.input_str_to_messages_formatter(text))
             unprocessed_rewards = [self._call_rm(messages) for messages in batch_messages]
             return unprocessed_rewards
         
