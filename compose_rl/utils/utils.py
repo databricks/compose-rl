@@ -139,7 +139,7 @@ def get_entropies(
     prompt_len: torch.Tensor,
     max_gen_len: Union[torch.Tensor, int],
 ) -> torch.Tensor:
-    """Gets the entropies from the generated logits.
+    """Gets the entropies of generated logits from all logits.
 
     Args:
         logits (torch.Tensor): the logits of the actions. Size (bs, seq_len + gen_len, vocab_size)
@@ -151,15 +151,37 @@ def get_entropies(
         entropies (torch.Tensor): the entropies of the sequence. Size (bs)
     """
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
-    entropies = get_entropies_from_logits(gen_logits, action_mask)
+    print(f"logits = {logits.shape}")
+    print(f"prompt len = {prompt_len}")
+    print(f"max_gen_len = {max_gen_len}")
+    print(f"gen_logits = {gen_logits.shape}")
+    print(f"{torch.allclose(gen_logits, logits[:, prompt_len:prompt_len + max_gen_len])=}")
+    breakpoint()
+    entropies = get_sequence_entropies(gen_logits, action_mask)
     return entropies
 
+def get_token_entropies(
+    logits: torch.Tensor,
+) -> torch.Tensor:
+    """Calculates the entropy of the probability distribution for each token.
+    
+    Args:
+        logits (torch.Tensor): Logits tensor of shape (batch_size, seq_len, vocab_size).
+        
+    Returns:
+        torch.Tensor: Entropy values for each token in the sequence (batch_size, seq_len).
+    """
+    # Calculate entropy using the logsumexp trick
+    pd = F.softmax(logits, dim=-1)
+    token_entropies = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
 
-def get_entropies_from_logits(
+    return token_entropies
+
+def get_sequence_entropies(
     logits: torch.Tensor,
     action_mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Calculates the entropy of full the probability distribution.
+    """Calculates the seq level average token entropy.
 
     Args:
         logits (torch.Tensor): Logits tensor of shape (batch_size, seq_len, vocab_size).
@@ -169,12 +191,12 @@ def get_entropies_from_logits(
     Returns:
         torch.Tensor: Entropy values for each item in the batch (batch_size,).
     """
-    # Calculate entropy using the logsumexp trick
-    pd = F.softmax(logits, dim=-1)
-    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
-
+    # Calculate per-token entropies
+    token_entropies = get_token_entropies(logits)
+    print(f"{logits=}")
+    print(f"{token_entropies=}")
     # Apply action mask and calculate mean entropy across valid positions
-    masked_entropy = entropy * action_mask
+    masked_entropy = token_entropies * action_mask
     num_valid_positions = action_mask.sum(
         dim=-1,
     ) + 1e-10  # avoid division by zero
