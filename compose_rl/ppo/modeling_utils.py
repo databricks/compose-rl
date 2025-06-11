@@ -246,20 +246,13 @@ def online_rl_loss(
         prompt_len=batch['prompt_len'],
         max_gen_len=batch['max_gen_len'],
     )
-    # print(f"{outputs['logits'].shape=}")
-    # print(f"{gen_logits.shape=}")
     token_entropies = utils.get_token_entropies(
         logits=gen_logits,
     )
-    # print(f"{token_entropies.shape=}")
-    # print(f"{batch['action_mask'].shape=}")
     seq_entropies = utils.get_sequence_entropies(
         logits=gen_logits,
         action_mask=batch['action_mask'],
     )
-    # print(f"{seq_entropies.shape=}")
-    # print(f"token_entropies = {token_entropies}")
-    # print(f"{seq_entropies=}")
     
     assert token_entropies.shape == batch['action_mask'].shape, (
         f'Token entropies shape {token_entropies.shape} does not match action mask shape {batch["action_mask"].shape}.',
@@ -282,7 +275,6 @@ def online_rl_loss(
     else:
         percentile_values = torch.zeros_like(percentiles, dtype=torch.float)
 
-    # print(f"{percentile_values=}")
     
 
     policy_kl_dict = utils.approx_kl(
@@ -476,7 +468,6 @@ def online_rl_loss(
     if entropy_loss_weight is not None:
         # We want to maximize entropy so we deduct it from the loss.
         entropy_loss = -1.0 * (entropy_loss_weight * seq_entropies).mean()
-        # print(f"{entropy_loss=}")
         # breakpoint()
         return_dict['loss/entropy'] = entropy_loss
         return_dict['total'] += entropy_loss
