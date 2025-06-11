@@ -780,24 +780,31 @@ class PPOCallback(CallbackWithConfig):
             start_time = time.time()
             all_gathered_outputs = dist.all_gather_object(resolved_outputs)
 
-            print ("keys are: ", resolved_outputs.keys())
+            print('keys are: ', resolved_outputs.keys())
 
             all_resolved_outputs = {}
             for key in resolved_outputs.keys():
-                print ("trying to update key: ", key)
                 # Collect all tensors under this key from each rank
                 tensors_to_cat = [d[key] for d in all_gathered_outputs]
 
-                if key in ["verified_answer"]:
-                    all_resolved_outputs[key] = list(utils.flatten(tensors_to_cat))
+                if key in ['verified_answer']:
+                    all_resolved_outputs[key] = list(
+                        utils.flatten(tensors_to_cat),
+                    )
                     continue
 
                 padding_key = self.pad_token_idx
 
-                if key == "prompt_attention_mask":
+                if key == 'prompt_attention_mask':
                     padding_key = False
-                
-                if key in ["prompt", "prompt_attention_mask", "sequences", "obs", "right_padded_attn_mask"]:
+
+                if key in [
+                    'prompt',
+                    'prompt_attention_mask',
+                    'sequences',
+                    'obs',
+                    'right_padded_attn_mask',
+                ]:
                     max_len = max(t.size(-1) for t in tensors_to_cat)
                     padded_tensors = []
                     for t in tensors_to_cat:
@@ -809,12 +816,14 @@ class PPOCallback(CallbackWithConfig):
                                 dtype=t.dtype,
                                 device=t.device,
                             )
-                            padded_tensors.append(torch.cat([t, padding], dim=-1))
+                            padded_tensors.append(
+                                torch.cat([t, padding], dim=-1),
+                            )
+                        else:
+                            padded_tensors.append(t)
                     tensors_to_cat = padded_tensors
 
                 all_resolved_outputs[key] = torch.cat(tensors_to_cat, dim=0)
-
-            # resolved_outputs = utils.fast_gather_and_cat_dict(resolved_outputs)
 
             log.info(
                 f"It took {time.time() - start_time} seconds to gather all resolved outputs.",
