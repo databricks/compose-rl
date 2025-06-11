@@ -273,6 +273,7 @@ class RewardManager:
             'seq_lens': rm_seq_lens,
             'is_inference': True,
             'seq_reward': True,
+            'raw_untokenized_texts': batch['raw_untokenized_texts'],
         }
 
         # Note this uses separate seq lengths to account for potential
@@ -377,6 +378,7 @@ class RewardManager:
             'generated_lens': generated_lens,
             'seq_lens': seq_lens,
             'action_log_probs': action_log_probs,
+            'raw_untokenized_texts': raw_untokenized_texts,
         }
         if verified_answers is not None:
             batch['verified_answers'] = verified_answers
