@@ -253,7 +253,7 @@ def online_rl_loss(
         logits=gen_logits,
         action_mask=batch['action_mask'],
     )
-    
+
     assert token_entropies.shape == batch['action_mask'].shape, (
         f'Token entropies shape {token_entropies.shape} does not match action mask shape {batch["action_mask"].shape}.',
     )
@@ -262,20 +262,19 @@ def online_rl_loss(
     flattened_entropies = masked_token_entropies.flatten()
 
     # Calculate entropies at different percentiles
-    percentiles = torch.tensor([0, 20, 40, 60, 80, 100], device=token_entropies.device)
+    percentiles = torch.tensor([0, 20, 40, 60, 80, 100],
+                               device=token_entropies.device)
     if flattened_entropies.numel() > 0:
-        
+
         # Calculate indices for percentiles (excluding 0 and 100)
         num_elements = flattened_entropies.numel()
         indices = ((percentiles / 100.0) * (num_elements - 1)).ceil().long()
-        
+
         # Get sorted values
         sorted_entropies = flattened_entropies.sort().values
         percentile_values = sorted_entropies[indices]
     else:
         percentile_values = torch.zeros_like(percentiles, dtype=torch.float)
-
-    
 
     policy_kl_dict = utils.approx_kl(
         log_p=online_log_probs,
@@ -471,7 +470,7 @@ def online_rl_loss(
         # breakpoint()
         return_dict['loss/entropy'] = entropy_loss
         return_dict['total'] += entropy_loss
-    
+
     if 'lbl' in outputs and outputs['lbl'] is not None:
         return_dict['loss/lbl'] = outputs['lbl']
         return_dict['total'] += outputs['lbl']

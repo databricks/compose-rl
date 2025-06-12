@@ -156,22 +156,25 @@ def get_entropies(
     entropies = get_sequence_entropies(gen_logits, action_mask)
     return entropies
 
+
 def get_token_entropies(
     logits: torch.Tensor,
 ) -> torch.Tensor:
     """Calculates the entropy of the probability distribution for each token.
-    
+
     Args:
         logits (torch.Tensor): Logits tensor of shape (batch_size, seq_len, vocab_size).
-        
+
     Returns:
         torch.Tensor: Entropy values for each token in the sequence (batch_size, seq_len).
     """
     # Calculate entropy using the logsumexp trick
     pd = F.softmax(logits, dim=-1)
-    token_entropies = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    token_entropies = torch.logsumexp(logits,
+                                      dim=-1) - torch.sum(pd * logits, dim=-1)
 
     return token_entropies
+
 
 def get_sequence_entropies(
     logits: torch.Tensor,
