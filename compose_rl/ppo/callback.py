@@ -592,14 +592,14 @@ class PPOCallback(CallbackWithConfig):
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
-        batch = self._get_next_iter_prompts()
+        batch = self._get_next_iter_prompts(state)
         if self.vllm_engines is not None:
             self._update_inference_model(batch)
 
         num_env_interactions = 0
         while len(self.buffer) < self.num_batches_per_update:
             if num_env_interactions > 0:
-                batch = self._get_next_iter_prompts()
+                batch = self._get_next_iter_prompts(state)
             
             num_env_interactions += 1
             
