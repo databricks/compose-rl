@@ -592,11 +592,17 @@ class PPOCallback(CallbackWithConfig):
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
+
+        batch = self._get_next_iter_prompts()
         if self.vllm_engines is not None:
             self._update_inference_model(batch)
 
+        num_env_interactions = 0
         while len(self.buffer) < self.num_batches_per_update:
-            batch = self._get_next_iter_prompts()
+            if num_env_interactions > 0:
+                batch = self._get_next_iter_prompts()
+            
+            num_env_interactions += 1
             batch = state.device.batch_to_device(batch)
             self._interact_with_env(batch)
 
@@ -639,8 +645,9 @@ class PPOCallback(CallbackWithConfig):
                     self.buffer.add(minibatch)
 
         log.info(
-            f"For iteration {self.iter_num}, we have {len(self.buffer)} samples in the buffer. Training.",
+            f"For iteration {self.iter_num}, we have {len(self.buffer)} samples in the buffer. Starting training.",
         )
+        log.info(f"It took {num_env_interactions} environment interactions to fill the buffer.")
 
         # Making sure we correctly parsed the minibatches
         assert len(self.buffer) >= self.num_batches_per_update
