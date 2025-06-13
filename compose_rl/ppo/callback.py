@@ -51,6 +51,8 @@ from compose_rl.utils import (
     init_process_group,
     mask_eos,
     masked_mean,
+    partition_batch,
+    stack_resolved_outputs,
     switch_left_to_right_padding,
 )
 
@@ -389,6 +391,10 @@ class PPOCallback(CallbackWithConfig):
             'device_train_batch_size',
             None,
         )
+        self.global_train_batch_size: int = train_config.get(
+            'global_train_batch_size',
+            None,
+        )
         assert self.device_train_batch_size is not None
 
         # Number of batches to use for a single PPO epoch.
@@ -415,7 +421,9 @@ class PPOCallback(CallbackWithConfig):
 
         # Programmatically setting the max buffer size instead of the yaml
         var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
+
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
+        self.global_sample_list = []
 
         # Build the KL controller through registries
         kl_ctl_name = var_config['kl_controller'].pop('kl_ctl_type')
@@ -515,6 +523,7 @@ class PPOCallback(CallbackWithConfig):
             raise ValueError('auto microbatching is not supported for PPO')
 
         self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
+        self.global_iter_batch_size = self.num_batches_per_update * self.global_train_batch_size
 
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
@@ -583,13 +592,59 @@ class PPOCallback(CallbackWithConfig):
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
-        batch = self._get_next_iter_prompts()
-        batch = state.device.batch_to_device(batch)
-
         if self.vllm_engines is not None:
             self._update_inference_model(batch)
 
-        self._interact_with_env(batch)
+        while len(self.buffer) < self.num_batches_per_update:
+            batch = self._get_next_iter_prompts()
+            batch = state.device.batch_to_device(batch)
+            self._interact_with_env(batch)
+
+            cur_global_samples = stack_resolved_outputs(
+                self.global_sample_list,
+                self.pad_token_idx,
+            )
+
+            bs = cur_global_samples['prompt_id'].shape[0]
+
+            log.info(f"Current global batch size is {bs}.")
+            log.info(
+                f"Current global iter batch size is {self.global_iter_batch_size}.",
+            )
+
+            if bs >= self.global_iter_batch_size:
+                log.info(
+                    'We have enough samples, adding samples to the buffer.',
+                )
+                rank = dist.get_global_rank()
+                world_size = dist.get_world_size()
+
+                local_samples = {}
+                for key, value in cur_global_samples.items():
+                    local_samples[key] = partition_batch(
+                        value,
+                        world_size=world_size,
+                        rank=rank,
+                        device_train_batch_size=self.device_train_batch_size,
+                    )
+
+                local_bs = local_samples['prompt_id'].shape[0]
+                # Add the local samples to the buffer
+                for idx in range(local_bs // self.device_train_batch_size):
+                    minibatch = self._extract_minibatch(
+                        batch=local_samples,
+                        idx=idx,
+                        minibatch_size=self.device_train_batch_size,
+                    )
+                    self.buffer.add(minibatch)
+
+        log.info(
+            f"For iteration {self.iter_num}, we have {len(self.buffer)} samples in the buffer. Training.",
+        )
+
+        # Making sure we correctly parsed the minibatches
+        assert len(self.buffer) >= self.num_batches_per_update
+
         # Reset and initialize state train dataloader
         log.warning(
             'trainer._train_data_spec should be updated whenever the dataloader is updated',
@@ -616,7 +671,13 @@ class PPOCallback(CallbackWithConfig):
         del logger  # unused
         self._log_generations_to_logger(state)
         self._increment_rl_iter()
+
         self.buffer.reset()
+
+        # A list of all samples across ranks
+        # These can be filtered or unfiltered
+        self.global_sample_list = []
+
         self.buffer.set_state_dict(
             self.train_prompt_loader.state_dict(), # pyright: ignore
             0,
@@ -750,7 +811,6 @@ class PPOCallback(CallbackWithConfig):
                     padded_sequences.append(padded_sequence)
                 sequences = torch.cat(padded_sequences, dim=0)
 
-        print('after generation')
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
@@ -784,106 +844,32 @@ class PPOCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
-        print('after resolve outputs')
-
         if self.same_reward_filter_threshold is not None:
-            print(
+            log.info(
                 f"in reward thresholding, trying to filter with: {self.same_reward_filter_threshold}",
             )
             start_time = time.time()
             all_gathered_outputs = dist.all_gather_object(resolved_outputs)
 
-            print('keys are: ', resolved_outputs.keys())
-
-            all_resolved_outputs = {}
-            for key in resolved_outputs.keys():
-                # Collect all tensors under this key from each rank
-                tensors_to_cat = [d[key] for d in all_gathered_outputs]
-
-                if key in ['verified_answer']:
-                    all_resolved_outputs[key] = list(
-                        utils.flatten(tensors_to_cat),
-                    )
-                    continue
-
-                padding_key = self.pad_token_idx
-
-                if key == 'prompt_attention_mask':
-                    padding_key = False
-
-                if key in [
-                    'prompt',
-                    'prompt_attention_mask',
-                    'sequences',
-                    'obs',
-                    'right_padded_attn_mask',
-                ]:
-                    max_len = max(t.size(-1) for t in tensors_to_cat)
-                    padded_tensors = []
-                    for t in tensors_to_cat:
-                        if t.size(-1) < max_len:
-                            # Pad the tensor to the max length
-                            padding = torch.full(
-                                (t.size(0), max_len - t.size(-1)),
-                                padding_key,  # type: ignore
-                                dtype=t.dtype,
-                                device=t.device,
-                            )
-                            padded_tensors.append(
-                                torch.cat([t, padding], dim=-1),
-                            )
-                        else:
-                            padded_tensors.append(t)
-                    tensors_to_cat = padded_tensors
-
-                all_resolved_outputs[key] = torch.cat(tensors_to_cat, dim=0)
-
             log.info(
                 f"It took {time.time() - start_time} seconds to gather all resolved outputs.",
             )
+
+            all_resolved_outputs = stack_resolved_outputs(
+                all_gathered_outputs,
+                self.pad_token_idx,
+            )
+
             # Filter the resolved outputs based on the generation filtering values
             resolved_outputs = utils.filter_resolved_outputs(
                 all_resolved_outputs,
                 self.same_reward_filter_threshold,
             )
 
-            rank = dist.get_global_rank()
-            world_size = dist.get_world_size()
+        self.global_sample_list.append(resolved_outputs)
 
-            for key, value in resolved_outputs.items():
-                if torch.is_tensor(value):
-                    chunks = value.chunk(world_size, dim=0)
-                    resolved_outputs[key] = chunks[rank]
-
-                elif isinstance(value, list):
-                    B = len(value)
-                    base_size, remainder = divmod(B, world_size)
-                    # first `remainder` ranks get (base_size+1) each
-                    if rank < remainder:
-                        start = rank * (base_size + 1)
-                        end = start + (base_size + 1)
-                    else:
-                        start = remainder * (base_size + 1) + (rank - remainder) * base_size
-                        end = start + base_size
-                    resolved_outputs[key] = value[start:end]
-
-        # TODO: fix
+        # TODO: bcui fix
         self.prompts_and_gens.extend(prompts_and_gens)
-
-        rank_batch_size = resolved_outputs['prompt_id'].shape[0]
-
-        # We need to split the resolved outputs into minibatches
-        # for idx in range(self.iter_batch_size // self.device_train_batch_size):
-        for idx in range(rank_batch_size // self.device_train_batch_size):
-            minibatch = self._extract_minibatch(
-                resolved_outputs,
-                idx,
-                self.device_train_batch_size,
-            )
-            self.buffer.add(minibatch)
-
-        # Making sure we correctly parsed the minibatches
-        # assert len(self.buffer) == self.num_batches_per_update
 
         self.actor_critic.train()
 
@@ -933,7 +919,6 @@ class PPOCallback(CallbackWithConfig):
             output_minibatch (dict): The final minibatch from the environment, with all AsyncResult
                 objects resolved and outputs processed for PPO training.
         """
-        print('in resolve outputs')
         env_outs, ref_outs, rew_dict = partial_outputs
         rew_outs = self.reward_manager.resolve_outputs(
             ref_output=ref_outs,
@@ -943,7 +928,6 @@ class PPOCallback(CallbackWithConfig):
             center_reward_mean=self.center_reward_mean,
         )
         env_outs.update(rew_outs)
-        print('after reward manager resolve')
 
         # Keep track of prompt ids, rewards and verified answers for logging
         prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
@@ -1032,12 +1016,10 @@ class PPOCallback(CallbackWithConfig):
                 'Valid options are: ppo, grpo.',
             )
 
-        print('before dist compute masked mean and var')
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
             env_outs['advantages'],
             env_outs['action_mask'],
         )
-        print('after dist compute masked mean and var')
 
         mean_ift = masked_mean(
             env_outs['ift_kl'],
@@ -1062,14 +1044,10 @@ class PPOCallback(CallbackWithConfig):
                 env_outs['rewards'].std().to('cpu'),
         })
 
-        print('beofre moving minibatches to cpu')
-
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
             if hasattr(v, 'cpu'):
                 iter_batch[k] = v.cpu()
-
-        print('after moving minibatches to cpu')
 
         return iter_batch
 

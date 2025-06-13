@@ -31,6 +31,7 @@ from compose_rl.utils.utils import (
     masked_sum,
     masked_var,
     masked_whiten,
+    partition_batch,
     process_fine_granularities,
     remove_left_padding,
     rescale,
@@ -38,6 +39,7 @@ from compose_rl.utils.utils import (
     scatter_gather_rewards,
     split_text_to_sentences,
     split_text_to_subsentences,
+    stack_resolved_outputs,
     switch_left_to_right_padding,
 )
 from compose_rl.utils.vllm_utils import (
@@ -87,4 +89,6 @@ __all__ = [
     'flatten',
     'sample_wise_masked_mean',
     'filter_resolved_outputs',
+    'stack_resolved_outputs',
+    'partition_batch',
 ]

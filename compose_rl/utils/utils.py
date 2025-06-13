@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import math
 import re
 import warnings
 from collections.abc import Generator, Iterable
@@ -1353,21 +1354,92 @@ def filter_resolved_outputs(
     return filtered_outputs
 
 
-def fast_gather_and_cat_dict(
-    resolved_outputs: dict[str, torch.Tensor],
-) -> dict[str, torch.Tensor]:
-    out = {}
-    for key, local_tensor in resolved_outputs.items():
-        start_time = time.time()
-        print('starting to all gather ', key)
-        # Assume we want to gather along dim=0
-        local_shape = list(local_tensor.shape)
-        world_size = dist.get_world_size()
+def stack_resolved_outputs(
+    output_list: list[dict[str, Union[torch.Tensor, list]]],
+    pad_token_id: int,
+):
+    """Stacks a list of resolved outputs into a single dictionary.
 
-        # Create a placeholder for gathered tensor
-        gathered = [torch.empty_like(local_tensor) for _ in range(world_size)]
-        dist.all_gather(gathered, local_tensor)
+    This function takes a list of dictionaries, where each dictionary contains tensors or lists
+    all of the keys should be the same.
 
-        out[key] = torch.cat(gathered, dim=0)
-        print(f"took {time.time() - start_time} to all gather {key}.")
-    return out
+    Args:
+        output_list (list[dict[str, Union[torch.Tensor, list]]]): A list of dictionaries containing tensors or lists.
+    """
+    all_resolved_outputs = {}
+    for key in output_list[0].keys():
+        # Collect all tensors under this key from each rank
+        tensors_to_cat = [d[key] for d in output_list]
+
+        if key in ['verified_answer']:
+            all_resolved_outputs[key] = list(flatten(tensors_to_cat))
+            continue
+
+        padding_key = pad_token_id
+
+        if key == 'prompt_attention_mask':
+            padding_key = False
+
+        if key in [
+            'prompt',
+            'prompt_attention_mask',
+            'sequences',
+            'obs',
+            'right_padded_attn_mask',
+        ]:
+            max_len = max(t.size(-1) for t in tensors_to_cat)
+            padded_tensors = []
+            for t in tensors_to_cat:
+                if t.size(-1) < max_len:
+                    # Pad the tensor to the max length
+                    padding = torch.full(
+                        (t.size(0), max_len - t.size(-1)),
+                        padding_key,  # type: ignore
+                        dtype=t.dtype,
+                        device=t.device,
+                    )
+                    padded_tensors.append(
+                        torch.cat([t, padding], dim=-1),
+                    )
+                else:
+                    padded_tensors.append(t)
+            tensors_to_cat = padded_tensors
+
+        all_resolved_outputs[key] = torch.cat(tensors_to_cat, dim=0)
+
+    return all_resolved_outputs
+
+
+def partition_batch(batch, world_size, rank, device_train_batch_size):
+    """
+    Pads `batch` (Tensor or list) so that:
+      - total length = per_rank * world_size
+      - per_rank is the smallest multiple of device_train_batch_size ≥ original_length/world_size
+    Then returns the slice for this `rank`.
+    """
+    # 1) figure out length and per-rank size
+    B = batch.size(0) if torch.is_tensor(batch) else len(batch)
+    per_rank = math.ceil(
+        B / world_size / device_train_batch_size,
+    ) * device_train_batch_size
+    total = per_rank * world_size
+    pad_size = total - B
+
+    # 2) pad if needed
+    if pad_size > 0:
+        if torch.is_tensor(batch):
+            idx = torch.arange(pad_size, device=batch.device) % B
+            batch = torch.cat([batch, batch[idx]], dim=0)
+        else:
+            batch = batch + [batch[i % B] for i in range(pad_size)]
+
+    # 3) split out rank’s chunk
+    if torch.is_tensor(batch):
+        # reshape into [world_size, per_rank, ...] then select
+        new_shape = [world_size, per_rank] + list(batch.shape[1:])
+        return batch.view(*new_shape)[rank]
+
+    else:
+        start = rank * per_rank
+        end = start + per_rank
+        return batch[start:end]
