@@ -1325,7 +1325,7 @@ def filter_resolved_outputs(
     for key, value in outputs.items():
         # print ("key is: ", key)
         if isinstance(value, torch.Tensor):
-            ('value shape is: ', value.shape)
+            # print('value shape is: ', value.shape)
             filtered_outputs[key] = value[keep_mask]
 
         elif isinstance(value, list) and len(value) == keep_mask.shape[0]:

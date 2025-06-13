@@ -529,7 +529,7 @@ class PPOCallback(CallbackWithConfig):
         if self.device_train_microbatch_size == 'auto':  # type: ignore
             raise ValueError('auto microbatching is not supported for PPO')
 
-        self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
+        self.iter_batch_size = self.num_unique_prompts_per_iter * self.generations_per_prompt // self.global_train_batch_size
         self.global_iter_batch_size = self.num_batches_per_update * self.global_train_batch_size
 
         # The KL penalty in the reward should only exist if we aren't minimizing
@@ -801,7 +801,10 @@ class PPOCallback(CallbackWithConfig):
                 # Need to explicitly minibatch here to avoid memory issues
                 # Determine the number of generating calls we want to make
                 # We can have the generate size be greater than the device train microbatch size
-                num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
+                # num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
+
+                bs = batch['prompt_id'].shape[0]
+                num_gen_calls = bs // self.device_generate_batch_size
 
                 gen_batch_partial_outputs = []
                 all_sequences = []
@@ -1051,19 +1054,13 @@ class PPOCallback(CallbackWithConfig):
 
         iter_batch.update(env_outs)
 
+        bs = iter_batch['prompt_id'].shape[0]
         iter_batch.update({
-            'max_gen_len':
-                torch.ones(self.iter_batch_size).to(torch.int32) *
-                self.max_gen_len,
-            'adv_masked_mean':
-                torch.ones(self.iter_batch_size) * batch_adv_mean.cpu(),
-            'adv_masked_var':
-                torch.ones(self.iter_batch_size) * batch_adv_var.cpu(),
-            'ift_kl_scalar':
-                torch.ones(self.iter_batch_size) * self.kl_ctl.value,
-            'reward_std':
-                torch.ones(self.iter_batch_size) *
-                env_outs['rewards'].std().to('cpu'),
+            'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,
+            'adv_masked_mean': torch.ones(bs) * batch_adv_mean.cpu(),
+            'adv_masked_var': torch.ones(bs) * batch_adv_var.cpu(),
+            'ift_kl_scalar': torch.ones(bs) * self.kl_ctl.value,
+            'reward_std': torch.ones(bs) * env_outs['rewards'].std().to('cpu'),
         })
 
         # Moving minibatches to CPU to not take additional GPU memory
