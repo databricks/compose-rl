@@ -592,7 +592,6 @@ class PPOCallback(CallbackWithConfig):
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
-
         batch = self._get_next_iter_prompts()
         if self.vllm_engines is not None:
             self._update_inference_model(batch)
@@ -603,7 +602,7 @@ class PPOCallback(CallbackWithConfig):
                 batch = self._get_next_iter_prompts()
             
             num_env_interactions += 1
-            batch = state.device.batch_to_device(batch)
+            
             self._interact_with_env(batch)
 
             cur_global_samples = stack_resolved_outputs(
@@ -690,7 +689,7 @@ class PPOCallback(CallbackWithConfig):
             0,
         )
 
-    def _get_next_iter_prompts(self):
+    def _get_next_iter_prompts(self, state: State):
         """Gets the next iteration's batch of prompts."""
         # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
         n_unique_batches = self.num_batches_per_update // self.generations_per_prompt
@@ -745,7 +744,7 @@ class PPOCallback(CallbackWithConfig):
                     # this is an edge case that we will not hit currently, but just handling it as needed
                     ret_batch[key] = curr_values
 
-        return ret_batch
+        return state.device.batch_to_device(ret_batch)
 
     def _get_single_batch_prompts(self):
         """Gets a single batch of prompts from the dataloader."""
