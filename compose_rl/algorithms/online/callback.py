@@ -37,6 +37,9 @@ from compose_rl.algorithms.online.model import (
     ComposerHFPolicyLM,
     ComposerMPTPolicyLM,
 )
+from compose_rl.algorithms.online.model_methods import (
+    OnPolicyEnum,
+)
 from compose_rl.algorithms.online.reward_manager import (
     ReferenceOutput,
     RewardManager,
@@ -496,7 +499,7 @@ class OnPolicyCallback(CallbackWithConfig):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
 
-        if self.actor_critic.loss_type == 'grpo':
+        if self.actor_critic.loss_type == OnPolicyEnum.GRPO:
             assert self.generations_per_prompt > 1, \
                 'GRPO requires multiple generations per prompt. ' + \
                 f'Current generations_per_prompt is: {self.generations_per_prompt}.'
@@ -869,14 +872,14 @@ class OnPolicyCallback(CallbackWithConfig):
         )
 
         # Now that rewards are resolved, we can compute advantages
-        if self.actor_critic.loss_type == 'ppo':
+        if self.actor_critic.loss_type == OnPolicyEnum.PPO:
             env_outs['advantages'] = compute_advantages(
                 rewards=env_outs['rewards'],
                 values=env_outs['values'],
                 gamma=self.gamma,
                 lambda_gae=self.lambda_gae,
             )
-        elif self.actor_critic.loss_type == 'grpo':
+        elif self.actor_critic.loss_type == OnPolicyEnum.GRPO:
             # compute GRPO advantages
             prompt_id = env_outs['prompt_id']
             rewards = env_outs['rewards']
@@ -1114,7 +1117,7 @@ class OnPolicyCallback(CallbackWithConfig):
             self.vllm_engines,
             self.model_update_group,
             batch,
-            loss_type=self.actor_critic.loss_type,  # type: ignore
+            loss_type=str(self.actor_critic.loss_type),  # type: ignore
         )
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
