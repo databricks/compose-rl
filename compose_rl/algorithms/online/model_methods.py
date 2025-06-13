@@ -463,11 +463,11 @@ def online_rl_loss(
             )
 
     # 3. Compute the total loss
-    return_dict['total'] = policy_loss
+    return_dict['total'] = return_dict['loss/policy_loss']
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
         # Add value loss to total loss
-        return_dict['total'
-                   ] += value_loss_weight * value_loss  # pyright: ignore
+        return_dict['total'] += value_loss_weight * return_dict[
+            'loss/value_loss']  # pyright: ignore
     # If we want to directly minimize the KL Divergence, we can do so here
     # and it will not include the KL in the reward.
     if add_direct_kl_loss:
