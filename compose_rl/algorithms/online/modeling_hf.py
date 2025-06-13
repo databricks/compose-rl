@@ -1,15 +1,9 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Implements AutoModelForCausalLMWithRM wrapped in :class:`.ComposerModel`."""
+"""Implements the Composer."""
 
-import logging
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from llmfoundry.models.hf.hf_base import BaseHuggingFaceModel
 from llmfoundry.models.hf.hf_fsdp import (
@@ -25,95 +19,36 @@ from transformers import (
 )
 from transformers.models.auto.auto_factory import _BaseAutoModelClass
 
-from compose_rl.reward_learning.hf_utils import (
-    AutoModelForCausalLMWithRM,
-    RewardModelConfig,
-)
-from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
+from compose_rl.algorithms.online.hf_utils import AutoModelForCausalLMAsPolicy
+from compose_rl.algorithms.online.policy_configuration import HFPolicyConfig
 
 if TYPE_CHECKING:
-    from peft import PeftConfig, PeftModel
+    from peft import PeftModel
 
-__all__ = ['ComposerHFSequenceClassification']
-
-log = logging.getLogger(__name__)
-
-Tokenizer = Optional[Union[PreTrainedTokenizer, PreTrainedTokenizerFast]]
+Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
 
-class ComposerHFSequenceClassification(BaseHuggingFaceModel):
-    """Configures a :class:`.HuggingFaceModel` around a Reward Model.
+class ComposerHFPolicy(BaseHuggingFaceModel):
+    """Configures a :class:`.ComposerMosaicPolicy` as a Policy for online RL.
 
-    Args:
-        pretrained_model_name_or_path (str): The name of or local path to
-            the HF Causal LM (e.g., `gpt2` to instantiate a GPT2LMHeadModel).
-        config_overrides (dict, optional): An optional dictionary of keyword
-            arguments that override the default configuration associated with
-            cfg.pretrained_model_name_or_path.
-        pretrained (bool): Whether to instantiate the model with pre-trained
-            weights coming from cfg.pretrained_model_name_or_path. If ``True``,
-            cfg.config_overrides must be compatible with the pre-trained weights.
-        init_device ('cpu' | 'meta'): Which device, 'cpu' or 'meta', to
-            initialize the model on. Currently, `meta` is only supported when
-            cfg.pretrained is ``False``. Default: ``'cpu'``.
-        peft_config (dict, optional): An optional dictionary of keyword arguments to be
-            passed to the PeftConfig constructor. If provided, the model will be wrapped in a PeftModel.
-        trust_remote_code (bool, optional): Whether to trust remote code when loading from Hugging Face
-            Hub. Default: ``True``.
-        use_auth_token (bool, optional): Whether to use the Hugging Face authentication token when
-            loading from Hugging Face Hub. Default: ``False``.
-        use_train_metrics (bool, optional): Whether to use training metrics. Default: ``True``.
-        load_in_8bit (bool, optional): Whether to load the model in 8-bit mode. Default: ``False``.
-        init_device (str, optional): Which device to initialize the model on. Default: ``'cpu'``.
-        use_flash_attention_2 (bool, optional): Whether to use flash-attention 2. Default: ``False``.
-        tokenizer (PreTrainedTokenizer): The tokenizer that the model will use.
+    See base class for argument documentation.
     """
     model_cls: Union[
         type[_BaseAutoModelClass],
-        type[PreTrainedModel]] = AutoModelForCausalLMWithRM  # type: ignore
+        type[PreTrainedModel]] = AutoModelForCausalLMAsPolicy  # type: ignore
     default_train_metrics: tuple = ()
     default_eval_metrics: tuple = ()
 
     def __init__(
         self,
-        tokenizer: Tokenizer,
-        pretrained_model_name_or_path: str,
-        pretrained: bool = True,
-        pretrained_lora_id_or_path: Optional[str] = None,
-        trust_remote_code: bool = True,
-        use_auth_token: bool = False,
-        use_flash_attention_2: bool = False,
-        load_in_8bit: bool = False,
-        init_device: str = 'cpu',
-        config_overrides: Optional[dict[str, Any]] = None,
-        peft_config: Optional['PeftConfig'] = None,
-        use_train_metrics: bool = True,
+        *,
         allow_embedding_resizing: bool = True,
-        additional_train_metrics: Optional[list] = None,
-        additional_eval_metrics: Optional[list] = None,
-        should_save_peft_only: bool = True,
+        **kwargs: Any,
     ):
-
-        config_overrides = config_overrides or {'return_logits': False}
-
         super().__init__(
-            pretrained_model_name_or_path,
-            tokenizer=tokenizer,
-            pretrained=pretrained,
-            pretrained_lora_id_or_path=pretrained_lora_id_or_path,
-            trust_remote_code=trust_remote_code,
-            use_auth_token=use_auth_token,
-            use_flash_attention_2=use_flash_attention_2,
-            load_in_8bit=load_in_8bit,
-            init_device=init_device,
-            config_overrides=config_overrides,
             shift_labels=True,
-            peft_config=peft_config, # type: ignore
             allow_embedding_resizing=allow_embedding_resizing,
-            use_train_metrics=use_train_metrics,
-            additional_train_metrics=additional_train_metrics,
-            additional_eval_metrics=additional_eval_metrics,
-            should_save_peft_only=should_save_peft_only,
+            **kwargs,
         )
         self.model.config.pretrained = False  # type: ignore
 
@@ -130,19 +65,19 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
         base_config = AutoConfig.from_pretrained(
             pretrained_model_name_or_path,
             trust_remote_code=trust_remote_code,
-            token=True,
+            token=use_auth_token,
             attn_implementation=attn_implementation,
             use_cache=
             False,  # Necessary due to https://github.com/huggingface/transformers/issues/28056
-            torch_dtype=_MASTER_WEIGHTS_PRECISION,
+            torch_dtype=config_overrides.get('torch_dtype', 'float32'),
         )
 
         pretrain_cfg = {
             'trust_remote_code': trust_remote_code,
-            'token': True,
+            'token': use_auth_token,
         }
 
-        config = RewardModelConfig(
+        config = HFPolicyConfig(
             base_model=pretrained_model_name_or_path,
             base_config=base_config,
             hidden_size=base_config.hidden_size,
@@ -175,7 +110,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
             base_model = model.lm_backbone.transformer  # type: ignore
 
         model_block = hf_get_hidden_layers(base_model)  # type: ignore
-        score_head = model.value_head
+        critic_head = model.critic_head
         lm_head = model.lm_backbone.get_output_embeddings()  # type: ignore
 
         # Try to get input embeddings from the transformer backbone
@@ -188,7 +123,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
         modules = {
             'base_model': base_model,
             'model_block': model_block,
-            'score_head': score_head,
+            'critic_head': critic_head,
             'tied_embeddings': tied_embeddings,
             'lm_head': lm_head,
         }
@@ -210,8 +145,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
         if model.config.tie_word_embeddings:  # type: ignore
             base_model._fsdp_wrap = False  # type: ignore
             tied_embeddings._fsdp_wrap = False  # type: ignore
-            score_head._fsdp_wrap = False  # type: ignore
-            lm_head._fsdp_wrap = False  # type: ignore
+            lm_head._fsdp_wrap = False
 
         # PEFT layers should be individually wrapped
         # TODO: Revisit this if we enforce use_orig_params=True, which seems to support

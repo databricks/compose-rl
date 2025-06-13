@@ -9,7 +9,7 @@ from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 log = logging.getLogger(__name__)
 
 
-class PPOModelLoadPlanner(DefaultLoadPlanner):
+class ActorCriticModelLoadPlanner(DefaultLoadPlanner):
 
     def create_local_plan(self):
         self.metadata_has_critic_key = False  # type: ignore
