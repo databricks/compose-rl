@@ -143,7 +143,8 @@ def online_rl_loss(
     policy_clip_high_ratio: float | None = None,
     length_normalize_policy_loss: bool = True,
     add_direct_kl_loss: bool = False,
-    kl_estimator: Optional[str] = 'k1',
+    entropy_loss_weight: float | None = None,
+    kl_estimator: Optional[str] = 'k3',
     kl_clip_range: Optional[float] = 40.0,
 ) -> tuple[MutableMapping, torch.Tensor]:
     """Compute the online RL loss.
@@ -158,7 +159,8 @@ def online_rl_loss(
         policy_clip_high_ratio (float | None): The high policy clip ratio. Default: ``None``.
         length_normalize_policy_loss (bool): Whether to normalize the policy loss by the length of the sequence. Default: ``True``.
         add_direct_kl_loss (bool): Whether to add the KL loss directly to the loss. Default: ``False``.
-        kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
+        entropy_loss_weight (float | None): The entropy loss weight. If ``None``, no entropy loss is added. Default: ``None``.
+        kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
         kl_clip_range (float): The clip range for the KL divergence. Default: ``40.0``.
     """
     if loss_type not in ['ppo', 'grpo']:
@@ -239,6 +241,40 @@ def online_rl_loss(
     online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
         'old_log_probs']
     old_entropies = batch['old_entropies']
+    gen_logits = utils.get_batched_generated_values(
+        batched_values=outputs['logits'],
+        prompt_len=batch['prompt_len'],
+        max_gen_len=batch['max_gen_len'],
+    )
+    token_entropies = utils.get_token_entropies(
+        logits=gen_logits,
+    )
+    seq_entropies = utils.get_sequence_entropies(
+        logits=gen_logits,
+        action_mask=batch['action_mask'],
+    )
+
+    assert token_entropies.shape == batch['action_mask'].shape, (
+        f'Token entropies shape {token_entropies.shape} does not match action mask shape {batch["action_mask"].shape}.',
+    )
+    # Extract token entropies where action mask is 1 and flatten
+    masked_token_entropies = token_entropies[batch['action_mask'].bool()]
+    flattened_entropies = masked_token_entropies.flatten()
+
+    # Calculate entropies at different percentiles
+    percentiles = torch.tensor([0, 20, 40, 60, 80, 100],
+                               device=token_entropies.device)
+    if flattened_entropies.numel() > 0:
+
+        # Calculate indices for percentiles (excluding 0 and 100)
+        num_elements = flattened_entropies.numel()
+        indices = ((percentiles / 100.0) * (num_elements - 1)).ceil().long()
+
+        # Get sorted values
+        sorted_entropies = flattened_entropies.sort().values
+        percentile_values = sorted_entropies[indices]
+    else:
+        percentile_values = torch.zeros_like(percentiles, dtype=torch.float)
 
     policy_kl_dict = utils.approx_kl(
         log_p=online_log_probs,
@@ -346,11 +382,17 @@ def online_rl_loss(
             utils.sample_wise_masked_mean(ratio, batch['action_mask']),
         'gen/gen_length':
             batch['action_mask'].sum(dim=1).to(torch.float32),
-        'gen/entropy':
+        'gen/prev_seq_entropy':
             old_entropies,
+        'gen/cur_seq_entropy':
+            seq_entropies,
         'advantages/mean':
             utils.sample_wise_masked_mean(advantages, batch['action_mask']),
     }
+    # Add entropy percentiles to return_dict
+    for i, p in enumerate(percentiles):
+        return_dict[f'gen/token_entropy_p{p.item()}'] = percentile_values[i]
+
     if loss_type == 'ppo':
         return_dict.update({
             'loss/value_loss':
@@ -421,6 +463,14 @@ def online_rl_loss(
         return_dict['loss/online_ift_kl'] = (
             batch['ift_kl_scalar'][0] * online_ift_kl
         )
+    # Entropy Loss. Meant to promote diversity.
+    if entropy_loss_weight is not None:
+        # We want to maximize entropy so we deduct it from the loss.
+        entropy_loss = -1.0 * (entropy_loss_weight * seq_entropies).mean()
+        # breakpoint()
+        return_dict['loss/entropy'] = entropy_loss
+        return_dict['total'] += entropy_loss
+
     if 'lbl' in outputs and outputs['lbl'] is not None:
         return_dict['loss/lbl'] = outputs['lbl']
         return_dict['total'] += outputs['lbl']
