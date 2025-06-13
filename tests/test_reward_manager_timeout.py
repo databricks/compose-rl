@@ -25,7 +25,10 @@ from composer.core import Precision
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizerBase
 
-from compose_rl.algorithms.online.reward_manager import RewardManager, RewardOutput
+from compose_rl.algorithms.online.reward_manager import (
+    RewardManager,
+    RewardOutput,
+)
 from compose_rl.algorithms.reward_modeling import InferenceRewardModel
 
 
@@ -89,7 +92,9 @@ def mock_reward_manager(
 
     # Create RewardManager with minimal initialization
     with patch.object(RewardManager, 'initialize_composer_model') as mock_init:
-        with patch('compose_rl.algorithms.online.reward_manager.spacy.load') as mock_spacy:
+        with patch(
+            'compose_rl.algorithms.online.reward_manager.spacy.load',
+        ) as mock_spacy:
             mock_ref_model = Mock()
             mock_init.return_value = mock_ref_model
 
