@@ -1117,7 +1117,7 @@ class OnPolicyCallback(CallbackWithConfig):
             self.vllm_engines,
             self.model_update_group,
             batch,
-            loss_type=self.actor_critic.loss_type.name,  # type: ignore
+            loss_type=self.actor_critic.loss_type.value,  # type: ignore
         )
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
