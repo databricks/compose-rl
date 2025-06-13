@@ -184,7 +184,7 @@ def critic_loss(
         )
 
         val_error = utils.sample_wise_masked_mean((v_preds - returns)**2,
-                                                    batch['action_mask'])
+                                                  batch['action_mask'])
 
         critic_dict = {
             'loss/value_loss':
@@ -210,7 +210,8 @@ def critic_loss(
         }
         return critic_dict
     else:
-        raise ValueError(f"Critic Loss not implemented for {loss_type}")
+        raise ValueError(f'Critic Loss not implemented for {loss_type}')
+
 
 def policy_loss(
     advantages: torch.Tensor,
@@ -342,7 +343,8 @@ def policy_loss(
         }
         return policy_dict
     else:
-        raise ValueError(f"Policy loss not implemented for {loss_type}")
+        raise ValueError(f'Policy loss not implemented for {loss_type}')
+
 
 def online_rl_loss(
     outputs: MutableMapping,
@@ -460,7 +462,6 @@ def online_rl_loss(
                 batch['action_mask'],
             )
 
-
     # 3. Compute the total loss
     return_dict['total'] = policy_loss
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
@@ -470,7 +471,8 @@ def online_rl_loss(
     # If we want to directly minimize the KL Divergence, we can do so here
     # and it will not include the KL in the reward.
     if add_direct_kl_loss:
-        return_dict['total'] += batch['ift_kl_scalar'][0] * return_dict['kl/online_ift_kl']
+        return_dict['total'] += batch['ift_kl_scalar'][0] * return_dict[
+            'kl/online_ift_kl']
         return_dict['loss/online_ift_kl'] = (
             batch['ift_kl_scalar'][0] * return_dict['kl/online_ift_kl']
         )
