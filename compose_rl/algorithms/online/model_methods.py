@@ -223,6 +223,7 @@ def policy_loss(
     kl_estimator: Optional[str] = 'k1',
     kl_clip_range: Optional[float] = 40.0,
 ) -> MutableMapping:
+
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
         online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
             'old_log_probs']
@@ -479,6 +480,7 @@ def online_rl_loss(
 
     # Detaching all return_dict values
     for key, value in return_dict.items():
-        return_dict[key] = value.detach().cpu()
+        if key not in 'total':
+            return_dict[key] = value.detach().cpu()
 
     return return_dict
