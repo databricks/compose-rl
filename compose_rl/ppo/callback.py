@@ -408,6 +408,13 @@ class PPOCallback(CallbackWithConfig):
             1,
         )
 
+        # The
+        self.num_unique_prompts_per_iter: int = var_config.get(
+            'num_unique_prompts_per_iter',
+            self.num_batches_per_update * self.global_train_batch_size //
+            self.generations_per_prompt,
+        )
+
         if self.num_batches_per_update % self.generations_per_prompt != 0:
             raise ValueError(
                 f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}',
@@ -600,9 +607,11 @@ class PPOCallback(CallbackWithConfig):
         while len(self.buffer) < self.num_batches_per_update:
             if num_env_interactions > 0:
                 batch = self._get_next_iter_prompts(state)
-            
+
             num_env_interactions += 1
-            
+
+            # TODO: the case where we are not filtering
+            # We do not do an all gather, so this logic is slightly wrong right now
             self._interact_with_env(batch)
 
             cur_global_samples = stack_resolved_outputs(
@@ -646,7 +655,9 @@ class PPOCallback(CallbackWithConfig):
         log.info(
             f"For iteration {self.iter_num}, we have {len(self.buffer)} samples in the buffer. Starting training.",
         )
-        log.info(f"It took {num_env_interactions} environment interactions to fill the buffer.")
+        log.info(
+            f"It took {num_env_interactions} environment interactions to fill the buffer.",
+        )
 
         # Making sure we correctly parsed the minibatches
         assert len(self.buffer) >= self.num_batches_per_update
@@ -692,7 +703,12 @@ class PPOCallback(CallbackWithConfig):
     def _get_next_iter_prompts(self, state: State):
         """Gets the next iteration's batch of prompts."""
         # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
-        n_unique_batches = self.num_batches_per_update // self.generations_per_prompt
+
+        n_unique_batches = self.num_unique_prompts_per_iter // self.global_train_batch_size
+        log.info(
+            f"Getting {n_unique_batches} unique batches of prompts for the current iteration.",
+        )
+
         batches = [
             self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
