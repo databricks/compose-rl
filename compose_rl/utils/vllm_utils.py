@@ -45,6 +45,7 @@ from torch.distributed.distributed_c10d import (
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from compose_rl.utils.vllm_actor import LLMRayActor
+from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 
 log = logging.getLogger(__name__)
 
@@ -343,7 +344,7 @@ def should_update_torch_module(
     parsed_module_name: str,
     full_param_name: str,
     module: nn.Module,
-    loss_type: str,
+    loss_type: OnPolicyEnum,
     valid_non_leaf_module_names: list[str],
 ):
     """Check if the module should be updated.
@@ -361,10 +362,10 @@ def should_update_torch_module(
     if parsed_module_name not in valid_non_leaf_module_names:
         return False
 
-    if loss_type == 'grpo':
+    if loss_type == OnPolicyEnum.GRPO:
         return True
 
-    if loss_type == 'ppo' and 'lm_backbone' in full_param_name:
+    if loss_type == OnPolicyEnum.PPO and 'lm_backbone' in full_param_name:
         return True
 
     return False
@@ -375,7 +376,7 @@ def broadcast_to_vllm(
     vllm_engines: list,
     model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
-    loss_type: str = 'ppo',
+    loss_type: OnPolicyEnum = OnPolicyEnum.PPO,
 ):
     """Broadcast model weights to all vllm engines.
 
@@ -388,12 +389,12 @@ def broadcast_to_vllm(
     """
     # avoid OOM
     torch.cuda.empty_cache()
-    if loss_type == 'ppo':
+    if loss_type == OnPolicyEnum.PPO:
         # Extract the lm_backbone params from the model
         count, num_params = 0, len(
             list(model.model.lm_backbone.named_parameters()),  # type: ignore
         )
-    elif loss_type == 'grpo':
+    elif loss_type == OnPolicyEnum.GRPO:
         # Directly use the model params
         count, num_params = 0, len(
             list(model.model.named_parameters()),  # type: ignore
@@ -442,7 +443,7 @@ def broadcast_to_vllm(
         if isinstance(module, FSDP):
             # This is needed otherwise FSDP will materialize parameters of size 0.
             # So just for the joint actor critic models we have to actually skip this module.
-            if module_name == 'model' and loss_type == 'ppo':
+            if module_name == 'model' and loss_type == OnPolicyEnum.PPO:
                 continue
 
             # Only update if we haven't updated this module before
