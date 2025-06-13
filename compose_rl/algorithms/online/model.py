@@ -97,7 +97,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
         )
 
     def loss(self, outputs: MutableMapping, batch: MutableMapping):
-        return_dict, kl_loss = online_rl_loss(
+        return_dict = online_rl_loss(
             outputs=outputs,
             batch=batch,
             loss_type=OnPolicyEnum.PPO,
@@ -109,7 +109,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
             kl_clip_range=self.config.kl_clip_range,
         )
 
-        self.policy_kl.append(kl_loss)
+        self.policy_kl.append(return_dict['kl/policy_kl'])
 
         return return_dict
 
@@ -210,7 +210,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
         )
 
     def loss(self, outputs: MutableMapping, batch: MutableMapping):
-        return_dict, kl_loss = online_rl_loss(
+        return_dict = online_rl_loss(
             outputs=outputs,
             batch=batch,
             loss_type=self.loss_type,  # pyright: ignore
@@ -222,7 +222,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             kl_clip_range=self.config.kl_clip_range,
         )
 
-        self.policy_kl.append(kl_loss)
+        self.policy_kl.append(return_dict['kl/policy_kl'])
 
         return return_dict
 
@@ -300,7 +300,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         )
 
     def loss(self, outputs: MutableMapping, batch: MutableMapping):
-        return_dict, kl_loss = online_rl_loss(
+        return_dict = online_rl_loss(
             outputs=outputs,
             batch=batch,
             loss_type=self.loss_type,
@@ -312,7 +312,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             kl_clip_range=self.kl_clip_range,
         )
 
-        self.policy_kl.append(kl_loss)
+        self.policy_kl.append(return_dict['kl/policy_kl'])
         return return_dict
 
     def determine_early_stop(self):
