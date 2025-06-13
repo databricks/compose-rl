@@ -754,6 +754,9 @@ class OnPolicyCallback(CallbackWithConfig):
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
+        log.debug('Beginning reward computation for the rollout.')
+        start_reward_time = time.time()
+
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore
             reward_manager=self.reward_manager,
@@ -765,6 +768,12 @@ class OnPolicyCallback(CallbackWithConfig):
             eos_token_ids=self.eos_token_ids,  # type: ignore
             kl_estimator=self.kl_estimator,
             kl_clip_range=self.kl_clip_range,
+        )
+
+        end_reward_time = time.time()
+        total_reward_time = end_reward_time - start_reward_time
+        log.debug(
+            f'Finished reward computation for the rollout in {total_reward_time:.4f} seconds.',
         )
 
         self.prompts_and_gens.extend(prompts_and_gens)
@@ -943,7 +952,6 @@ class OnPolicyCallback(CallbackWithConfig):
             env_outs['ift_kl'],
             env_outs['action_mask'],
         )
-
         self.kl_ift.append(mean_ift.cpu())
 
         iter_batch.update(env_outs)
