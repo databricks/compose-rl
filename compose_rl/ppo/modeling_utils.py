@@ -143,8 +143,8 @@ def online_rl_loss(
     policy_clip_high_ratio: float | None = None,
     length_normalize_policy_loss: bool = True,
     add_direct_kl_loss: bool = False,
-    entropy_loss_weight: float | None = 0.001,
-    kl_estimator: Optional[str] = 'k1',
+    entropy_loss_weight: float | None = None,
+    kl_estimator: Optional[str] = 'k3',
     kl_clip_range: Optional[float] = 40.0,
 ) -> tuple[MutableMapping, torch.Tensor]:
     """Compute the online RL loss.
@@ -160,7 +160,7 @@ def online_rl_loss(
         length_normalize_policy_loss (bool): Whether to normalize the policy loss by the length of the sequence. Default: ``True``.
         add_direct_kl_loss (bool): Whether to add the KL loss directly to the loss. Default: ``False``.
         entropy_loss_weight (float | None): The entropy loss weight. If ``None``, no entropy loss is added. Default: ``None``.
-        kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
+        kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
         kl_clip_range (float): The clip range for the KL divergence. Default: ``40.0``.
     """
     if loss_type not in ['ppo', 'grpo']:
