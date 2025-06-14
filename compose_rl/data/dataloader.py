@@ -20,11 +20,16 @@ from compose_rl.data.prompt_data import (
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
 )
+from compose_rl.data.messages_data import (
+    MessagesStreamingDataset,
+    messages_dataset_collate_fn,
+)
 
 __all__ = [
     'build_finegrained_preference_dataloader',
     'build_pairwise_preference_dataloader',
     'build_prompt_dataloader',
+    'build_messages_dataloader',
 ]
 
 
@@ -110,4 +115,9 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
 build_prompt_dataloader = generate_dataloader_builder(
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
+)
+
+build_messages_dataloader = generate_dataloader_builder(
+    MessagesStreamingDataset,
+    messages_dataset_collate_fn,
 )

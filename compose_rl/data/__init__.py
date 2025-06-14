@@ -5,6 +5,7 @@ from compose_rl.data.dataloader import (
     build_finegrained_preference_dataloader,
     build_pairwise_preference_dataloader,
     build_prompt_dataloader,
+    build_messages_dataloader,
 )
 from compose_rl.data.preference_data import (
     finegrained_preference_dataset_collate_fn,
@@ -21,14 +22,19 @@ from compose_rl.data.rlvr_utils import (
     prepare_math_prompt,
     remove_boxed,
 )
+from compose_rl.data.messages_data import (
+    messages_dataset_collate_fn,
+)
 
 __all__ = [
     'build_pairwise_preference_dataloader',
     'build_finegrained_preference_dataloader',
+    'build_messages_dataloader',
     'build_prompt_dataloader',
     'extract_gsm8k_answer',
     'finegrained_preference_dataset_collate_fn',
     'pairwise_preference_dataset_collate_fn',
+    'messages_dataset_collate_fn',
     'prepare_gsm8k_prompt',
     'prompt_dataset_collate_fn',
     'extract_math_answer',

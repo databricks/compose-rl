@@ -53,6 +53,7 @@ hf_critic_free_lm = "compose_rl.ppo:ComposerHFCriticFreePolicyModel"
 pairwise_preference = "compose_rl.data:build_pairwise_preference_dataloader"
 finegrained_preference = "compose_rl.data:build_finegrained_preference_dataloader"
 prompt = "compose_rl.data:build_prompt_dataloader"
+messages = "compose_rl.data:build_messages_dataloader"
 
 [project.entry-points."llmfoundry_callbacks_with_config"]
 dpo = "compose_rl.dpo:DPOCallback"

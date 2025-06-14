@@ -966,7 +966,7 @@ class PPOCallback(CallbackWithConfig):
     def _log_generations_to_logger(self, state: State):
         # Gather all prompts, generations, prompt_ids and rewards from all ranks
         prompts_and_gens = list(
-            chain(*dist.all_gather_object(self.prompts_and_gens)),
+            chain(*dist.all_gather_object(self.prompts_and_gens)), 
         )
         prompt_ids_rewards_and_answers = list(
             chain(*dist.all_gather_object(self.prompt_ids_rewards_and_answers)),
