@@ -218,7 +218,7 @@ def causal_classifier_forward(
 
     model_output = model(
         batch['text'],
-        attention_mask=batch['text_attention_mask'],
+        attention_mask=batch['attention_mask'],
     )
 
     # Difference from `causal_forward``: scores are logits of EOS token
