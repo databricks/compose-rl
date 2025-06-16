@@ -71,9 +71,9 @@ pairwise_rm_accuracy = "compose_rl.metrics.reward_model_metrics:PairwiseRewardCl
 classifier_accuracy = "compose_rl.metrics.reward_model_metrics:BinaryRewardClassificationAccuracy"
 
 [project.entry-points."llmfoundry_load_planners"]
-actor_critic_load_planner = "compose_rl.algorithms.online.load_planner:ActorCriticModelLoadPlanner"
+actor_critic_load_planner = "compose_rl.utils.load_planner:ActorCriticModelLoadPlanner"
 # Backwards Compatibility
-ppo_load_planner = "compose_rl.algorithms.online.load_planner:ActorCriticModelLoadPlanner"
+ppo_load_planner = "compose_rl.utils.load_planner:ActorCriticModelLoadPlanner"
 
 # iSort
 [tool.isort]

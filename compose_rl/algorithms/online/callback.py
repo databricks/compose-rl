@@ -30,7 +30,10 @@ from llmfoundry.interfaces import CallbackWithConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from compose_rl.algorithms.online.generation_utils import (
+    broadcast_to_vllm,
+    create_vllm_engines,
     hf_generate,
+    init_process_group,
     vllm_generate,
 )
 from compose_rl.algorithms.online.model import (
@@ -49,15 +52,12 @@ from compose_rl.data.buffer import MinibatchRolloutBuffer
 from compose_rl.registry_builders import build_kl_controller
 from compose_rl.utils import (
     add_right_padding,
-    broadcast_to_vllm,
     compute_advantages,
-    create_vllm_engines,
     dist_compute_masked_mean_and_var,
     flatten,
     get_decoded_sequence,
     get_entropies,
     get_log_probs,
-    init_process_group,
     mask_eos,
     masked_mean,
     masked_sum,
