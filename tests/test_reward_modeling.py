@@ -240,6 +240,11 @@ def test_forward_backward(
             FineGrainedPreference,
             finegrained_preference_dataset_collate_fn,
         ),
+        (
+            'hf_causal_classifier_rm',
+            FineGrainedPreference,
+            finegrained_preference_dataset_collate_fn,
+        ),
     ],
 )
 def test_hf_train(
