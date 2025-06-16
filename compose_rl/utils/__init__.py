@@ -1,6 +1,16 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
+from compose_rl.utils.rlvr_utils import (
+    extract_gsm8k_answer,
+    extract_math_answer,
+    is_equiv,
+    last_boxed_only_string,
+    normalize_final_answer,
+    prepare_gsm8k_prompt,
+    prepare_math_prompt,
+    remove_boxed,
+)
 from compose_rl.utils.utils import (
     add_right_padding,
     approx_kl,
@@ -9,12 +19,14 @@ from compose_rl.utils.utils import (
     compute_advantages,
     dist_compute_masked_mean_and_var,
     extract_packed_chosen_rejected,
+    flatten,
     flip_pad_token_usage_for_generate,
     flip_pad_token_usage_in_ffn,
     format_reward_input,
     get_batch_logp,
     get_batched_generated_values,
     get_decoded_sequence,
+    get_entropies,
     get_log_probs,
     get_log_probs_from_logits,
     get_mb_load_balancing_loss,
@@ -31,6 +43,7 @@ from compose_rl.utils.utils import (
     process_fine_granularities,
     remove_left_padding,
     rescale,
+    sample_wise_masked_mean,
     scatter_gather_rewards,
     split_text_to_sentences,
     split_text_to_subsentences,
@@ -42,6 +55,7 @@ __all__ = [
     'clear_mb_load_balancing_loss',
     'approx_kl',
     'get_log_probs',
+    'get_entropies',
     'switch_left_to_right_padding',
     'remove_left_padding',
     'add_right_padding',
@@ -71,4 +85,14 @@ __all__ = [
     'make_padded_tensor',
     'get_batch_logp',
     'make_action_mask',
+    'flatten',
+    'sample_wise_masked_mean',
+    'extract_gsm8k_answer',
+    'extract_math_answer',
+    'is_equiv',
+    'last_boxed_only_string',
+    'normalize_final_answer',
+    'prepare_gsm8k_prompt',
+    'prepare_math_prompt',
+    'remove_boxed',
 ]

@@ -2,19 +2,19 @@ run_name: local-llama8b-dpo
 seed: 17
 model:
   beta: 0.01
-  name: hf_dpo_lm
+  name: hf_pairwise_offline_lm
   loss_type: dpo
   pretrained: true
   use_auth_token: true
   use_flash_attention_2: true
-  pretrained_model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+  pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
 
 loggers:
   mlflow:
     experiment_name: brandon_dpo_test
 
 callbacks:
-  dpo: {}
+  offline_rl: {}
   lr_monitor: {}
   speed_monitor:
     window_size: 10
@@ -39,7 +39,7 @@ scheduler:
   t_warmup: 0.1dur
 
 tokenizer:
-  name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  name: meta-llama/Llama-3.1-8B-Instruct
   kwargs:
     model_max_length: ${max_seq_len}
     trust_remote_code: true

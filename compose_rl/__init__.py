@@ -10,14 +10,11 @@ except ImportError:
         'When installing plugins, please use one of the extras depending on which version of llmfoundry you are using.',
     )
 
-import compose_rl.dpo as dpo
-import compose_rl.reward_learning as reward_learning
-from compose_rl import data, metrics, utils
+from compose_rl import algorithms, data, metrics, utils
 
 __all__ = [
+    'algorithms',
     'utils',
     'data',
-    'dpo',
-    'reward_learning',
     'metrics',
 ]

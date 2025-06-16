@@ -9,7 +9,7 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from compose_rl.reward_learning import BadGenerationEndReward
+from compose_rl.algorithms.reward_modeling import BadGenerationEndReward
 
 
 @pytest.fixture
@@ -19,24 +19,14 @@ def reward() -> BadGenerationEndReward:
         'eos_penalty': True,
         'extra_special_tokens': ['<|im_end|>'],
     }
-    tokenizer = AutoTokenizer.from_pretrained('EleutherAI/gpt-neox-20b',)
+    tokenizer = AutoTokenizer.from_pretrained(
+        'EleutherAI/gpt-neox-20b',
+    )
     special_tokens_dict: dict[str, list[str]] = {
         'additional_special_tokens': ['<|im_end|>'],
     }
     tokenizer.add_special_tokens(special_tokens_dict)
-    return BadGenerationEndReward(config, tokenizer)
-
-
-def test_validate_config(reward: BadGenerationEndReward) -> None:
-    reward.validate_config()
-
-
-def test_validate_config_missing_fields() -> None:
-    with pytest.raises(AssertionError):
-        BadGenerationEndReward(
-            {},
-            AutoTokenizer.from_pretrained('EleutherAI/gpt-neox-20b'),
-        )
+    return BadGenerationEndReward(tokenizer=tokenizer, **config)
 
 
 @pytest.mark.parametrize(
@@ -86,5 +76,5 @@ def test_call_bad_generation_invalid_input(
 
 def test_special_tokens_added(reward: BadGenerationEndReward) -> None:
     assert reward.tokenizer is not None
-    assert '<|im_end|>' in reward.tokenizer.additional_special_tokens
+    assert '<|im_end|>' in reward.tokenizer.additional_special_tokens  # type: ignore
     assert reward.tokenizer.additional_special_tokens_ids != []

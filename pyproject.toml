@@ -1,6 +1,6 @@
 # build requirements
 [build-system]
-requires = ["setuptools < 68.0.0"]
+requires = ["setuptools < 79.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -8,40 +8,52 @@ packages = { find = { include = ["compose_rl*"] } }
 
 [project]
 name = "compose_rl"
-version = "0.2.0"
+version = "0.7.0.dev0"
 dependencies = [
     'spacy==3.7.5',
     'spacy-alignments',
+    'ray<3',
+    'kubernetes==29.0.0',
+    'vllm>=0.9.0,<0.10.0',
+    # for MATH dataset
+    'omegaconf==2.4.0.dev3', # needed for antrl4-4.11 package
+    'sympy==1.13.3', # this version is only compatible with antlr-4.11 package
+    'antlr4-python3-runtime==4.11', # this is the version compatible with minieval
 ]
 
 [project.optional-dependencies]
 cpu = [
     'llm-foundry[all-cpu]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
-    'kubernetes==29.0.0',
 ]
 gpu = [
     'llm-foundry[all]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
-    'kubernetes==29.0.0',
 ]
 dev = [
     'llm-foundry[dev]@git+https://github.com/mosaicml/llm-foundry.git@main#egg=llmfoundry',
-    'kubernetes==29.0.0',
 ]
 released = [
-    'llm-foundry[all]==0.15.1',
-    'kubernetes==29.0.0',
+    'llm-foundry[all]>=0.21.0',
+]
+cpu_released = [
+    'llm-foundry[all-cpu]>=0.21.0',
 ]
 
 # Registry entry points
 [project.entry-points."llmfoundry_models"]
-mpt_dpo_lm = "compose_rl.dpo:ComposerDPOLM"
-hf_dpo_lm = "compose_rl.dpo:ComposerHFDPOLM"
-mpt_pairwise_rm = "compose_rl.reward_learning:ComposerMPTPairwiseRewardModel"
-hf_pairwise_rm = "compose_rl.reward_learning:ComposerHFPairwiseRewardModel"
-hf_classifier_rm = "compose_rl.reward_learning:ComposerHFClassifierRewardModel"
-hf_causal_classifier_rm = "compose_rl.reward_learning:ComposerHFCausalClassifierRewardModel"
-mpt_ppo_lm = "compose_rl.ppo:ComposerMosaicPolicy"
-hf_ppo_lm = "compose_rl.ppo:ComposerHFPolicyModel"
+mpt_pairwise_rm = "compose_rl.algorithms.reward_modeling:ComposerMPTPairwiseRewardModel"
+hf_pairwise_rm = "compose_rl.algorithms.reward_modeling:ComposerHFPairwiseRewardModel"
+hf_classifier_rm = "compose_rl.algorithms.reward_modeling:ComposerHFClassifierRewardModel"
+hf_causal_classifier_rm = "compose_rl.algorithms.reward_modeling:ComposerHFCausalClassifierRewardModel"
+mpt_pairwise_offline_lm = "compose_rl.algorithms.offline:ComposerMPTPairwiseOfflinePolicyLM"
+hf_pairwise_offline_lm = "compose_rl.algorithms.offline:ComposerHFPairwiseOfflinePolicyLM"
+mpt_actor_critic_lm = "compose_rl.algorithms.online:ComposerMPTPolicyLM"
+hf_actor_critic_lm = "compose_rl.algorithms.online:ComposerHFPolicyLM"
+hf_critic_free_lm = "compose_rl.algorithms.online:ComposerHFCriticFreePolicyLM"
+# Backwards Compatibility
+mpt_dpo_lm = "compose_rl.algorithms.offline:ComposerMPTPairwiseOfflinePolicyLM"
+hf_dpo_lm = "compose_rl.algorithms.offline:ComposerHFPairwiseOfflinePolicyLM"
+mpt_ppo_lm = "compose_rl.algorithms.online:ComposerMPTPolicyLM"
+hf_ppo_lm = "compose_rl.algorithms.online:ComposerHFPolicyLM"
 
 [project.entry-points."llmfoundry_dataloaders"]
 pairwise_preference = "compose_rl.data:build_pairwise_preference_dataloader"
@@ -49,12 +61,20 @@ finegrained_preference = "compose_rl.data:build_finegrained_preference_dataloade
 prompt = "compose_rl.data:build_prompt_dataloader"
 
 [project.entry-points."llmfoundry_callbacks_with_config"]
-dpo = "compose_rl.dpo:DPOCallback"
-ppo = "compose_rl.ppo:PPOCallback"
+offline_rl = "compose_rl.algorithms.offline:ReferencePolicyCallback"
+on_policy_rl = "compose_rl.algorithms.online:OnPolicyCallback"
+# Backwards Compatibility
+dpo = "compose_rl.algorithms.offline:ReferencePolicyCallback"
+ppo = "compose_rl.algorithms.online:OnPolicyCallback"
 
 [project.entry-points."llmfoundry_metrics"]
 pairwise_rm_accuracy = "compose_rl.metrics.reward_model_metrics:PairwiseRewardClassificationAccuracy"
 classifier_accuracy = "compose_rl.metrics.reward_model_metrics:BinaryRewardClassificationAccuracy"
+
+[project.entry-points."llmfoundry_load_planners"]
+actor_critic_load_planner = "compose_rl.utils.load_planner:ActorCriticModelLoadPlanner"
+# Backwards Compatibility
+ppo_load_planner = "compose_rl.utils.load_planner:ActorCriticModelLoadPlanner"
 
 # iSort
 [tool.isort]

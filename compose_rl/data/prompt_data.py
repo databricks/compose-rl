@@ -9,13 +9,18 @@ from typing import Any
 import numpy as np
 import torch
 from streaming import StreamingDataset
-from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
+from transformers import (
+    DataCollatorForLanguageModeling,
+    PreTrainedTokenizerBase,
+)
+
+import compose_rl.utils as utils
 
 log = logging.getLogger(__name__)
 
 
 def prompt_dataset_collate_fn(
-    tokenizer: PreTrainedTokenizer,
+    tokenizer: PreTrainedTokenizerBase,
     max_seq_len: int,
     batch: list[dict[str, Any]],
 ) -> dict[str, torch.Tensor]:
@@ -42,11 +47,20 @@ def prompt_dataset_collate_fn(
         if key in ['prompt_len']:
             collated_batch[key] = torch.stack(cur_values).squeeze(dim=1)
             continue
+        if key == 'prompt_id':
+            collated_batch[key] = torch.tensor(cur_values)
+            continue
+        if key in ['verified_answer']:
+            collated_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
+                utils.flatten(cur_values),
+            )
+            continue
 
         collated_batch[key] = ref_collate_fn(cur_values)['input_ids']
 
     collated_batch['prompt_attention_mask'] = torch.logical_not(
-        torch.eq(collated_batch['prompt'], tokenizer.pad_token_id),
+        torch.eq(collated_batch['prompt'],
+                 tokenizer.pad_token_id),  # type: ignore
     )
 
     return collated_batch
@@ -89,5 +103,26 @@ class PromptStreamingDataset(StreamingDataset):
             prompt = prompt[:-truncate_len]
 
         prompt_len = torch.Tensor([len(prompt)]).to(dtype=torch.int64)
+        # Send the prompt id along with prompt data
+        item_dict = {
+            'prompt_id': idx,
+            'prompt': prompt,
+            'prompt_len': prompt_len,
+        }
 
-        return {'prompt': prompt, 'prompt_len': prompt_len}
+        verified_answer = sample.get('verified_answer', None)
+        if verified_answer:
+            if isinstance(verified_answer, str):
+                _answer = verified_answer
+            else:
+                try:
+                    _answer = verified_answer.decode('utf-8', errors='strict')
+                except UnicodeDecodeError as e:
+                    log.error(
+                        f'Failed to decode verifed_answer with error: {e}',
+                    )
+                    _answer = ''
+
+            item_dict['verified_answer'] = _answer  # type: ignore
+
+        return item_dict

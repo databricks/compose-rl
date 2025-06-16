@@ -2,7 +2,7 @@ run_name:  # TODO: fill in
 max_seq_len: 2048
 
 variables:
-  tokenizer_name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  tokenizer_name: meta-llama/Llama-3.1-8B-Instruct
 
   reference_model:
     model_config: &base_model
@@ -10,7 +10,7 @@ variables:
       pretrained: true
       use_auth_token: true
       use_flash_attention_2: true
-      pretrained_model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+      pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
 
     precision: amp_bf16
 
@@ -48,8 +48,14 @@ variables:
 
   epoch_per_iteration: 1
   num_batches_per_update: 8
+  generations_per_prompt: 4
 
   max_gen_len: 32
+
+  eos_token_ids:
+  - 128001
+  - 128008
+  - 128009
 
   rewards:
     short_response_reward:
@@ -65,8 +71,8 @@ variables:
 
 model:
   <<: *base_model
-  name: hf_ppo_lm
-
+  name: on_policy_rl
+  loss_type: ppo
   config_overrides:
     critic_dropout: 0.0
     value_clip_range: 0.2
@@ -77,6 +83,8 @@ model:
 
     joint_actor_critic: true
     compute_kl_loss: true
+    kl_estimator: k3
+    kl_clip_range: 40.0
 
 # load_path: # TODO: fill in load path if applicable
 # load_weights_only: true
@@ -171,7 +179,7 @@ callbacks:
   # save_folder: # TODO: add save path for the hf checkpoint
   # save_interval: 10iter
 
-  ppo: {}
+  on_policy_rl: {}
 
 save_folder: /tmp/ppo_models   # TODO: fill in with an appropriate value
 # only_composer_checkpoint: true

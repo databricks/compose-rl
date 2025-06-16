@@ -9,7 +9,7 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from compose_rl.reward_learning import ShortResponseReward
+from compose_rl.algorithms.reward_modeling import ShortResponseReward
 
 
 @pytest.fixture
@@ -19,11 +19,7 @@ def reward() -> ShortResponseReward:
         'len_threshold': 5,
     }
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    return ShortResponseReward(config, tokenizer)
-
-
-def test_validate_config(reward: ShortResponseReward) -> None:
-    reward.validate_config()
+    return ShortResponseReward(tokenizer=tokenizer, **config)
 
 
 @pytest.mark.parametrize(

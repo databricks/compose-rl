@@ -7,26 +7,13 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from compose_rl.reward_learning import OutputLengthReward
+from compose_rl.algorithms.reward_modeling import OutputLengthReward
 
 
 @pytest.fixture
 def reward() -> OutputLengthReward:
-    config: dict[str, int] = {
-        'max_gen_len': 10,
-    }
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    return OutputLengthReward(config, tokenizer)
-
-
-def test_validate_config(reward: OutputLengthReward) -> None:
-    reward.validate_config()
-
-
-def test_validate_config_missing_fields() -> None:
-    with pytest.raises(AssertionError):
-        OutputLengthReward({},
-                           AutoTokenizer.from_pretrained('bert-base-uncased'))
+    return OutputLengthReward(max_gen_len=10, tokenizer=tokenizer)
 
 
 @pytest.mark.parametrize(
