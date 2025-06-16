@@ -17,14 +17,14 @@ from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 from transformers.models.gpt2 import GPT2LMHeadModel
 
-from compose_rl.data import prompt_dataset_collate_fn
+from compose_rl.data import prompt_dataset_collate_fn, messages_dataset_collate_fn
 from compose_rl.ppo import (
     ComposerHFPolicyModel,
     ComposerMosaicPolicy,
     PPOCallback,
 )
 from compose_rl.ppo.modeling_hf import ComposerHFPolicy
-from tests.common import PromptDataset, VerifiablePromptDataset, world_size
+from tests.common import PromptDataset, VerifiablePromptDataset, VerifiableMessagesDataset, world_size
 
 
 def test_hf_ppo_model_construction(
@@ -76,19 +76,28 @@ def test_hf_ppo_policy_construction(
 
 
 @pytest.mark.parametrize('model_type', ['mpt', 'hf'])
-@pytest.mark.parametrize('dataset_type', ['prompt', 'verifiable_prompt'])
+@pytest.mark.parametrize('dataset_type', ['prompt', 'verifiable_prompt', 'verifiable_messages'])
 def test_model_forward(
     tiny_gpt2_tokenizer: PreTrainedTokenizerBase,
     model_type: str,
     dataset_type: str,
 ):
     prompt_len = 10
-    data_class = PromptDataset if dataset_type == 'prompt' else VerifiablePromptDataset
-    dataset = data_class(prompt_len=prompt_len)
+    if dataset_type == 'prompt':
+        dataset = PromptDataset(prompt_len=prompt_len)
+        dataset_collator = prompt_dataset_collate_fn
+    elif dataset_type == 'verifiable_prompt':
+        dataset = VerifiablePromptDataset(prompt_len=prompt_len)
+        dataset_collator = prompt_dataset_collate_fn
+    elif dataset_type == 'verifiable_messages':
+        dataset = VerifiableMessagesDataset(prompt_len=prompt_len)
+        dataset_collator = messages_dataset_collate_fn
+    else:
+        raise ValueError(f'Unknown dataset type: {dataset_type}')
     dataloader = DataLoader(
         dataset,
         collate_fn=partial(
-            prompt_dataset_collate_fn,
+            dataset_collator,
             tiny_gpt2_tokenizer,
             32,
         ),
