@@ -71,7 +71,7 @@ variables:
 
 model:
   <<: *base_model
-  name: hf_ppo_lm
+  name: on_policy_rl
   loss_type: ppo
   config_overrides:
     critic_dropout: 0.0
@@ -179,7 +179,7 @@ callbacks:
   # save_folder: # TODO: add save path for the hf checkpoint
   # save_interval: 10iter
 
-  ppo: {}
+  on_policy_rl: {}
 
 save_folder: /tmp/ppo_models   # TODO: fill in with an appropriate value
 # only_composer_checkpoint: true
