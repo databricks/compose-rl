@@ -8,8 +8,6 @@ from compose_rl.algorithms.online.kl_controller import (
     FixedKLController,
     KLPIDController,
 )
-from compose_rl.algorithms.online.load_planner import \
-    ActorCriticModelLoadPlanner
 from compose_rl.algorithms.online.model import (
     ComposerHFCriticFreePolicyLM,
     ComposerHFPolicyLM,
@@ -36,5 +34,4 @@ __all__ = [
     'HFPolicyConfig',
     'MPTPolicyConfig',
     'CausalLMOutputWithPastAndValues',
-    'ActorCriticModelLoadPlanner',
 ]
