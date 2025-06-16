@@ -77,6 +77,9 @@ def generate_dataloader_builder(
         if streams_dict is not None:
             streams = [Stream(**stream) for stream in streams_dict.values()]
 
+        if isinstance(dataset_cls, MessagesStreamingDataset) and 'tokenizer' not in dataset_cfg:
+            dataset_cfg['tokenizer'] = tokenizer
+
         streaming_dataset = dataset_cls(
             streams=streams,
             batch_size=device_batch_size,

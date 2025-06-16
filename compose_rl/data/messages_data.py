@@ -9,6 +9,7 @@ from typing import Any
 import torch
 from streaming import StreamingDataset
 from transformers import (
+    AutoTokenizer,
     DataCollatorForLanguageModeling,
     PreTrainedTokenizerBase,
 )
@@ -71,12 +72,15 @@ class MessagesStreamingDataset(StreamingDataset):
         self,
         max_gen_len: int,
         max_seq_len: int,
-        tokenizer: PreTrainedTokenizerBase,
+        tokenizer: str | PreTrainedTokenizerBase,
         **kwargs: dict[str, Any],
     ):
         self.max_gen_len = max_gen_len
         self.max_seq_len = max_seq_len
-        self.tokenizer = tokenizer
+        if isinstance(tokenizer, str):
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+        else:
+            self.tokenizer = tokenizer
         super().__init__(**kwargs)
 
     def _validate_messages(self, messages: list[dict[str, str]]) -> bool:
