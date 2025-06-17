@@ -4,7 +4,7 @@
 """Build a prompt dataset and dataloader for training."""
 
 import logging
-from typing import Any
+from typing import Any, TypeAlias
 
 import torch
 from streaming import StreamingDataset
@@ -17,6 +17,8 @@ from transformers import (
 import compose_rl.utils as utils
 
 log = logging.getLogger(__name__)
+
+Messages: TypeAlias = list[dict[str, str]]
 
 
 def messages_dataset_collate_fn(
@@ -39,29 +41,33 @@ def messages_dataset_collate_fn(
         mlm=False,
         mlm_probability=0.0,
     )
-
+    
     keys = batch[0].keys()
-    collated_batch: dict[str, torch.Tensor] = {}
+    collated_batch: dict[str, list[str] | torch.Tensor | list[Messages]] = {}
     for key in keys:
         cur_values = [item[key] for item in batch]
         if key in ['prompt_len']:
             collated_batch[key] = torch.stack(cur_values).squeeze(dim=1)
             continue
-        if key == 'prompt_id':
+        elif key == 'prompt_id':
             collated_batch[key] = torch.tensor(cur_values)
-            continue
-        if key in ['verified_answer']:
+        elif key in ['verified_answer']:
             collated_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
                 utils.flatten(cur_values),
             )
+        elif key == 'messages':
+            collated_batch[key] = cur_values
             continue
-
-        collated_batch[key] = ref_collate_fn(cur_values)['input_ids']
+        elif key == 'prompt':
+            collated_batch[key] = ref_collate_fn(cur_values)['input_ids']
+        else:
+            raise ValueError(f'Invalid key: {key}')
 
     collated_batch['prompt_attention_mask'] = torch.logical_not(
         torch.eq(collated_batch['prompt'],
                  tokenizer.pad_token_id),  # type: ignore
     )
+
     return collated_batch
 
 
@@ -83,13 +89,13 @@ class MessagesStreamingDataset(StreamingDataset):
             self.tokenizer = tokenizer
         super().__init__(**kwargs)
 
-    def _validate_messages(self, messages: list[dict[str, str]]) -> bool:
+    def _validate_messages(self, messages: Messages) -> bool:
         """Validate the messages. A valid message is a list of dictionaries with the following keys:
         - role: str
         - content: str
         
         Args:
-            messages (list[dict[str, str]]): The messages to validate.
+            messages (Messages): The messages to validate.
         Returns:
             bool: True if the messages are valid, False otherwise.
         """
@@ -106,14 +112,14 @@ class MessagesStreamingDataset(StreamingDataset):
                 return False
         return True
 
-    def _tokenize_messages(self, messages: list[str]) -> torch.Tensor:
+    def _tokenize_messages(self, messages: Messages) -> torch.Tensor:
         if not self._validate_messages(messages):
             raise ValueError(f'Invalid messages received. Got: {messages=}')
-        return torch.Tensor(self.tokenizer.apply_chat_template(
+        return torch.tensor(self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
             add_generation_prompt=True,
-        ))
+        ), dtype=torch.int64)
 
     # How to process a sample
     def __getitem__(self, idx: int) -> dict[str, Any]:

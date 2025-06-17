@@ -5,6 +5,7 @@
 
 from functools import partial
 from typing import Any, Callable
+import logging
 
 from streaming import Stream, StreamingDataLoader, StreamingDataset
 from torch.utils.data import DataLoader
@@ -76,8 +77,7 @@ def generate_dataloader_builder(
         streams = None
         if streams_dict is not None:
             streams = [Stream(**stream) for stream in streams_dict.values()]
-
-        if isinstance(dataset_cls, MessagesStreamingDataset) and 'tokenizer' not in dataset_cfg:
+        if issubclass(dataset_cls, MessagesStreamingDataset) and 'tokenizer' not in dataset_cfg:
             dataset_cfg['tokenizer'] = tokenizer
 
         streaming_dataset = dataset_cls(
