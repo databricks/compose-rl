@@ -9,7 +9,7 @@ from functools import partial
 from typing import Any, Mapping, MutableMapping, Optional, Union
 
 import torch
-from composer.utils import dist, is_model_fsdp
+from composer.utils import is_model_fsdp
 from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 
 from compose_rl.algorithms.reward_modeling.base_reward import (
@@ -21,8 +21,8 @@ from compose_rl.algorithms.reward_modeling.hf_utils import \
 from compose_rl.algorithms.reward_modeling.model_methods import (
     ClassifierRewardEnum,
     PairwiseRewardEnum,
-    classifier_forward,
     causal_classifier_forward,
+    classifier_forward,
     classifier_loss,
     pairwise_forward,
     pairwise_loss,
@@ -239,6 +239,7 @@ class ComposerMPTPairwiseRewardModel(ComposerMPTCausalLM, RewardModel):
             self.loss_type,
         )
 
+
 class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
 
     default_train_metrics: tuple = ()
@@ -266,6 +267,9 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
 
         self.min_threshold = kwargs.pop('min_threshold', None)
         self.max_threshold = kwargs.pop('max_threshold', None)
+
+        if tokenizer is None:
+            raise ValueError('Tokenizer must be provided.')
 
         super().__init__(
             tokenizer=tokenizer,
@@ -302,20 +306,25 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
             )
 
         with context_manager():
-            mask = torch.full_like(self.model.lm_head.weight.data, fill_value)
+            mask = torch.full_like(
+                self.model.lm_head.weight.data,
+                fill_value,
+            )  # type: ignore
 
             # mask[self.eos_token_id, :] = self.model.lm_head.weight.data[
             # self.eos_token_id, :]
 
             # Reset the values here? It might help
-            mask[self.eos_token_id, :] = 0.0
+            mask[self.eos_token_id, :] = 0.0  # type: ignore
 
             with torch.no_grad():
-                self.model.lm_head.weight.copy_(mask)
+                self.model.lm_head.weight.copy_(mask)  # type: ignore
 
         with context_manager():
-            print(self.model.lm_head.weight.data[0, :])
-            print(self.model.lm_head.weight.data[self.eos_token_id, :])
+            print(self.model.lm_head.weight.data[0, :])  # type: ignore
+            print(
+                self.model.lm_head.weight.data[self.eos_token_id, :],
+            )  # type: ignore
 
         self.reset_output_embed = True
         logging.info('Finished resetting output embedding layer.')
@@ -355,7 +364,9 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
         batch: MutableMapping,
         outputs: Optional[SequenceClassifierOutput] = None,
     ) -> dict[str, torch.Tensor]:
-        return outputs if outputs is not None else self.forward(batch) # type: ignore
+        return outputs if outputs is not None else self.forward(
+            batch,
+        )  # type: ignore
 
     def loss(self, outputs: SequenceClassifierOutput,
              batch: Mapping) -> dict[str, torch.Tensor]:
