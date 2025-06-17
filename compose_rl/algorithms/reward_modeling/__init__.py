@@ -23,8 +23,8 @@ from compose_rl.algorithms.reward_modeling.hf_utils import (
 from compose_rl.algorithms.reward_modeling.inference_model import \
     InferenceRewardModel
 from compose_rl.algorithms.reward_modeling.model import (
-    ComposerHFClassifierRewardModel,
     ComposerHFCausalClassifierRewardModel,
+    ComposerHFClassifierRewardModel,
     ComposerHFPairwiseRewardModel,
     ComposerMPTPairwiseRewardModel,
 )

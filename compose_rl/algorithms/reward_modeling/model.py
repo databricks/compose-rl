@@ -303,8 +303,8 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
 
         with context_manager():
             mask = torch.full_like(
-                self.model.lm_head.weight.data,
-                fill_value,
+                self.model.lm_head.weight.data,  # type: ignore
+                fill_value,  # type: ignore
             )  # type: ignore
 
             # Reset the values here? It might help

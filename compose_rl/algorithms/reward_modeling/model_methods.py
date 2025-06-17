@@ -223,7 +223,9 @@ def causal_classifier_forward(
 
     # Difference from `causal_forward``: scores are logits of EOS token
     if tokenizer is None:
-        raise ValueError('Tokenizer must be provided for causal classifier forward.')
+        raise ValueError(
+            'Tokenizer must be provided for causal classifier forward.',
+        )
     # Expected Shape: (Batch Size, Max Seq. Length)
     output_scores = model_output.logits[:, :, tokenizer.eos_token_id]
     if return_last:
