@@ -288,7 +288,6 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
         fill_value: float = -100,
     ) -> None:
         """Mask out all but the last embedding for the EOS token."""
-        print('model is: ', self.model)
         logging.info('Resetting output embedding layer.')
 
         context_manager = nullcontext
