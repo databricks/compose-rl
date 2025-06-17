@@ -44,7 +44,8 @@ from torch.distributed.distributed_c10d import (
 )
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from compose_rl.utils.vllm_actor import LLMRayActor
+from compose_rl.algorithms.online.generation_utils.vllm_actor import LLMRayActor
+from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 
 log = logging.getLogger(__name__)
 
@@ -185,6 +186,7 @@ def create_vllm_engines(
     enable_prefix_caching: bool,
     max_model_len: int,
     vllm_gpu_memory_utilization: float = 0.9,
+    load_format: str = 'dummy',
 ):
     """Creates vllm engines.
 
@@ -198,6 +200,7 @@ def create_vllm_engines(
         enable_prefix_caching (bool): Whether to enable prefix caching
         max_model_len (int): Maximum model length
         vllm_gpu_memory_utilization (float): GPU memory utilization for vllm
+        load_format (str): Load format for the model, defaults to 'dummy'
     """
     bundles = [{
         'GPU': 1,
@@ -245,22 +248,23 @@ def create_vllm_engines(
                 revision=revision,  # type: ignore
                 tokenizer_revision=revision,  # type: ignore
                 trust_remote_code=True,  # type: ignore
-                worker_extension_cls= # type: ignore
+                worker_extension_cls=  # type: ignore
                 'compose_rl.utils.vllm_utils.WorkerWrap',
                 tensor_parallel_size=tensor_parallel_size,  # type: ignore
                 enforce_eager=enforce_eager,  # type: ignore
                 dtype='bfloat16',  # type: ignore
                 seed=seed + i,  # type: ignore
-                distributed_executor_backend= # type: ignore
+                distributed_executor_backend=  # type: ignore
                 distributed_executor_backend,
                 enable_prefix_caching=enable_prefix_caching,  # type: ignore
                 max_model_len=max_model_len,  # type: ignore
-                gpu_memory_utilization= # type: ignore
+                gpu_memory_utilization=  # type: ignore
                 vllm_gpu_memory_utilization,
                 bundle_indices=bundle_indices,  # type: ignore
                 num_gpus=1,  # type: ignore
-                noset_visible_devices= # type: ignore
+                noset_visible_devices=  # type: ignore
                 ray_noset_visible_devices(),
+                load_format=load_format,  # type: ignore
             ),
         )
 
@@ -340,7 +344,7 @@ def should_update_torch_module(
     parsed_module_name: str,
     full_param_name: str,
     module: nn.Module,
-    loss_type: str,
+    loss_type: OnPolicyEnum,
     valid_non_leaf_module_names: list[str],
 ):
     """Check if the module should be updated.
@@ -358,10 +362,10 @@ def should_update_torch_module(
     if parsed_module_name not in valid_non_leaf_module_names:
         return False
 
-    if loss_type == 'grpo':
+    if loss_type == OnPolicyEnum.GRPO:
         return True
 
-    if loss_type == 'ppo' and 'lm_backbone' in full_param_name:
+    if loss_type == OnPolicyEnum.PPO and 'lm_backbone' in full_param_name:
         return True
 
     return False
@@ -372,7 +376,7 @@ def broadcast_to_vllm(
     vllm_engines: list,
     model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
-    loss_type: str = 'ppo',
+    loss_type: OnPolicyEnum = OnPolicyEnum.PPO,
 ):
     """Broadcast model weights to all vllm engines.
 
@@ -385,12 +389,12 @@ def broadcast_to_vllm(
     """
     # avoid OOM
     torch.cuda.empty_cache()
-    if loss_type == 'ppo':
+    if loss_type == OnPolicyEnum.PPO:
         # Extract the lm_backbone params from the model
         count, num_params = 0, len(
             list(model.model.lm_backbone.named_parameters()),  # type: ignore
         )
-    elif loss_type == 'grpo':
+    elif loss_type == OnPolicyEnum.GRPO:
         # Directly use the model params
         count, num_params = 0, len(
             list(model.model.named_parameters()),  # type: ignore
@@ -439,7 +443,7 @@ def broadcast_to_vllm(
         if isinstance(module, FSDP):
             # This is needed otherwise FSDP will materialize parameters of size 0.
             # So just for the joint actor critic models we have to actually skip this module.
-            if module_name == 'model' and loss_type == 'ppo':
+            if module_name == 'model' and loss_type == OnPolicyEnum.PPO:
                 continue
 
             # Only update if we haven't updated this module before

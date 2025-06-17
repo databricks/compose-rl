@@ -12,7 +12,10 @@ import torch
 from composer.utils import dist
 from mcli import config as mcli_config
 
-from compose_rl.reward_learning.base_reward import RewardModel, Tokenizer
+from compose_rl.algorithms.reward_modeling.base_reward import (
+    RewardModel,
+    Tokenizer,
+)
 from compose_rl.utils import get_remote_name
 
 log = logging.getLogger(__name__)

@@ -15,7 +15,8 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from compose_rl.reward_learning.hf_utils import SequenceClassifierOutput
+from compose_rl.algorithms.reward_modeling.hf_utils import \
+    SequenceClassifierOutput
 from compose_rl.utils import (
     clear_mb_load_balancing_loss,
     extract_packed_chosen_rejected,

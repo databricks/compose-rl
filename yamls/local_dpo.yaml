@@ -2,7 +2,7 @@ run_name: local-llama8b-dpo
 seed: 17
 model:
   beta: 0.01
-  name: hf_dpo_lm
+  name: hf_pairwise_offline_lm
   loss_type: dpo
   pretrained: true
   use_auth_token: true
@@ -14,7 +14,7 @@ loggers:
     experiment_name: brandon_dpo_test
 
 callbacks:
-  dpo: {}
+  offline_rl: {}
   lr_monitor: {}
   speed_monitor:
     window_size: 10

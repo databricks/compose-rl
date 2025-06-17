@@ -17,13 +17,14 @@ from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 from transformers.models.gpt2 import GPT2LMHeadModel
 
-from compose_rl.data import prompt_dataset_collate_fn, messages_dataset_collate_fn
-from compose_rl.ppo import (
-    ComposerHFPolicyModel,
-    ComposerMosaicPolicy,
-    PPOCallback,
+from compose_rl.algorithms.online import (
+    ComposerHFPolicyLM,
+    ComposerMPTPolicyLM,
+    OnPolicyCallback,
 )
-from compose_rl.ppo.modeling_hf import ComposerHFPolicy
+from compose_rl.algorithms.online.model_methods import OnPolicyEnum
+from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
+from compose_rl.data import prompt_dataset_collate_fn, messages_dataset_collate_fn
 from tests.common import PromptDataset, VerifiablePromptDataset, VerifiableMessagesDataset, world_size
 
 
@@ -41,13 +42,13 @@ def test_hf_ppo_model_construction(
         'pretrained_model_name_or_path': local_save_path,
         'pretrained': False,
         'attn_implementation': 'sdpa',
-        'loss_type': 'hi',
+        'loss_type': 'ppo',
     }
-    model = ComposerHFPolicyModel(**model_config)
-    assert isinstance(model, ComposerHFPolicyModel)
+    model = ComposerHFPolicyLM(**model_config)
+    assert isinstance(model, ComposerHFPolicyLM)
     assert isinstance(model.model.lm_backbone, GPT2LMHeadModel)
 
-    assert model.loss_type == 'hi'
+    assert model.loss_type == OnPolicyEnum.PPO
     assert model.model.lm_backbone.config._attn_implementation == 'sdpa'
     assert model.shift_labels is True
 
@@ -113,7 +114,7 @@ def test_model_forward(
             },
             'tokenizer': tiny_gpt2_tokenizer,
         }
-        model = ComposerMosaicPolicy(**model_config)
+        model = ComposerMPTPolicyLM(**model_config)
     elif model_type == 'hf':
         model_name = 'gpt2'
         model_config = {
@@ -121,7 +122,7 @@ def test_model_forward(
             'pretrained_model_name_or_path': model_name,
             'pretrained': True,
         }
-        model = ComposerHFPolicyModel(**model_config)
+        model = ComposerHFPolicyLM(**model_config)
     else:
         raise ValueError(f'Unknown model type: {model_type}')
 
@@ -226,9 +227,9 @@ def test_ppo_train(
     tmp_ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
 
     if model_type == 'mpt':
-        model = ComposerMosaicPolicy(**model_config)
+        model = ComposerMPTPolicyLM(**model_config)
     elif model_type == 'hf':
-        model = ComposerHFPolicyModel(**model_config)
+        model = ComposerHFPolicyLM(**model_config)
 
     optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
 
@@ -287,7 +288,7 @@ def test_ppo_train(
     trainer = Trainer(
         model=model,
         optimizers=optimizer,
-        callbacks=PPOCallback(train_config=copy.deepcopy(train_config)),
+        callbacks=OnPolicyCallback(train_config=copy.deepcopy(train_config)),
         train_dataloader=dataloader,
         precision=precision,
         parallelism_config={'fsdp': fsdp_config},
@@ -310,15 +311,15 @@ def test_ppo_train(
 
     # Continue training for the remaining iterations
     if model_type == 'mpt':
-        model = ComposerMosaicPolicy(**model_config)
+        model = ComposerMPTPolicyLM(**model_config)
     elif model_type == 'hf':
-        model = ComposerHFPolicyModel(**model_config)
+        model = ComposerHFPolicyLM(**model_config)
 
     optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
     trainer_2 = Trainer(
         model=model,
         optimizers=optimizer,
-        callbacks=PPOCallback(train_config=copy.deepcopy(train_config)),
+        callbacks=OnPolicyCallback(train_config=copy.deepcopy(train_config)),
         train_dataloader=dataloader,
         precision=precision,
         parallelism_config={'fsdp': fsdp_config},

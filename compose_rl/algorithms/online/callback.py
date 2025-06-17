@@ -1,7 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""PPO callback."""
+"""Online On-Policy RL callback."""
 
 from __future__ import annotations
 
@@ -29,35 +29,45 @@ from composer.utils import dist, ensure_tuple
 from llmfoundry.interfaces import CallbackWithConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-import compose_rl.utils as utils
-from compose_rl.ppo.buffer import MinibatchRolloutBuffer
-from compose_rl.ppo.generation_utils import hf_generate, vllm_generate
-from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
-from compose_rl.ppo.reward_manager import (
+from compose_rl.algorithms.online.generation_utils import (
+    broadcast_to_vllm,
+    create_vllm_engines,
+    hf_generate,
+    init_process_group,
+    vllm_generate,
+)
+from compose_rl.algorithms.online.model import (
+    ComposerHFPolicyLM,
+    ComposerMPTPolicyLM,
+)
+from compose_rl.algorithms.online.model_methods import (
+    OnPolicyEnum,
+)
+from compose_rl.algorithms.online.reward_manager import (
     ReferenceOutput,
     RewardManager,
     RewardOutput,
 )
+from compose_rl.data.buffer import MinibatchRolloutBuffer
 from compose_rl.registry_builders import build_kl_controller
 from compose_rl.utils import (
     add_right_padding,
-    broadcast_to_vllm,
     compute_advantages,
-    create_vllm_engines,
     dist_compute_masked_mean_and_var,
+    flatten,
     get_decoded_sequence,
     get_entropies,
     get_log_probs,
-    init_process_group,
     mask_eos,
     masked_mean,
+    masked_sum,
     switch_left_to_right_padding,
 )
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
-Policy = Union[ComposerHFPolicyModel, ComposerMosaicPolicy]
+Policy = Union[ComposerHFPolicyLM, ComposerMPTPolicyLM]
 
-__all__ = ['PPOCallback', 'env_reward']
+__all__ = ['OnPolicyCallback', 'env_reward']
 
 log = logging.getLogger(__name__)
 
@@ -303,8 +313,8 @@ def env_reward(
     )
 
 
-class PPOCallback(CallbackWithConfig):
-    """Callback for managing PPO training in an RLHF loop.
+class OnPolicyCallback(CallbackWithConfig):
+    """Callback for managing on-policy training in an RLHF loop.
 
     Args:
         train_config (dict): Training config passed to callback via foundry train.py as
@@ -489,7 +499,7 @@ class PPOCallback(CallbackWithConfig):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
 
-        if self.actor_critic.loss_type == 'grpo':
+        if self.actor_critic.loss_type == OnPolicyEnum.GRPO:
             assert self.generations_per_prompt > 1, \
                 'GRPO requires multiple generations per prompt. ' + \
                 f'Current generations_per_prompt is: {self.generations_per_prompt}.'
@@ -638,7 +648,7 @@ class PPOCallback(CallbackWithConfig):
                 # Explode the batch into multiple batches for each generation
                 for _ in range(self.generations_per_prompt):
                     # For keys that do not require additional processing
-                    if key in ['prompt_len', 'verified_answer', 'prompt_id', 'messages']:
+                    if key in ['prompt_len', 'verified_answer', 'prompt_id']:
                         curr_values.append(batch[key])
                         continue
 
@@ -667,11 +677,7 @@ class PPOCallback(CallbackWithConfig):
                 ret_batch[key] = torch.cat(curr_values)
             else:
                 if key == 'verified_answer':
-                    ret_batch[key] = list(utils.flatten(curr_values))
-                elif key == 'messages':
-                    # the messages should be [num_batches_per_update, batch_size, num_turns]
-                    # need to flatten this to [num_batches_per_update * batch_size, num_turns]
-                    ret_batch[key] = [message_chain for batch in curr_values for message_chain in batch]
+                    ret_batch[key] = list(flatten(curr_values))
                 else:
                     # this is an edge case that we will not hit currently, but just handling it as needed
                     ret_batch[key] = curr_values
@@ -751,6 +757,9 @@ class PPOCallback(CallbackWithConfig):
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
+        log.debug('Beginning reward computation for the rollout.')
+        start_reward_time = time.time()
+
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore
             reward_manager=self.reward_manager,
@@ -762,6 +771,12 @@ class PPOCallback(CallbackWithConfig):
             eos_token_ids=self.eos_token_ids,  # type: ignore
             kl_estimator=self.kl_estimator,
             kl_clip_range=self.kl_clip_range,
+        )
+
+        end_reward_time = time.time()
+        total_reward_time = end_reward_time - start_reward_time
+        log.debug(
+            f'Finished reward computation for the rollout in {total_reward_time:.4f} seconds.',
         )
 
         self.prompts_and_gens.extend(prompts_and_gens)
@@ -857,20 +872,20 @@ class PPOCallback(CallbackWithConfig):
         )
 
         # Now that rewards are resolved, we can compute advantages
-        if self.actor_critic.loss_type == 'ppo':
+        if self.actor_critic.loss_type == OnPolicyEnum.PPO:
             env_outs['advantages'] = compute_advantages(
                 rewards=env_outs['rewards'],
                 values=env_outs['values'],
                 gamma=self.gamma,
                 lambda_gae=self.lambda_gae,
             )
-        elif self.actor_critic.loss_type == 'grpo':
+        elif self.actor_critic.loss_type == OnPolicyEnum.GRPO:
             # compute GRPO advantages
             prompt_id = env_outs['prompt_id']
             rewards = env_outs['rewards']
 
             # Flatten the rewards by summing on sequence length/action_mask
-            flat_rewards = utils.masked_sum(
+            flat_rewards = masked_sum(
                 rewards,
                 env_outs['action_mask'],
                 dim=-1,
@@ -940,7 +955,6 @@ class PPOCallback(CallbackWithConfig):
             env_outs['ift_kl'],
             env_outs['action_mask'],
         )
-
         self.kl_ift.append(mean_ift.cpu())
 
         iter_batch.update(env_outs)
@@ -970,7 +984,7 @@ class PPOCallback(CallbackWithConfig):
     def _log_generations_to_logger(self, state: State):
         # Gather all prompts, generations, prompt_ids and rewards from all ranks
         prompts_and_gens = list(
-            chain(*dist.all_gather_object(self.prompts_and_gens)), 
+            chain(*dist.all_gather_object(self.prompts_and_gens)),
         )
         prompt_ids_rewards_and_answers = list(
             chain(*dist.all_gather_object(self.prompt_ids_rewards_and_answers)),
@@ -1103,6 +1117,7 @@ class PPOCallback(CallbackWithConfig):
             self.vllm_engines,
             self.model_update_group,
             batch,
+            #loss_type=self.actor_critic.loss_type.value,  # type: ignore
             loss_type=self.actor_critic.loss_type,  # type: ignore
         )
         log.info('Finished broadcasting to vLLM')

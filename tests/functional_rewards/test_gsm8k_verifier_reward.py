@@ -9,7 +9,7 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from compose_rl.reward_learning import GSM8KVeriferReward
+from compose_rl.algorithms.reward_modeling import GSM8KVeriferReward
 
 
 @pytest.fixture

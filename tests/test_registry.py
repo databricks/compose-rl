@@ -7,7 +7,7 @@ import catalogue
 from llmfoundry.utils import registry_utils
 
 from compose_rl import registry
-from compose_rl.reward_learning.functional import OutputLengthReward
+from compose_rl.algorithms.reward_modeling.functional import OutputLengthReward
 
 
 def test_expected_registries_exist():
@@ -26,7 +26,7 @@ def test_expected_registries_exist():
 def test_registry_init_code(tmp_path: pathlib.Path):
     register_code = """
 from compose_rl.registry import rewards
-from compose_rl.reward_learning.functional import OutputLengthReward
+from compose_rl.algorithms.reward_modeling.functional import OutputLengthReward
 
 @rewards.register('test_reward')
 class TestReward(OutputLengthReward):

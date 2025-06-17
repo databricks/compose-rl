@@ -1,6 +1,16 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
+from compose_rl.utils.rlvr_utils import (
+    extract_gsm8k_answer,
+    extract_math_answer,
+    is_equiv,
+    last_boxed_only_string,
+    normalize_final_answer,
+    prepare_gsm8k_prompt,
+    prepare_math_prompt,
+    remove_boxed,
+)
 from compose_rl.utils.utils import (
     add_right_padding,
     approx_kl,
@@ -39,11 +49,6 @@ from compose_rl.utils.utils import (
     split_text_to_subsentences,
     switch_left_to_right_padding,
 )
-from compose_rl.utils.vllm_utils import (
-    broadcast_to_vllm,
-    create_vllm_engines,
-    init_process_group,
-)
 
 __all__ = [
     'get_mb_load_balancing_loss',
@@ -80,9 +85,14 @@ __all__ = [
     'make_padded_tensor',
     'get_batch_logp',
     'make_action_mask',
-    'create_vllm_engines',
-    'init_process_group',
-    'broadcast_to_vllm',
     'flatten',
     'sample_wise_masked_mean',
+    'extract_gsm8k_answer',
+    'extract_math_answer',
+    'is_equiv',
+    'last_boxed_only_string',
+    'normalize_final_answer',
+    'prepare_gsm8k_prompt',
+    'prepare_math_prompt',
+    'remove_boxed',
 ]
