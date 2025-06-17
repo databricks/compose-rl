@@ -311,8 +311,6 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
                 fill_value,
             )  # type: ignore
 
-            # mask[self.eos_token_id, :] = self.model.lm_head.weight.data[
-            # self.eos_token_id, :]
 
             # Reset the values here? It might help
             mask[self.eos_token_id, :] = 0.0  # type: ignore
@@ -320,11 +318,6 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
             with torch.no_grad():
                 self.model.lm_head.weight.copy_(mask)  # type: ignore
 
-        with context_manager():
-            print(self.model.lm_head.weight.data[0, :])  # type: ignore
-            print(
-                self.model.lm_head.weight.data[self.eos_token_id, :],
-            )  # type: ignore
 
         self.reset_output_embed = True
         logging.info('Finished resetting output embedding layer.')
