@@ -283,10 +283,6 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
         self.reset_output_embed = False
         self.should_reset_output_embed = should_reset_output_embed
 
-        # if kwargs['init_device'] == 'mixed':
-        # if dist.get_global_rank() == 0:
-        # self.mask_last_embed_except_eos()
-
     def mask_last_embed_except_eos(
         self,
         fill_value: float = -100,
@@ -311,13 +307,11 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
                 fill_value,
             )  # type: ignore
 
-
             # Reset the values here? It might help
             mask[self.eos_token_id, :] = 0.0  # type: ignore
 
             with torch.no_grad():
                 self.model.lm_head.weight.copy_(mask)  # type: ignore
-
 
         self.reset_output_embed = True
         logging.info('Finished resetting output embedding layer.')
