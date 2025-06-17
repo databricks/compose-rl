@@ -249,7 +249,7 @@ def create_vllm_engines(
                 tokenizer_revision=revision,  # type: ignore
                 trust_remote_code=True,  # type: ignore
                 worker_extension_cls=  # type: ignore
-                'compose_rl.utils.vllm_utils.WorkerWrap',
+                'compose_rl.algorithms.online.generation_utils.vllm_utils.WorkerWrap',
                 tensor_parallel_size=tensor_parallel_size,  # type: ignore
                 enforce_eager=enforce_eager,  # type: ignore
                 dtype='bfloat16',  # type: ignore
