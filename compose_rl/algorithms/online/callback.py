@@ -423,11 +423,13 @@ class OnPolicyCallback(CallbackWithConfig):
             self.num_batches_per_update,
         )
 
-        log.info(f"Per iteration using: {self.num_unique_prompts_per_iter} prompts.")
+        log.info(
+            f"Per iteration using: {self.num_unique_prompts_per_iter} prompts.",
+        )
 
-        if self.num_batches_per_update % self.generations_per_prompt != 0:
+        if self.num_unique_prompts_per_iter * self.generations_per_prompt != self.global_train_batch_size * self.num_batches_per_update:
             raise ValueError(
-                f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}',
+                f'{self.num_unique_prompts_per_iter=} * {self.generations_per_prompt=} must equal {self.global_train_batch_size=} * {self.num_batches_per_update=}',
             )
 
         self.epochs_per_iteration = ensure_time(
