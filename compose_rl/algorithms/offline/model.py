@@ -1,7 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""DPO Composer Implementation."""
+"""Pairwise Offline RL Composer Implementation."""
 
 from __future__ import annotations
 
@@ -13,14 +13,18 @@ from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from compose_rl.dpo.model_methods import DPOEnum, dpo_forward, dpo_loss
+from compose_rl.algorithms.offline.model_methods import (
+    PairwiseOfflineEnum,
+    pairwise_offline_forward,
+    pairwise_offline_loss,
+)
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
 log = logging.getLogger(__name__)
 
 
-class ComposerDPOLM(ComposerMPTCausalLM):
+class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
     """MPT model wrapper for DPO model."""
 
     def __init__(
@@ -32,7 +36,7 @@ class ComposerDPOLM(ComposerMPTCausalLM):
         average_log_prob: bool = False,
         **kwargs: Any,
     ):
-        self.loss_type = DPOEnum(loss_type)
+        self.loss_type = PairwiseOfflineEnum(loss_type)
         self.beta = beta
         self.label_smoothing = label_smoothing
         self.sft_alpha = sft_alpha
@@ -43,7 +47,7 @@ class ComposerDPOLM(ComposerMPTCausalLM):
 
     def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
         assert self.tokenizer is not None
-        return dpo_forward(
+        return pairwise_offline_forward(
             model=self.model,
             tokenizer=self.tokenizer,
             batch=batch,
@@ -62,7 +66,7 @@ class ComposerDPOLM(ComposerMPTCausalLM):
 
     def loss(self, outputs: CausalLMOutputWithPast,
              batch: Mapping) -> dict[str, torch.Tensor]:
-        return dpo_loss(
+        return pairwise_offline_loss(
             outputs,
             batch,
             self.loss_type,
@@ -72,7 +76,7 @@ class ComposerDPOLM(ComposerMPTCausalLM):
         )
 
 
-class ComposerHFDPOLM(ComposerHFCausalLM):
+class ComposerHFPairwiseOfflinePolicyLM(ComposerHFCausalLM):
     """HF class wrapper for DPO model."""
 
     def __init__(
@@ -84,7 +88,7 @@ class ComposerHFDPOLM(ComposerHFCausalLM):
         average_log_prob: bool = False,
         **kwargs: Any,
     ):
-        self.loss_type = DPOEnum(loss_type)
+        self.loss_type = PairwiseOfflineEnum(loss_type)
         self.beta = beta
         self.label_smoothing = label_smoothing
         self.sft_alpha = sft_alpha
@@ -95,7 +99,7 @@ class ComposerHFDPOLM(ComposerHFCausalLM):
 
     def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
         assert self.tokenizer is not None
-        return dpo_forward(
+        return pairwise_offline_forward(
             model=self.model,
             tokenizer=self.tokenizer,
             batch=batch,
@@ -111,7 +115,7 @@ class ComposerHFDPOLM(ComposerHFCausalLM):
 
     def loss(self, outputs: CausalLMOutputWithPast,
              batch: Mapping) -> dict[str, torch.Tensor]:
-        return dpo_loss(
+        return pairwise_offline_loss(
             outputs,
             batch,
             self.loss_type,

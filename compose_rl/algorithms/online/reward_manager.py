@@ -20,16 +20,16 @@ from llmfoundry.utils.config_utils import process_init_device  # type: ignore
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from compose_rl.interfaces.base_kl_controller import BaseKLController
-from compose_rl.registry import rewards as rewards_registry
-from compose_rl.registry_builders import build_reward
-from compose_rl.reward_learning import (
+from compose_rl.algorithms.reward_modeling import (
     BadGenerationEndReward,
     BaseReward,
     InferenceRewardModel,
     Reward,
     RewardModel,
 )
+from compose_rl.interfaces.base_kl_controller import BaseKLController
+from compose_rl.registry import rewards as rewards_registry
+from compose_rl.registry_builders import build_reward
 from compose_rl.utils import (
     approx_kl,
     batch_process_fine_granularities,
@@ -160,10 +160,13 @@ class RewardManager:
         self.granularity_types = list(set(self.granularities.values()))
 
         self.pool = None
+        self._num_reward_procs = None
         if self.inference_rewards or self.functional_rewards:
+            self._num_reward_procs = (
+                len(self.inference_rewards) + len(self.functional_rewards)
+            )
             self.pool = Pool(
-                processes=len(self.inference_rewards) +
-                len(self.functional_rewards),
+                processes=self._num_reward_procs,
                 context=get_context('spawn'),
             )
 
@@ -580,6 +583,7 @@ class RewardManager:
         resolved_reward_outputs: dict[str, torch.Tensor] = {}
         bad_end_generation_mask = None
         bad_end_generation_name = None
+        encountered_timeout = False
         for name, subreward in reward_output.items():
             if isinstance(subreward, AsyncResult):
                 try:
@@ -587,6 +591,7 @@ class RewardManager:
                         timeout=self.all_rewards[name].BLOCKING_TIMEOUT,
                     )
                 except TimeoutError:
+                    encountered_timeout = True
                     log.error(
                         f'Timeout while waiting for {name} reward to finish. ' +
                         'This may indicate a problem with the reward. Using a default reward of 0.',
@@ -607,6 +612,18 @@ class RewardManager:
                 bad_end_generation_mask = bad_end_generation_mask.to(
                     device=device,
                 )
+
+        # Rather than trying to signal to the stuck process, or do anything more careful,
+        # since we know we are fully done with reward computation, we can just recreate the pool
+        # to ensure that all processes are cleaned up and we can continue without resources leaking.
+        if encountered_timeout and self.pool is not None:
+            self.pool.terminate()
+            self.pool.join()
+
+            self.pool = Pool(
+                processes=self._num_reward_procs,
+                context=get_context('spawn'),
+            )
 
         ref_kl = ref_output[0].to(device=device)
         ref_log_probs = ref_output[1].to(device=device)

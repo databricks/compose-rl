@@ -25,8 +25,11 @@ from composer.core import Precision
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizerBase
 
-from compose_rl.ppo.reward_manager import RewardManager, RewardOutput
-from compose_rl.reward_learning import InferenceRewardModel
+from compose_rl.algorithms.online.reward_manager import (
+    RewardManager,
+    RewardOutput,
+)
+from compose_rl.algorithms.reward_modeling import InferenceRewardModel
 
 
 class MockAsyncResult(AsyncResult):
@@ -89,7 +92,9 @@ def mock_reward_manager(
 
     # Create RewardManager with minimal initialization
     with patch.object(RewardManager, 'initialize_composer_model') as mock_init:
-        with patch('compose_rl.ppo.reward_manager.spacy.load') as mock_spacy:
+        with patch(
+            'compose_rl.algorithms.online.reward_manager.spacy.load',
+        ) as mock_spacy:
             mock_ref_model = Mock()
             mock_init.return_value = mock_ref_model
 
@@ -99,10 +104,10 @@ def mock_reward_manager(
 
             # Patch the reward registry and build_reward
             with patch(
-                'compose_rl.ppo.reward_manager.rewards_registry',
+                'compose_rl.algorithms.online.reward_manager.rewards_registry',
             ) as mock_registry:
                 with patch(
-                    'compose_rl.ppo.reward_manager.build_reward',
+                    'compose_rl.algorithms.online.reward_manager.build_reward',
                 ) as mock_build:
                     mock_registry.get.return_value = InferenceRewardModel
                     mock_reward_model = MockRewardModel()
@@ -148,7 +153,7 @@ def test_async_timeout_creates_zero_reward(
     mock_kl_ctl.value = 0.1
 
     # Test resolve_outputs with timeout
-    with patch('compose_rl.ppo.reward_manager.log') as mock_log:
+    with patch('compose_rl.algorithms.online.reward_manager.log') as mock_log:
         outputs = mock_reward_manager.resolve_outputs(
             ref_output=ref_output,
             reward_output=reward_output,
@@ -250,7 +255,7 @@ def test_mixed_timeout_and_success(mock_reward_manager: RewardManager) -> None:
     mock_kl_ctl.value = 0.1
 
     # Test resolve_outputs
-    with patch('compose_rl.ppo.reward_manager.log'):
+    with patch('compose_rl.algorithms.online.reward_manager.log'):
         outputs = mock_reward_manager.resolve_outputs(
             ref_output=ref_output,
             reward_output=reward_output,

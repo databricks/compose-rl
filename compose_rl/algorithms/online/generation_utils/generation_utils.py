@@ -13,14 +13,17 @@ import torch
 from composer.utils import dist
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from compose_rl.ppo.model import ComposerHFPolicyModel, ComposerMosaicPolicy
+from compose_rl.algorithms.online.model import (
+    ComposerHFPolicyLM,
+    ComposerMPTPolicyLM,
+)
 from compose_rl.utils import (
     flip_pad_token_usage_for_generate,
     flip_pad_token_usage_in_ffn,
 )
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
-Policy = Union[ComposerHFPolicyModel, ComposerMosaicPolicy]
+Policy = Union[ComposerHFPolicyLM, ComposerMPTPolicyLM]
 
 log = logging.getLogger(__name__)
 

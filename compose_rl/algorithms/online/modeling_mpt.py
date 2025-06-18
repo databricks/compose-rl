@@ -1,7 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""MPT definition of a PPO Policy."""
+"""MPT definition of an online RL Policy."""
 
 import logging
 from typing import Any, Optional
@@ -11,11 +11,11 @@ import torch.nn as nn
 from llmfoundry.models import MPTForCausalLM
 from transformers import PreTrainedModel
 
-from compose_rl.ppo.modeling_utils import (
+from compose_rl.algorithms.online.model_methods import (
     CausalLMOutputWithPastAndValues,
     prepare_critic_values_for_training,
 )
-from compose_rl.ppo.policy_configuration import MPTPolicyConfig
+from compose_rl.algorithms.online.policy_configuration import MPTPolicyConfig
 
 log = logging.getLogger(__name__)
 

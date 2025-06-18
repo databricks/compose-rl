@@ -1,12 +1,12 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-from compose_rl.reward_learning.base_reward import (
+from compose_rl.algorithms.reward_modeling.base_reward import (
     BaseReward,
     Reward,
     RewardModel,
 )
-from compose_rl.reward_learning.functional import (
+from compose_rl.algorithms.reward_modeling.functional import (
     BadGenerationEndReward,
     GSM8KFormatVeriferReward,
     GSM8KVeriferReward,
@@ -16,12 +16,13 @@ from compose_rl.reward_learning.functional import (
     OutputLengthReward,
     ShortResponseReward,
 )
-from compose_rl.reward_learning.hf_utils import (
+from compose_rl.algorithms.reward_modeling.hf_utils import (
     AutoModelForCausalLMWithRM,
     RewardModelConfig,
 )
-from compose_rl.reward_learning.inference_model import InferenceRewardModel
-from compose_rl.reward_learning.model import (
+from compose_rl.algorithms.reward_modeling.inference_model import \
+    InferenceRewardModel
+from compose_rl.algorithms.reward_modeling.model import (
     ComposerHFClassifierRewardModel,
     ComposerHFPairwiseRewardModel,
     ComposerMPTPairwiseRewardModel,
