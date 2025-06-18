@@ -41,6 +41,7 @@ from compose_rl.algorithms.online.model import (
     ComposerMPTPolicyLM,
 )
 from compose_rl.algorithms.online.model_methods import (
+    ALGORITHM_TYPE,
     OnPolicyEnum,
 )
 from compose_rl.algorithms.online.reward_manager import (
@@ -871,16 +872,114 @@ class OnPolicyCallback(CallbackWithConfig):
             torch.eq(env_outs['obs'], self.pad_token_idx),  # type: ignore
         )
 
-        # Now that rewards are resolved, we can compute advantages
-        if self.actor_critic.loss_type == OnPolicyEnum.PPO:
-            env_outs['advantages'] = compute_advantages(
-                rewards=env_outs['rewards'],
-                values=env_outs['values'],
-                gamma=self.gamma,
-                lambda_gae=self.lambda_gae,
+        if self.actor_critic.loss_type in ALGORITHM_TYPE.CLIPPED_PG:
+            # Now that rewards are resolved, we can compute advantages
+            if self.actor_critic.loss_type == OnPolicyEnum.PPO:
+                env_outs['advantages'] = compute_advantages(
+                    rewards=env_outs['rewards'],
+                    values=env_outs['values'],
+                    gamma=self.gamma,
+                    lambda_gae=self.lambda_gae,
+                )
+            elif self.actor_critic.loss_type == OnPolicyEnum.GRPO:
+                # compute GRPO advantages
+                prompt_id = env_outs['prompt_id']
+                rewards = env_outs['rewards']
+
+                # Flatten the rewards by summing on sequence length/action_mask
+                flat_rewards = masked_sum(
+                    rewards,
+                    env_outs['action_mask'],
+                    dim=-1,
+                )
+
+                # Get unique prompt IDs and their indices
+                unique_prompt_ids, inverse_indices = torch.unique(
+                    prompt_id,
+                    return_inverse=True,
+                )
+
+                # Use scatter to compute means and standard deviations
+                # First, we'll create a tensor to track counts, sums, and sum of squares
+                n_unique = len(unique_prompt_ids)
+                counts = torch.zeros(n_unique, device=prompt_id.device)
+                sums = torch.zeros(n_unique, device=prompt_id.device)
+                sum_squares = torch.zeros(n_unique, device=prompt_id.device)
+
+                # Use scatter_add to accumulate values
+                counts.scatter_add_(
+                    0,
+                    inverse_indices,
+                    torch.ones_like(flat_rewards),
+                )
+                sums.scatter_add_(0, inverse_indices, flat_rewards)
+                sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
+
+                # Compute means and standard deviations
+                means = sums / counts
+                variances = (sum_squares / counts) - (means**2)
+                stds = torch.sqrt(variances)
+
+                # Map back to original tensor shape
+                mean_rewards = means[inverse_indices]
+                std_rewards = stds[inverse_indices]
+
+                # Calculate GRPO advantage
+                grpo_advantage = (flat_rewards - mean_rewards)
+                # Only normalize the advantage if flag is set
+                if self.actor_critic.normalize_advantage:
+                    grpo_advantage /= (std_rewards + 1e-4)
+
+                # Create advantages of the same shape as original rewards
+                advantages = torch.zeros_like(rewards)
+                # Copy the flat grpo_advantage according to action_mask
+                expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
+                    env_outs['action_mask'],
+                )
+                advantages = torch.where(
+                    env_outs['action_mask'].bool(),
+                    expanded_advantages,
+                    advantages,
+                )
+                env_outs['advantages'] = advantages
+            else:
+                raise ValueError(
+                    f'Invalid loss type: {self.actor_critic.loss_type}. ' +
+                    'Valid options are: ppo, grpo.',
+                )
+
+            batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
+                env_outs['advantages'],
+                env_outs['action_mask'],
             )
-        elif self.actor_critic.loss_type == OnPolicyEnum.GRPO:
-            # compute GRPO advantages
+
+            mean_ift = masked_mean(
+                env_outs['ift_kl'],
+                env_outs['action_mask'],
+            )
+            self.kl_ift.append(mean_ift.cpu())
+
+            iter_batch.update(env_outs)
+
+            iter_batch.update({
+                'max_gen_len':
+                    torch.ones(self.iter_batch_size).to(torch.int32) *
+                    self.max_gen_len,
+                'adv_masked_mean':
+                    torch.ones(self.iter_batch_size) * batch_adv_mean.cpu(),
+                'adv_masked_var':
+                    torch.ones(self.iter_batch_size) * batch_adv_var.cpu(),
+                'ift_kl_scalar':
+                    torch.ones(self.iter_batch_size) * self.kl_ctl.value,
+                'reward_std':
+                    torch.ones(self.iter_batch_size) *
+                    env_outs['rewards'].std().to('cpu'),
+            })
+        elif self.actor_critic.loss_type == OnPolicyEnum.REBEL:
+            # TODO: need to figure out how to remove the need for advantages in batch
+            env_outs['advantages'] = torch.ones_like(env_outs['action_mask'])
+
+            # Get IDs
             prompt_id = env_outs['prompt_id']
             rewards = env_outs['rewards']
 
@@ -891,88 +990,31 @@ class OnPolicyCallback(CallbackWithConfig):
                 dim=-1,
             )
 
-            # Get unique prompt IDs and their indices
-            unique_prompt_ids, inverse_indices = torch.unique(
-                prompt_id,
+            # Assuming 2 generations per prompt and packing them for preferences
+            unique_ids, inverse_indices, counts = torch.unique(
+                prompt_id, 
                 return_inverse=True,
+                return_counts=True
             )
 
-            # Use scatter to compute means and standard deviations
-            # First, we'll create a tensor to track counts, sums, and sum of squares
-            n_unique = len(unique_prompt_ids)
-            counts = torch.zeros(n_unique, device=prompt_id.device)
-            sums = torch.zeros(n_unique, device=prompt_id.device)
-            sum_squares = torch.zeros(n_unique, device=prompt_id.device)
+            # Assumption for REBEL: 2 generations, verify all IDs appear exactly twice
+            assert torch.all(counts == 2)
 
-            # Use scatter_add to accumulate values
-            counts.scatter_add_(
-                0,
-                inverse_indices,
-                torch.ones_like(flat_rewards),
-            )
-            sums.scatter_add_(0, inverse_indices, flat_rewards)
-            sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
+            # Sort for grouping
+            sorted_indices = torch.argsort(inverse_indices)
+            pair_indices = sorted_indices.view(-1, 2)
 
-            # Compute means and standard deviations
-            means = sums / counts
-            variances = (sum_squares / counts) - (means**2)
-            stds = torch.sqrt(variances)
+            # Keys needed to gather into pairs
+            # obs (i.e. input ids)
+            # 
+            # ift_log_probs - if we use ref probs
+            # old_log_probs - if we use pi old
+            # flat_rewards
 
-            # Map back to original tensor shape
-            mean_rewards = means[inverse_indices]
-            std_rewards = stds[inverse_indices]
 
-            # Calculate GRPO advantage
-            grpo_advantage = (flat_rewards - mean_rewards)
-            # Only normalize the advantage if flag is set
-            if self.actor_critic.normalize_advantage:
-                grpo_advantage /= (std_rewards + 1e-4)
 
-            # Create advantages of the same shape as original rewards
-            advantages = torch.zeros_like(rewards)
-            # Copy the flat grpo_advantage according to action_mask
-            expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
-                env_outs['action_mask'],
-            )
-            advantages = torch.where(
-                env_outs['action_mask'].bool(),
-                expanded_advantages,
-                advantages,
-            )
-            env_outs['advantages'] = advantages
-        else:
-            raise ValueError(
-                f'Invalid loss type: {self.actor_critic.loss_type}. ' +
-                'Valid options are: ppo, grpo.',
-            )
 
-        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            env_outs['advantages'],
-            env_outs['action_mask'],
-        )
 
-        mean_ift = masked_mean(
-            env_outs['ift_kl'],
-            env_outs['action_mask'],
-        )
-        self.kl_ift.append(mean_ift.cpu())
-
-        iter_batch.update(env_outs)
-
-        iter_batch.update({
-            'max_gen_len':
-                torch.ones(self.iter_batch_size).to(torch.int32) *
-                self.max_gen_len,
-            'adv_masked_mean':
-                torch.ones(self.iter_batch_size) * batch_adv_mean.cpu(),
-            'adv_masked_var':
-                torch.ones(self.iter_batch_size) * batch_adv_var.cpu(),
-            'ift_kl_scalar':
-                torch.ones(self.iter_batch_size) * self.kl_ctl.value,
-            'reward_std':
-                torch.ones(self.iter_batch_size) *
-                env_outs['rewards'].std().to('cpu'),
-        })
 
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():

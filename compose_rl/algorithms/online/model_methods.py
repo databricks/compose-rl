@@ -14,12 +14,14 @@ import compose_rl.utils as utils
 class OnPolicyEnum(Enum):
     PPO = 'ppo'
     GRPO = 'grpo'
+    REBEL = 'rebel'
 
 
 class ALGORITHM_TYPE(set, Enum):
-    CRITIC_FREE = {OnPolicyEnum.GRPO}
+    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.REBEL}
     ACTOR_CRITIC = {OnPolicyEnum.PPO}
     CLIPPED_PG = {OnPolicyEnum.PPO, OnPolicyEnum.GRPO}
+    REGRESSION = {OnPolicyEnum.REBEL}
 
 
 @dataclass
@@ -220,6 +222,7 @@ def policy_loss(
     loss_type: OnPolicyEnum,
     policy_clip_ratio: float = 0.15,
     policy_clip_high_ratio: float | None = None,
+    beta: float = 1e-3,
     length_normalize_policy_loss: bool = True,
     kl_estimator: Optional[str] = 'k1',
     kl_clip_range: Optional[float] = 40.0,
@@ -342,6 +345,8 @@ def policy_loss(
                 utils.sample_wise_masked_mean(advantages, batch['action_mask']),
         }
         return policy_dict
+    elif loss_type == OnPolicyEnum.REBEL:
+        pass
     else:
         raise ValueError(f'Policy loss not implemented for {loss_type}')
 
@@ -354,6 +359,7 @@ def online_rl_loss(
     value_loss_weight: float = 0.2,
     policy_clip_ratio: float = 0.15,
     policy_clip_high_ratio: float | None = None,
+    beta: float = 1e-3,
     length_normalize_policy_loss: bool = True,
     add_direct_kl_loss: bool = False,
     kl_estimator: Optional[str] = 'k1',
@@ -369,6 +375,7 @@ def online_rl_loss(
         value_loss_weight (float): The value loss weight.
         policy_clip_ratio (float): The policy clip ratio.
         policy_clip_high_ratio (float | None): The high policy clip ratio. Default: ``None``.
+        beta (float): KL hparam for REBEL and APO
         length_normalize_policy_loss (bool): Whether to normalize the policy loss by the length of the sequence. Default: ``True``.
         add_direct_kl_loss (bool): Whether to add the KL loss directly to the loss. Default: ``False``.
         kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
@@ -423,6 +430,7 @@ def online_rl_loss(
         outputs=outputs,
         batch=batch,
         loss_type=loss_type,
+        beta=beta,
         policy_clip_ratio=policy_clip_ratio,
         policy_clip_high_ratio=policy_clip_high_ratio,
         length_normalize_policy_loss=length_normalize_policy_loss,

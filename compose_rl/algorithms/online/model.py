@@ -255,6 +255,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         length_normalize_policy_loss: bool = True,
         policy_clip_ratio: float = 0.15,
         policy_clip_high_ratio: float | None = None,
+        beta: float = 1e-3,
         compute_kl_loss: bool = True,
         target_kl: float = 0.1,
         kl_estimator: str = 'k3',
@@ -269,6 +270,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             length_normalize_policy_loss (bool): Whether to length normalize the policy loss and KL loss. Default: ``True``.
             policy_clip_ratio (float): The policy clip ratio. Default: ``0.15``.
             policy_clip_high_ratio (float | None): The high policy clip ratio. Default: ``None`` uses policy_clip_ratio.
+            beta (float): Beta term for KL constraint for REBEL and APO
             compute_kl_loss (bool): Whether to compute KL loss. Default: ``True``.
             target_kl (float): The target KL value. Default: ``0.1``.
             kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
@@ -285,6 +287,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.target_kl = target_kl
         self.kl_estimator = kl_estimator
         self.kl_clip_range = kl_clip_range
+        self.beta = beta
 
     def forward(self, batch: MutableMapping):
         ret_val = composer_online_rl_forward(
@@ -306,6 +309,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             loss_type=self.loss_type,
             policy_clip_ratio=self.policy_clip_ratio,
             policy_clip_high_ratio=self.policy_clip_high_ratio,
+            beta=self.beta,
             length_normalize_policy_loss=self.length_normalize_policy_loss,
             add_direct_kl_loss=self.compute_kl_loss,
             kl_estimator=self.kl_estimator,
