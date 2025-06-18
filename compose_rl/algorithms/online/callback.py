@@ -1004,6 +1004,18 @@ class OnPolicyCallback(CallbackWithConfig):
             sorted_indices = torch.argsort(inverse_indices)
             pair_indices = sorted_indices.view(-1, 2)
 
+            print(iter_batch.keys())
+            print(env_outs.keys())
+
+            for k, v in iter_batch.items():
+                if isinstance(v, torch.Tensor):
+                    print(f"{k}: {v.shape}")
+
+            for k, v in env_outs.items():
+                if isinstance(v, torch.Tensor):
+                    print(f"{k}: {v.shape}")
+
+
             # Keys needed to gather into pairs
             # obs (i.e. input ids)
             # 
