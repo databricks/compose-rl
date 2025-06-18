@@ -153,7 +153,8 @@ def get_entropies(
     # get_batched_generated_values extracts tokens from prompt_len-1 to prompt_len+max_gen_len-1
     # This includes the last token of the prompt and excludes the last token of the generation
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
-    entropies = get_sequence_entropies(gen_logits, action_mask)
+    token_entropies = get_token_entropies(gen_logits)
+    entropies = get_sequence_entropies(token_entropies, action_mask)
     return entropies
 
 
@@ -177,27 +178,24 @@ def get_token_entropies(
 
 
 def get_sequence_entropies(
-    logits: torch.Tensor,
+    token_entropies: torch.Tensor,
     action_mask: torch.Tensor,
 ) -> torch.Tensor:
     """Calculates the seq level average token entropy.
 
     Args:
-        logits (torch.Tensor): Logits tensor of shape (batch_size, seq_len, vocab_size).
+        token_entropies (torch.Tensor): Token entropies tensor of shape (batch_size, seq_len).
         action_mask (torch.Tensor): Mask tensor of shape (batch_size, seq_len) where 1 indicates
                                     tokens to include in the entropy calculation.
 
     Returns:
         torch.Tensor: Entropy values for each item in the batch (batch_size,).
     """
-    # Calculate per-token entropies
-    token_entropies = get_token_entropies(logits)
-
     # Apply action mask and calculate mean entropy across valid positions
     masked_entropy = token_entropies * action_mask
     num_valid_positions = action_mask.sum(
         dim=-1,
-    ) + 1e-10  # avoid division by zero
+    ) + 1e-12  # avoid division by zero
     return masked_entropy.sum(dim=-1) / num_valid_positions
 
 

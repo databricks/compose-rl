@@ -491,7 +491,8 @@ def test_get_sequence_entropies_full_mask():
     # Full mask - all tokens included
     mask = torch.ones((batch_size, seq_len))
 
-    sequence_entropies = get_sequence_entropies(logits, mask)
+    token_entropies = get_token_entropies(logits)
+    sequence_entropies = get_sequence_entropies(token_entropies, mask)
 
     # Check shape
     assert sequence_entropies.shape == (batch_size,)
@@ -547,7 +548,8 @@ def test_get_sequence_entropies_partial_mask():
     expected_entropies[1] = token_entropies[1].mean()
 
     # Get sequence entropies
-    sequence_entropies = get_sequence_entropies(logits, mask)
+    token_entropies_for_seq = get_token_entropies(logits)
+    sequence_entropies = get_sequence_entropies(token_entropies_for_seq, mask)
 
     # Check shape and values
     assert sequence_entropies.shape == (batch_size,)
@@ -565,11 +567,12 @@ def test_get_sequence_entropies_empty_mask():
     mask = torch.zeros((batch_size, seq_len))
     mask[1, :] = 1
 
-    sequence_entropies = get_sequence_entropies(logits, mask)
+    token_entropies = get_token_entropies(logits)
+    sequence_entropies = get_sequence_entropies(token_entropies, mask)
 
     # Check that the first batch gives 0 (due to empty mask and epsilon in denominator)
-    # The epsilon in the denominator (1e-10) makes this close to 0 but not exactly 0
-    assert sequence_entropies[0] < 1e-9
+    # The epsilon in the denominator (1e-12) makes this close to 0 but not exactly 0
+    assert sequence_entropies[0] < 1e-11
 
     # Check second batch is properly calculated
     token_entropies = get_token_entropies(logits)
@@ -601,7 +604,8 @@ def test_get_sequence_entropies_single_item_batch():
          (vocab_size - 1)) * torch.log(torch.tensor(0.5 / (vocab_size - 1)))
     )
 
-    sequence_entropies = get_sequence_entropies(logits, mask)
+    token_entropies = get_token_entropies(logits)
+    sequence_entropies = get_sequence_entropies(token_entropies, mask)
 
     # Check shape and value
     assert sequence_entropies.shape == (1,)
