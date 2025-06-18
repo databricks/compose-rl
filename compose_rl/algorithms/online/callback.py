@@ -64,6 +64,7 @@ from compose_rl.utils import (
     partition_batch,
     stack_resolved_outputs,
     switch_left_to_right_padding,
+    filter_resolved_outputs,
 )
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
@@ -896,7 +897,7 @@ class OnPolicyCallback(CallbackWithConfig):
             )
 
             # Filter the resolved outputs based on the generation filtering values
-            resolved_outputs = utils.filter_resolved_outputs(
+            resolved_outputs = filter_resolved_outputs(
                 all_resolved_outputs,
                 self.same_reward_filter_threshold,
             )
