@@ -5,8 +5,8 @@ from tests.common.datasets import (
     FineGrainedPreference,
     PairwisePreference,
     PromptDataset,
-    VerifiablePromptDataset,
     VerifiableMessagesDataset,
+    VerifiablePromptDataset,
 )
 from tests.common.markers import device, world_size
 

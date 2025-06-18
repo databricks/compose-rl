@@ -24,8 +24,16 @@ from compose_rl.algorithms.online import (
 )
 from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
-from compose_rl.data import prompt_dataset_collate_fn, messages_dataset_collate_fn
-from tests.common import PromptDataset, VerifiablePromptDataset, VerifiableMessagesDataset, world_size
+from compose_rl.data import (
+    messages_dataset_collate_fn,
+    prompt_dataset_collate_fn,
+)
+from tests.common import (
+    PromptDataset,
+    VerifiableMessagesDataset,
+    VerifiablePromptDataset,
+    world_size,
+)
 
 
 def test_hf_ppo_model_construction(
@@ -77,7 +85,10 @@ def test_hf_ppo_policy_construction(
 
 
 @pytest.mark.parametrize('model_type', ['mpt', 'hf'])
-@pytest.mark.parametrize('dataset_type', ['prompt', 'verifiable_prompt', 'verifiable_messages'])
+@pytest.mark.parametrize(
+    'dataset_type',
+    ['prompt', 'verifiable_prompt', 'verifiable_messages'],
+)
 def test_model_forward(
     tiny_gpt2_tokenizer: PreTrainedTokenizerBase,
     model_type: str,
