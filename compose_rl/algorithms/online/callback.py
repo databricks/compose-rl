@@ -1015,6 +1015,12 @@ class OnPolicyCallback(CallbackWithConfig):
                 if isinstance(v, torch.Tensor):
                     print(f"{k}: {v.shape}")
 
+            print(iter_batch['prompt_len'])
+            print(env_outs['generated_len'])
+            print(iter_batch['prompt_attention_mask'][0])
+            print(env_outs['action_mask'][0])
+            print(env_outs['right_padded_attn_mask'][0])
+
 
             # Keys needed to gather into pairs
             # obs (i.e. input ids)
