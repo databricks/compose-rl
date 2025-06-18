@@ -250,18 +250,18 @@ def policy_loss(
 
         # Calculate entropies at different percentiles
         percentiles = torch.tensor([0, 20, 40, 60, 80, 100],
-                                device=token_entropies.device)
+                                   device=token_entropies.device)
         num_entropies = flattened_entropies.numel()
         if num_entropies > 0:
             # Calculate indices for percentiles (excluding 0 and 100)
-            indices = ((percentiles / 100.0) * (num_entropies - 1)).ceil().long()
+            indices = ((percentiles / 100.0) *
+                       (num_entropies - 1)).ceil().long()
 
             # Get sorted values
             sorted_entropies = flattened_entropies.sort().values
             percentile_values = sorted_entropies[indices]
         else:
             percentile_values = torch.zeros_like(percentiles, dtype=torch.float)
-
 
         policy_kl_dict = utils.approx_kl(
             log_p=online_log_probs,
@@ -521,7 +521,9 @@ def online_rl_loss(
     # Entropy Loss. Meant to promote diversity.
     if entropy_loss_weight is not None:
         # We want to maximize entropy so we deduct it from the loss.
-        entropy_loss = -1.0 * (entropy_loss_weight * return_dict['gen/cur_seq_entropy']).mean()
+        entropy_loss = -1.0 * (
+            entropy_loss_weight * return_dict['gen/cur_seq_entropy']
+        ).mean()
         # breakpoint()
         return_dict['loss/entropy'] = entropy_loss
         return_dict['total'] += entropy_loss
