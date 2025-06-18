@@ -424,7 +424,7 @@ class OnPolicyCallback(CallbackWithConfig):
         )
 
         log.info(
-            f"Per iteration using: {self.num_unique_prompts_per_iter} prompts.",
+            f'Per iteration using: {self.num_unique_prompts_per_iter} prompts.',
         )
 
         if self.num_unique_prompts_per_iter * self.generations_per_prompt != self.global_train_batch_size * self.num_batches_per_update:
