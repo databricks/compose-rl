@@ -437,3 +437,61 @@ class MATHFormatVerifierReward(BaseVerifierReward):
         """
         last_boxed_string = last_boxed_only_string(answer)
         return 0.0 if not last_boxed_string else self.reward
+
+
+class MCQAVerifierReward(BaseVerifierReward):
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+        self._ANSWER_PATTERN = re.compile(
+            r"""
+            (?:
+                # Branch 1: Explicit answer phrases with optional formatting
+                (?:(?<=\n)|^|(?<=\s))
+                (?:
+                    (?:final|correct|best|exact|
+                        true|only|real)?\s*answer
+                    (?:\s+is)?
+                | the\s+(?:final\s+)?answer\s+is
+                | thus\s*,?\s*final\s+answer
+                | therefore\s*,?\s*the\s+answer\s+is
+                | my\s+(?:final\s+)?(?:choice|answer)\s+is
+                | i\s+(?:choose|select)
+                )
+                \s*[:=\-–—]?\s*
+                (?:\\boxed\s*\{)?
+                [\*\(\[]?
+                ([A-Z])
+                [\]\)\*]?
+                (?:\})?
+            |  # OR
+                # Branch 2: Strict formatted answers (no phrase required)
+                (?:
+                    \\boxed\{\s*([A-Z])\s*\}
+                | \*\*([A-Z])\*\*
+                | \b\(([A-Z])\)
+                | \[([A-Z])\]
+                )
+                (?=\.|,|;|:|\s|$)
+            )
+            """,
+            re.IGNORECASE | re.VERBOSE | re.DOTALL,
+        )
+        self._ANSWER_FALLBACK = re.compile(r'(?<![A-Z])([A-Z])(?![A-Z])')
+
+    def extract_solution(self, text: str) -> str:
+        """Extract string answer from responses."""
+        # Check unified pattern
+        if (m := self._ANSWER_PATTERN.search(text)):
+            # The pattern uses multiple groups, find which one matched
+            for group in m.groups():
+                if group:
+                    return group.upper()
+
+        # Fallback (returns last match)
+        candidates = self._ANSWER_FALLBACK.findall(text.upper())
+        return candidates[-1] if candidates else ''
+
+    def score_generations(self, answer: str, label: str) -> float:
+        """Score based on exact match."""
+        return self.reward if answer == label else 0.0

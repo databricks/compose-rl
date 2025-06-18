@@ -13,6 +13,7 @@ from compose_rl.algorithms.reward_modeling.functional import (
     IncreasingNumbersReward,
     MATHFormatVerifierReward,
     MATHVerifierReward,
+    MCQAVerifierReward,
     OutputLengthReward,
     ShortResponseReward,
 )
@@ -47,6 +48,7 @@ rewards.register('gsm8k_verifier', func=GSM8KVeriferReward)
 rewards.register('gsm8k_format_verifier', func=GSM8KFormatVeriferReward)
 rewards.register('math_verifier', func=MATHVerifierReward)
 rewards.register('math_format_verifier', func=MATHFormatVerifierReward)
+rewards.register('mcqa_verifier', func=MCQAVerifierReward)
 
 __all__ = [
     'BaseReward',
@@ -65,4 +67,5 @@ __all__ = [
     'GSM8KVeriferReward',
     'MATHVerifierReward',
     'MATHFormatVerifierReward',
+    'MCQAVerifierReward',
 ]
