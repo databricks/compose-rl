@@ -356,16 +356,27 @@ class BaseVerifierReward(Reward):
 
         # Process in parallel with chunking
         with Pool(processes=self.num_workers) as pool:
-            results = pool.map(
-                self._process_single_sample,
-                process_args,
-                chunksize=chunk_size,
-            )
+            async_results = [
+                pool.apply_async(self._process_single_sample, (args,))
+                for args in process_args
+            ]
 
-        # Apply rewards to the tensor
-        for idx, reward_value in results:
-            rewards[idx, generated_lens[idx] - 1] += reward_value
+            for async_res in async_results:
+                try:
+                    idx, reward_value = async_res.get(
+                        timeout=self.BLOCKING_TIMEOUT,
+                    )
+                except multiprocessing.TimeoutError:
+                    log.warning(
+                        'Sample %s timed out; assigning zero reward',
+                        async_res,
+                    )
+                    idx, reward_value = args[0], 0.0
 
+                # print (f"processed result for idx {idx} with reward {reward_value}")
+
+                rewards[idx, generated_lens[idx] - 1] += reward_value
+        # print ("finished processng result")
         return rewards
 
     def needs_extraction(self) -> bool:
@@ -411,6 +422,8 @@ class BaseVerifierReward(Reward):
 
 class GSM8KVeriferReward(BaseVerifierReward):
 
+    BLOCKING = True
+
     def __init__(
         self,
         tokenizer: Tokenizer,
@@ -442,6 +455,8 @@ class GSM8KVeriferReward(BaseVerifierReward):
 
 class GSM8KFormatVeriferReward(BaseVerifierReward):
 
+    BLOCKING = True
+
     def __init__(
         self,
         tokenizer: Tokenizer,
@@ -469,6 +484,8 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
 
 
 class MATHVerifierReward(BaseVerifierReward):
+
+    BLOCKING = True
 
     def __init__(
         self,
@@ -500,6 +517,8 @@ class MATHVerifierReward(BaseVerifierReward):
 
 
 class MATHFormatVerifierReward(BaseVerifierReward):
+
+    BLOCKING = True
 
     def __init__(
         self,

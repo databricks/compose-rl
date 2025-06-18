@@ -409,11 +409,16 @@ class RewardManager:
                         self._to_cpu(curr_batch),
                     )
 
-                assert self.pool is not None
-                computed_rewards[reward_name] = self.pool.apply_async(
-                    func=func,
-                    args=args,
-                )
+                if curr_reward.BLOCKING:
+                    print('In the blocking block for reward: ', reward_name)
+                    computed_rewards[reward_name] = func(*args)
+                    print('after blocking reward:', reward_name)
+                else:
+                    assert self.pool is not None
+                    computed_rewards[reward_name] = self.pool.apply_async(
+                        func=func,
+                        args=args,
+                    )
             elif isinstance(curr_reward, RewardModel):
                 computed_rewards[reward_name] = self.call_reward_model(
                     self.all_rewards[reward_name],
@@ -424,6 +429,7 @@ class RewardManager:
                     f'Unknown reward model type {type(curr_reward)}. Expected `Reward` or `RewardModel`.',
                 )
 
+        print('Before calling reference model')
         batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
         # Lastly, call the reference model
         ref_output = self.compute_reference_model_kl(
@@ -432,6 +438,7 @@ class RewardManager:
             kl_estimator,
             kl_clip_range,
         )
+        print('after calling reference model')
 
         return ref_output, computed_rewards
 
@@ -584,6 +591,8 @@ class RewardManager:
         bad_end_generation_mask = None
         bad_end_generation_name = None
         encountered_timeout = False
+
+        print('before for loop')
         for name, subreward in reward_output.items():
             if isinstance(subreward, AsyncResult):
                 try:
@@ -612,6 +621,7 @@ class RewardManager:
                 bad_end_generation_mask = bad_end_generation_mask.to(
                     device=device,
                 )
+        print('after for loop')
 
         # Rather than trying to signal to the stuck process, or do anything more careful,
         # since we know we are fully done with reward computation, we can just recreate the pool
