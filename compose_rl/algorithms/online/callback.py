@@ -1011,6 +1011,7 @@ class OnPolicyCallback(CallbackWithConfig):
             # Sort for grouping
             sorted_indices = torch.argsort(inverse_indices)
             pair_indices = sorted_indices.view(-1, 2)
+            print(pair_indices)
 
             print(iter_batch.keys())
 
@@ -1029,7 +1030,8 @@ class OnPolicyCallback(CallbackWithConfig):
             paired_input_ids = iter_batch['sequences'][pair_indices]
 
             for k, v in iter_batch.items():
-                iter_batch[k] = v[pair_indices]
+                if isinstance(v, torch.Tensor):
+                    iter_batch[k] = v[pair_indices]
 
             print("Post Pairing")
             for k, v in iter_batch.items():
