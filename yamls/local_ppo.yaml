@@ -112,7 +112,7 @@ tokenizer:
     truncation: true
 
 train_loader:
-  name: prompt
+  name: messages
   dataset:
     # local: # local path
     split: train
