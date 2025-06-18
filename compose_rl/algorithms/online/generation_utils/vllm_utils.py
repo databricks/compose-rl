@@ -394,7 +394,7 @@ def broadcast_to_vllm(
         count, num_params = 0, len(
             list(model.model.lm_backbone.named_parameters()),  # type: ignore
         )
-    elif loss_type == OnPolicyEnum.GRPO:
+    elif loss_type in ALGORITHM_TYPE.CRITIC_FREE:
         # Directly use the model params
         count, num_params = 0, len(
             list(model.model.named_parameters()),  # type: ignore
