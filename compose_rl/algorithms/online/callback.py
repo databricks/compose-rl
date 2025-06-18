@@ -643,7 +643,6 @@ class OnPolicyCallback(CallbackWithConfig):
     def _get_next_iter_prompts(self):
         """Gets the next iteration's batch of prompts."""
         # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
-        # n_unique_batches = self.num_batches_per_update // self.generations_per_prompt
         n_unique_batches = self.num_unique_prompts_per_iter // self.global_train_batch_size
         batches = [
             self._get_single_batch_prompts() for _ in range(n_unique_batches)
