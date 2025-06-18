@@ -24,8 +24,16 @@ from compose_rl.algorithms.online import (
 )
 from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
-from compose_rl.data import prompt_dataset_collate_fn
-from tests.common import PromptDataset, VerifiablePromptDataset, world_size
+from compose_rl.data import (
+    messages_dataset_collate_fn,
+    prompt_dataset_collate_fn,
+)
+from tests.common import (
+    PromptDataset,
+    VerifiableMessagesDataset,
+    VerifiablePromptDataset,
+    world_size,
+)
 
 
 def test_hf_ppo_model_construction(
@@ -77,19 +85,31 @@ def test_hf_ppo_policy_construction(
 
 
 @pytest.mark.parametrize('model_type', ['mpt', 'hf'])
-@pytest.mark.parametrize('dataset_type', ['prompt', 'verifiable_prompt'])
+@pytest.mark.parametrize(
+    'dataset_type',
+    ['prompt', 'verifiable_prompt', 'verifiable_messages'],
+)
 def test_model_forward(
     tiny_gpt2_tokenizer: PreTrainedTokenizerBase,
     model_type: str,
     dataset_type: str,
 ):
     prompt_len = 10
-    data_class = PromptDataset if dataset_type == 'prompt' else VerifiablePromptDataset
-    dataset = data_class(prompt_len=prompt_len)
+    if dataset_type == 'prompt':
+        dataset = PromptDataset(prompt_len=prompt_len)
+        dataset_collator = prompt_dataset_collate_fn
+    elif dataset_type == 'verifiable_prompt':
+        dataset = VerifiablePromptDataset(prompt_len=prompt_len)
+        dataset_collator = prompt_dataset_collate_fn
+    elif dataset_type == 'verifiable_messages':
+        dataset = VerifiableMessagesDataset(prompt_len=prompt_len)
+        dataset_collator = messages_dataset_collate_fn
+    else:
+        raise ValueError(f'Unknown dataset type: {dataset_type}')
     dataloader = DataLoader(
         dataset,
         collate_fn=partial(
-            prompt_dataset_collate_fn,
+            dataset_collator,
             tiny_gpt2_tokenizer,
             32,
         ),

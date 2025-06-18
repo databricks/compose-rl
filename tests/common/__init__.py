@@ -5,6 +5,7 @@ from tests.common.datasets import (
     FineGrainedPreference,
     PairwisePreference,
     PromptDataset,
+    VerifiableMessagesDataset,
     VerifiablePromptDataset,
 )
 from tests.common.markers import device, world_size
@@ -14,6 +15,7 @@ __all__ = [
     'FineGrainedPreference',
     'PromptDataset',
     'VerifiablePromptDataset',
+    'VerifiableMessagesDataset',
     'device',
     'world_size',
 ]

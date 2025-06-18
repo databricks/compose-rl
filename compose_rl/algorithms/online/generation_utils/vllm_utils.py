@@ -239,7 +239,7 @@ def create_vllm_engines(
         log.info(f'vllm: {num_gpus=}, {num_engines=}')
 
         vllm_engines.append(
-            LLMRayActor.options(
+            LLMRayActor.options(  # type: ignore
                 num_cpus=num_gpus,
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,
