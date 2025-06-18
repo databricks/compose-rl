@@ -419,8 +419,8 @@ class OnPolicyCallback(CallbackWithConfig):
 
         self.num_unique_prompts_per_iter: int = var_config.get(
             'num_unique_prompts_per_iter',
-            self.generations_per_prompt * self.global_train_batch_size //
-            self.num_batches_per_update,
+            self.num_batches_per_update * self.global_train_batch_size //
+            self.generations_per_prompt,
         )
 
         log.info(
