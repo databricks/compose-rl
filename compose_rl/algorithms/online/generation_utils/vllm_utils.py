@@ -45,7 +45,7 @@ from torch.distributed.distributed_c10d import (
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from compose_rl.algorithms.online.generation_utils.vllm_actor import LLMRayActor
-from compose_rl.algorithms.online.model_methods import OnPolicyEnum
+from compose_rl.algorithms.online.model_methods import ALGORITHM_TYPE, OnPolicyEnum
 
 log = logging.getLogger(__name__)
 
@@ -362,7 +362,7 @@ def should_update_torch_module(
     if parsed_module_name not in valid_non_leaf_module_names:
         return False
 
-    if loss_type == OnPolicyEnum.GRPO:
+    if loss_type in ALGORITHM_TYPE.CRITIC_FREE:
         return True
 
     if loss_type == OnPolicyEnum.PPO and 'lm_backbone' in full_param_name:
