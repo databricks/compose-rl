@@ -990,6 +990,14 @@ class OnPolicyCallback(CallbackWithConfig):
                 dim=-1,
             )
 
+            mean_ift = masked_mean(
+                env_outs['ift_kl'],
+                env_outs['action_mask'],
+            )
+            self.kl_ift.append(mean_ift.cpu())
+
+            iter_batch.update(env_outs)
+
             # Assuming 2 generations per prompt and packing them for preferences
             unique_ids, inverse_indices, counts = torch.unique(
                 prompt_id, 
@@ -1005,22 +1013,28 @@ class OnPolicyCallback(CallbackWithConfig):
             pair_indices = sorted_indices.view(-1, 2)
 
             print(iter_batch.keys())
-            print(env_outs.keys())
 
             for k, v in iter_batch.items():
                 if isinstance(v, torch.Tensor):
                     print(f"{k}: {v.shape}")
 
-            for k, v in env_outs.items():
+            print(iter_batch['prompt_len'])
+            print(iter_batch['generated_len'])
+            print(iter_batch['prompt_attention_mask'][0])
+            print(iter_batch['action_mask'][0])
+            print(iter_batch['right_padded_attn_mask'][0])
+
+            # Pair based on batches
+
+            paired_input_ids = iter_batch['sequences'][pair_indices]
+
+            for k, v in iter_batch.items():
+                iter_batch[k] = v[pair_indices]
+
+            print("Post Pairing")
+            for k, v in iter_batch.items():
                 if isinstance(v, torch.Tensor):
                     print(f"{k}: {v.shape}")
-
-            print(iter_batch['prompt_len'])
-            print(env_outs['generated_len'])
-            print(iter_batch['prompt_attention_mask'][0])
-            print(env_outs['action_mask'][0])
-            print(env_outs['right_padded_attn_mask'][0])
-
 
             # Keys needed to gather into pairs
             # obs (i.e. input ids)
