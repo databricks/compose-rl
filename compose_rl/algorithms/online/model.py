@@ -256,6 +256,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         policy_clip_ratio: float = 0.15,
         policy_clip_high_ratio: float | None = None,
         compute_kl_loss: bool = True,
+        entropy_loss_weight: float | None = None,
         target_kl: float = 0.1,
         kl_estimator: str = 'k3',
         kl_clip_range: float = 40.0,
@@ -270,6 +271,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             policy_clip_ratio (float): The policy clip ratio. Default: ``0.15``.
             policy_clip_high_ratio (float | None): The high policy clip ratio. Default: ``None`` uses policy_clip_ratio.
             compute_kl_loss (bool): Whether to compute KL loss. Default: ``True``.
+            entropy_loss_weight (float | None): The weight for the entropy loss. Default: ``None``.
             target_kl (float): The target KL value. Default: ``0.1``.
             kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
             kl_clip_range (float): The KL clip range. Default: ``40.0``.
@@ -285,6 +287,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.target_kl = target_kl
         self.kl_estimator = kl_estimator
         self.kl_clip_range = kl_clip_range
+        self.entropy_loss_weight = entropy_loss_weight
 
     def forward(self, batch: MutableMapping):
         ret_val = composer_online_rl_forward(
@@ -310,6 +313,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             add_direct_kl_loss=self.compute_kl_loss,
             kl_estimator=self.kl_estimator,
             kl_clip_range=self.kl_clip_range,
+            entropy_loss_weight=self.entropy_loss_weight,
         )
 
         self.policy_kl.append(return_dict['kl/policy_kl'])
