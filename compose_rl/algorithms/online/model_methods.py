@@ -111,40 +111,46 @@ def composer_online_rl_forward(
         model (torch.nn.Module): The PPO Actor Critic model to run forwards over.
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to ``ppo``.
     """
-    model_forward_kwargs = {
-        'attention_mask': batch['right_padded_attn_mask'],
-        'output_hidden_states': True,
-    }
+    if loss_type == OnPolicyEnum.REBEL:
+        print(batch.keys())
+        for k, v in batch.keys():
+            if isinstance(v, torch.Tensor):
+                print(f"{k}: {v.shape}")
+    else:
+        model_forward_kwargs = {
+            'attention_mask': batch['right_padded_attn_mask'],
+            'output_hidden_states': True,
+        }
 
-    model_forward_kwargs['prompt_len'] = batch['prompt_len']
-    model_forward_kwargs['action_mask'] = batch['action_mask']
-    model_forward_kwargs['max_gen_len'] = batch['max_gen_len']
+        model_forward_kwargs['prompt_len'] = batch['prompt_len']
+        model_forward_kwargs['action_mask'] = batch['action_mask']
+        model_forward_kwargs['max_gen_len'] = batch['max_gen_len']
 
-    actor_output = model(batch['obs'], **model_forward_kwargs)
+        actor_output = model(batch['obs'], **model_forward_kwargs)
 
-    logits = actor_output.logits
+        logits = actor_output.logits
 
-    log_prob_outputs = utils.get_log_probs(
-        logits,
-        batch['actions'],
-        batch['prompt_len'],
-        batch['max_gen_len'],
-    )
+        log_prob_outputs = utils.get_log_probs(
+            logits,
+            batch['actions'],
+            batch['prompt_len'],
+            batch['max_gen_len'],
+        )
 
-    return_dict = {
-        'online_log_probs': log_prob_outputs,
-        'logits': logits,
-    }
+        return_dict = {
+            'online_log_probs': log_prob_outputs,
+            'logits': logits,
+        }
 
-    if loss_type == OnPolicyEnum.PPO:
-        if 'values' not in actor_output:
-            raise ValueError(
-                'The actor output does not contain values. Please check the model.',
-            )
-        values = actor_output.values
-        return_dict['values'] = values
+        if loss_type == OnPolicyEnum.PPO:
+            if 'values' not in actor_output:
+                raise ValueError(
+                    'The actor output does not contain values. Please check the model.',
+                )
+            values = actor_output.values
+            return_dict['values'] = values
 
-    return return_dict
+        return return_dict
 
 
 def critic_loss(

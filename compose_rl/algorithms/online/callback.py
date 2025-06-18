@@ -998,8 +998,19 @@ class OnPolicyCallback(CallbackWithConfig):
 
             iter_batch.update(env_outs)
 
+            iter_batch.update({
+                'max_gen_len':
+                    torch.ones(self.iter_batch_size).to(torch.int32) *
+                    self.max_gen_len,
+                'ift_kl_scalar':
+                    torch.ones(self.iter_batch_size) * self.kl_ctl.value,
+                'reward_std':
+                    torch.ones(self.iter_batch_size) *
+                    env_outs['rewards'].std().to('cpu'),
+            })
+
             # Assuming 2 generations per prompt and packing them for preferences
-            unique_ids, inverse_indices, counts = torch.unique(
+            _, inverse_indices, counts = torch.unique(
                 prompt_id, 
                 return_inverse=True,
                 return_counts=True
@@ -1012,7 +1023,6 @@ class OnPolicyCallback(CallbackWithConfig):
             sorted_indices = torch.argsort(inverse_indices)
             pair_indices = sorted_indices.view(-1, 2)
             print(pair_indices)
-
             print(iter_batch.keys())
 
             for k, v in iter_batch.items():
@@ -1026,9 +1036,6 @@ class OnPolicyCallback(CallbackWithConfig):
             print(iter_batch['right_padded_attn_mask'][0])
 
             # Pair based on batches
-
-            paired_input_ids = iter_batch['sequences'][pair_indices]
-
             for k, v in iter_batch.items():
                 if isinstance(v, torch.Tensor):
                     iter_batch[k] = v[pair_indices]
@@ -1037,18 +1044,6 @@ class OnPolicyCallback(CallbackWithConfig):
             for k, v in iter_batch.items():
                 if isinstance(v, torch.Tensor):
                     print(f"{k}: {v.shape}")
-
-            # Keys needed to gather into pairs
-            # obs (i.e. input ids)
-            # 
-            # ift_log_probs - if we use ref probs
-            # old_log_probs - if we use pi old
-            # flat_rewards
-
-
-
-
-
 
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
