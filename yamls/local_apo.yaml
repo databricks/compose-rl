@@ -11,7 +11,7 @@ model:
   length_normalize_policy_loss: true
   policy_clip_ratio: 0.2
   compute_kl_loss: false # turn off kl in loss
-  target_kl: 0.1
+  target_kl: 100000 # turn off early stopping
   kl_estimator: k3
   kl_clip_range: 40.0
   use_flash_attention_2: true
@@ -31,18 +31,18 @@ callbacks:
   memory_monitor: {}
 
 optimizer:
-  lr: 7.0e-07
+  lr: 1.0e-6
   name: decoupled_adamw
   betas:
   - 0.9
   - 0.95
-  weight_decay: 0
+  weight_decay: 1.0e-7
 
 precision: amp_bf16
 scheduler:
-  name: cosine_with_warmup
-  alpha_f: 0.01
-  t_warmup: 10iter
+  name: constant_with_warmup
+  t_max: 12800ba
+  t_warmup: 0ba
 
 tokenizer:
   name: ${variables.tokenizer_name}
@@ -124,7 +124,7 @@ variables:
 algorithms:
   gradient_clipping:
     clipping_type: norm
-    clipping_threshold: 1.0e-02
+    clipping_threshold: 1.0
 
 autoresume: false
 save_folder: null  # TODO: fill this in
