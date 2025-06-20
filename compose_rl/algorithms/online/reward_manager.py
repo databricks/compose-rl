@@ -55,6 +55,7 @@ class RewardManager:
         fsdp_config: Optional[dict[str, Any]],
         precision: Precision,
         kl_penalty_in_reward: bool = True,
+        use_kl_penalty: bool = True,
     ):
         """Manages all the rewards used during PPO training.
 
@@ -74,6 +75,7 @@ class RewardManager:
         self.fsdp_config = fsdp_config
         self.max_seq_len = max_seq_len
         self.kl_penalty_in_reward = kl_penalty_in_reward
+        self.use_kl_penalty = use_kl_penalty
 
         # For fine-grained rewards. Not necessarily used.
         self.parser = spacy.load('en_core_web_sm')
@@ -89,12 +91,14 @@ class RewardManager:
         ref_model_config: dict[str,
                                Any] = self.ref_config.get('model_config', None)
 
-        self.reference_model = self.initialize_composer_model(
-            model_config=ref_model_config,
-            model_name='reference',
-            precision=self.ref_config.get('precision', precision),
-            load_path=self.ref_config.get('load_path', None),
-        )
+        self.reference_model: Optional[torch.nn.Module] = None
+        if self.use_kl_penalty:
+            self.reference_model = self.initialize_composer_model(
+                model_config=ref_model_config,
+                model_name='reference',
+                precision=self.ref_config.get('precision', precision),
+                load_path=self.ref_config.get('load_path', None),
+            )
 
         for reward_name, reward_config in self.config.items():
             assert isinstance(reward_name, str)
@@ -409,11 +413,16 @@ class RewardManager:
                         self._to_cpu(curr_batch),
                     )
 
-                assert self.pool is not None
-                computed_rewards[reward_name] = self.pool.apply_async(
-                    func=func,
-                    args=args,
-                )
+                if curr_reward.BLOCKING:
+                    print('In the blocking block for reward: ', reward_name)
+                    computed_rewards[reward_name] = func(*args)
+                    print('after blocking reward:', reward_name)
+                else:
+                    assert self.pool is not None
+                    computed_rewards[reward_name] = self.pool.apply_async(
+                        func=func,
+                        args=args,
+                    )
             elif isinstance(curr_reward, RewardModel):
                 computed_rewards[reward_name] = self.call_reward_model(
                     self.all_rewards[reward_name],
@@ -424,6 +433,7 @@ class RewardManager:
                     f'Unknown reward model type {type(curr_reward)}. Expected `Reward` or `RewardModel`.',
                 )
 
+        print('Before calling reference model')
         batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
         # Lastly, call the reference model
         ref_output = self.compute_reference_model_kl(
@@ -432,6 +442,7 @@ class RewardManager:
             kl_estimator,
             kl_clip_range,
         )
+        print('after calling reference model')
 
         return ref_output, computed_rewards
 
@@ -513,35 +524,40 @@ class RewardManager:
         kl = []
         ref_model_log_probs = []
 
-        microbatch_splits = _default_split_batch(
-            batch=batch,
-            microbatch_size=device_train_microbatch_size,
-        )
-        for split in microbatch_splits:
-            curr_batch = split
-            curr_ref_output = self.reference_model(curr_batch)
-            curr_ref_log_probs = get_log_probs(
-                logits=curr_ref_output.logits,
-                actions=curr_batch['actions'],
-                prompt_len=curr_batch['prompt_len'],
-                max_gen_len=curr_batch['max_gen_len'],
+        if self.use_kl_penalty:
+            microbatch_splits = _default_split_batch(
+                batch=batch,
+                microbatch_size=device_train_microbatch_size,
             )
+            for split in microbatch_splits:
+                curr_batch = split
+                curr_ref_output = self.reference_model(curr_batch)
+                curr_ref_log_probs = get_log_probs(
+                    logits=curr_ref_output.logits,
+                    actions=curr_batch['actions'],
+                    prompt_len=curr_batch['prompt_len'],
+                    max_gen_len=curr_batch['max_gen_len'],
+                )
 
-            kl_dict = approx_kl(
-                log_p=curr_ref_log_probs,
-                log_q=curr_batch['action_log_probs'],
-                kl_clip_range=kl_clip_range,
-            )
-            curr_kl = kl_dict[kl_estimator]  # pyright: ignore
+                kl_dict = approx_kl(
+                    log_p=curr_ref_log_probs,
+                    log_q=curr_batch['action_log_probs'],
+                    kl_clip_range=kl_clip_range,
+                )
+                curr_kl = kl_dict[kl_estimator]  # pyright: ignore
 
-            kl.append(curr_kl)
-            ref_model_log_probs.append(curr_ref_log_probs)
+                kl.append(curr_kl)
+                ref_model_log_probs.append(curr_ref_log_probs)
 
-        kl = torch.cat(kl)
-        ref_model_log_probs = torch.cat(ref_model_log_probs)
-        ref_output = (kl, ref_model_log_probs)
+            kl = torch.cat(kl)
+            ref_model_log_probs = torch.cat(ref_model_log_probs)
 
-        return ref_output
+        else:
+            log.info(f"Not computing reference KL, setting them to zero.")
+            kl = torch.zeros_like(batch['action_log_probs'])
+            ref_model_log_probs = torch.zeros_like(batch['action_log_probs'])
+
+        return (kl, ref_model_log_probs)
 
     def resolve_outputs(
         self,
@@ -584,6 +600,8 @@ class RewardManager:
         bad_end_generation_mask = None
         bad_end_generation_name = None
         encountered_timeout = False
+
+        print('before for loop')
         for name, subreward in reward_output.items():
             if isinstance(subreward, AsyncResult):
                 try:
@@ -612,6 +630,7 @@ class RewardManager:
                 bad_end_generation_mask = bad_end_generation_mask.to(
                     device=device,
                 )
+        print('after for loop')
 
         # Rather than trying to signal to the stuck process, or do anything more careful,
         # since we know we are fully done with reward computation, we can just recreate the pool
