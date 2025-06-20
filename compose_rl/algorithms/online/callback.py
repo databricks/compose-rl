@@ -41,6 +41,7 @@ from compose_rl.algorithms.online.model import (
     ComposerMPTPolicyLM,
 )
 from compose_rl.algorithms.online.model_methods import (
+    ALGORITHM_TYPE,
     OnPolicyEnum,
 )
 from compose_rl.algorithms.online.reward_manager import (
@@ -873,7 +874,7 @@ class OnPolicyCallback(CallbackWithConfig):
         env_outs['right_padded_attn_mask'] = torch.logical_not(
             torch.eq(env_outs['obs'], self.pad_token_idx),  # type: ignore
         )
-        if self.actor_critic.loss_type != OnPolicyEnum.APO:
+        if self.actor_critic.loss_type not in ALGORITHM_TYPE.REGRESSION:
             # Now that rewards are resolved, we can compute advantages
             if self.actor_critic.loss_type == OnPolicyEnum.PPO:
                 env_outs['advantages'] = compute_advantages(
@@ -977,9 +978,7 @@ class OnPolicyCallback(CallbackWithConfig):
                     env_outs['rewards'].std().to('cpu'),
             })
         else:
-            # Adding dummy advantages
-            env_outs['advantages'] = torch.ones_like(env_outs['action_mask'])
-            env_outs
+            # APO and REBEL
 
             mean_ift = masked_mean(
                 env_outs['ift_kl'],

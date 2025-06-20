@@ -348,14 +348,6 @@ def policy_loss(
         return policy_dict
     
     elif loss_type in ALGORITHM_TYPE.REGRESSION:
-        print("="* 10 + "Inside Model Methods Loss" + "="*10)
-        print(f"Batch Keys: {batch.keys()}")
-        print(batch['vstar'].shape)
-
-        print(f"Output Keys: {outputs.keys()}")
-        for k, v in outputs.items():
-            print(f"{k}: {v.shape}")
-
         #assume batch contains (1) V-star values (key 'vstar), (2) rewards (key 'rewards'), (3) ref_log_probs
         online_log_probs = outputs['online_log_probs']
         ref_log_probs = batch['ift_log_probs'] 
@@ -373,9 +365,9 @@ def policy_loss(
 
         #compute the policy class
         maksed_log_probs_diff = utils.masked_sum(log_probs_diff, batch['action_mask'], dim = -1) #size: (batch_size,)
-        vstars = batch['vstar'] #TODO: (batch_size, )
-        rewards = utils.masked_sum(batch['rewards'], batch['action_mask'], dim = -1) #TODO: check, (Batch_size, )
-        assert vstars.size() == rewards.size() == maksed_log_probs_diff.size()  #should have the same shape which is (batch_size, )
+        vstars = batch['vstar']
+        rewards = utils.masked_sum(batch['rewards'], batch['action_mask'], dim = -1)
+        assert vstars.size() == rewards.size() == maksed_log_probs_diff.size()  # should have the same shape which is (batch_size, )
         
         policy_loss = ((beta*maksed_log_probs_diff - (rewards - vstars))**2).mean()
         policy_dict = {
@@ -438,7 +430,9 @@ def online_rl_loss(
     # tensors in `outputs` are recomputed at the start of each step in the epoch.
 
     return_dict = {}
-    advantages = batch['advantages']
+    advantages = None
+    if loss_type not in ALGORITHM_TYPE.REGRESSION:
+        advantages = batch['advantages']
 
     # 1. Critic Loss
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
@@ -468,7 +462,8 @@ def online_rl_loss(
 
         return_dict.update(**value_dict)
 
-    advantages = advantages.detach()
+    if advantages is not None:
+        advantages = advantages.detach()
 
     # 2. Policy Loss
     policy_dict = policy_loss(
