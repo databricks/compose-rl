@@ -54,6 +54,7 @@ from compose_rl.utils import (
     add_right_padding,
     compute_advantages,
     dist_compute_masked_mean_and_var,
+    filter_resolved_outputs,
     flatten,
     get_decoded_sequence,
     get_entropies,
@@ -64,7 +65,6 @@ from compose_rl.utils import (
     partition_batch,
     stack_resolved_outputs,
     switch_left_to_right_padding,
-    filter_resolved_outputs,
 )
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
@@ -475,6 +475,7 @@ class OnPolicyCallback(CallbackWithConfig):
             None,
         )
 
+        self.use_kl_penalty = var_config.get('use_kl_penalty', True)
         self.vllm_engines = None
         self.num_vllm_engines = 0
         self.vllm_tensor_parallel_size = var_config.get(
@@ -558,6 +559,7 @@ class OnPolicyCallback(CallbackWithConfig):
             fsdp_config=self.non_train_fsdp_config,
             precision=state.precision,
             kl_penalty_in_reward=kl_penalty_in_reward,
+            use_kl_penalty=self.use_kl_penalty,
         )
 
         # This is needed to ensure PyTorch 2.4 checkpointing doesn't break
