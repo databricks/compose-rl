@@ -111,15 +111,15 @@ def composer_online_rl_forward(
         model (torch.nn.Module): The PPO Actor Critic model to run forwards over.
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to ``ppo``.
     """
-    if loss_type == OnPolicyEnum.REBEL:
-        is_packed = len(batch['obs'].shape) == 3 # additional packed variable
+    is_packed = len(batch['obs'].shape) == 3 # additional packed variable
+    bs = batch['obs'].shape[0]
 
-        if is_packed:
-            print(batch.keys())
-            for k, v in batch.items():
-                if isinstance(v, torch.Tensor):
-                    print(f"{k}: {v.shape}")
-            print(asdf)
+    if is_packed:
+        flatten_keys = ['obs', 'actions', 'right_padded_attn_mask', 'prompt_len', 'action_mask', 'max_gen_len']
+
+        batch = {k: v.flatten(0, 1) for k, v in batch.items() if k in flatten_keys}
+        print(batch.keys())
+        print("DONE WITH FORWARD UNPACKING")
 
     model_forward_kwargs = {
         'attention_mask': batch['right_padded_attn_mask'],
@@ -140,6 +140,12 @@ def composer_online_rl_forward(
         batch['prompt_len'],
         batch['max_gen_len'],
     )
+
+    if is_packed:
+        # Pack Again
+        log_probs_outputs = log_prob_outputs.view(bs, 2, -1)
+        logits = logits.view(bs, 2, -1)
+        print("DONE WITH FORWARD REPACK")
 
     return_dict = {
         'online_log_probs': log_prob_outputs,
@@ -356,7 +362,16 @@ def policy_loss(
         }
         return policy_dict
     elif loss_type == OnPolicyEnum.REBEL:
-        pass
+        print(batch.keys())
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                print(f"{k}: {v.shape}")
+        print("Printing outputs")
+        print(outputs.keys())
+        for k, v in outputs.items():
+            if isinstance(v, torch.Tensor):
+                print(f"{k}: {v.shape}")
+        print(asdf)
     else:
         raise ValueError(f'Policy loss not implemented for {loss_type}')
 

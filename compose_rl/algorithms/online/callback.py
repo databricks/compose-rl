@@ -1038,6 +1038,7 @@ class OnPolicyCallback(CallbackWithConfig):
             # Pair based on batches
             for k, v in iter_batch.items():
                 if isinstance(v, torch.Tensor):
+                    pair_indices = pair_indices.to(v.device)
                     iter_batch[k] = v[pair_indices]
 
             print("Post Pairing")
