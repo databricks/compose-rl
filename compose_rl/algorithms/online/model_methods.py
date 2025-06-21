@@ -242,6 +242,7 @@ def policy_loss(
     length_normalize_policy_loss: bool = True,
     kl_estimator: Optional[str] = 'k1',
     kl_clip_range: Optional[float] = 40.0,
+    use_reference_log_probs: bool = True,
 ) -> MutableMapping:
 
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
@@ -362,16 +363,46 @@ def policy_loss(
         }
         return policy_dict
     elif loss_type == OnPolicyEnum.REBEL:
-        print(batch.keys())
-        for k, v in batch.items():
-            if isinstance(v, torch.Tensor):
-                print(f"{k}: {v.shape}")
-        print("Printing outputs")
-        print(outputs.keys())
-        for k, v in outputs.items():
-            if isinstance(v, torch.Tensor):
-                print(f"{k}: {v.shape}")
-        print(asdf)
+        # Assumption that all tensors are packed: (batch size, 2, sequence_length)
+        online_log_probs = outputs['online_log_probs']
+
+        # Choose base policy
+        if use_reference_log_probs:
+            old_log_probs = batch['ift_log_probs'] 
+        else:
+            old_log_probs = batch['old_log_probs']
+
+        log_probs_diff = online_log_probs - old_log_probs
+        old_entropies = batch['old_entropies']
+
+        #compute KL to pi_ref to keep track the divergence to \pi_ref
+        policy_kl_dict = utils.approx_kl(
+            log_p=batch['ift_log_probs'].flatten(0, 1),
+            log_q=online_log_probs.flatten(0, 1), #log_q - log_p = log pi - log pi_ref
+            kl_clip_range=kl_clip_range,
+        )
+        with torch.no_grad():
+            policy_kl = utils.masked_mean(policy_kl_dict[kl_estimator], batch['action_mask'].flatten(0, 1)) #plain average over all tokens (KL to pi_ref)
+        
+        masked_log_probs_diff = utils.masked_sum(log_probs_diff, batch['action_mask'], dim = -1)
+        rewards = utils.masked_sum(batch['rewards'], batch['action_mask'], dim = -1)
+
+        assert rewards.size() == masked_log_probs_diff.size()
+        policy_loss = (beta * (masked_log_probs_diff[:, 0] - masked_log_probs_diff[:, 1]) - (rewards[:, 0] - rewards[:, 1])) ** 2
+
+        policy_dict = {
+            'loss/policy_loss':
+                policy_loss,
+            'kl/policy_kl': #TODO: add more KLs
+                policy_kl, 
+            'gen/gen_length':
+                batch['action_mask'].sum(dim=1).to(torch.float32),
+            'gen/entropy':
+                old_entropies,
+            'rewards/mean':
+                torch.mean(rewards), #compute the average reward of the current batch
+        }
+        return policy_dict
     else:
         raise ValueError(f'Policy loss not implemented for {loss_type}')
 
@@ -389,6 +420,7 @@ def online_rl_loss(
     add_direct_kl_loss: bool = False,
     kl_estimator: Optional[str] = 'k1',
     kl_clip_range: Optional[float] = 40.0,
+    use_reference_log_probs: bool = True,
 ) -> MutableMapping:
     """Compute the online RL loss.
 
@@ -461,9 +493,17 @@ def online_rl_loss(
         length_normalize_policy_loss=length_normalize_policy_loss,
         kl_estimator=kl_estimator,
         kl_clip_range=kl_clip_range,
+        use_reference_log_probs=use_reference_log_probs,
     )
 
     return_dict.update(**policy_dict)
+
+    # Flatten Batch for logging
+    is_packed = len(batch['obs'].shape) == 3 # additional packed variable
+    if is_packed:
+        for key, value in batch.items():
+            if isinstance(value, torch.Tensor):
+                batch[key] = value.flatten(0, 1)
 
     for key, value in batch.items():
         # This logic handles reward logging a little differently than other quantities.
@@ -489,6 +529,7 @@ def online_rl_loss(
                 # If this value is not [batch, actions] shaped, just do a
                 # vanilla mean.
                 return_dict['env/' + str(key)] = value.mean(dim=0)
+
         if 'ift_kl' == key:
             return_dict['kl/' + str(key)] = utils.masked_mean(
                 value,
