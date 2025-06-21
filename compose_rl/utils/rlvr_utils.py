@@ -88,12 +88,7 @@ class timeout:
 
 
 def is_equiv(x1: str, x2: str) -> bool:
-    print("##########################")
-    print("############################")
-    print("############################")
-    print("############################")
-    print("############################")
-    
+
     """Checks mathematical equivalence between two normalized LaTeX strings."""
     try:
         with timeout(seconds = 5):
