@@ -375,9 +375,13 @@ def policy_loss(
         log_probs_diff = online_log_probs - old_log_probs
         old_entropies = batch['old_entropies']
 
+        print(old_log_probs.shape)
+        print(online_log_probs.shape)
+        print(batch['old_log_probs'].shape)
         #compute KL to pi_ref to keep track the divergence to \pi_ref
+        assert online_log_probs.size() == old_log_probs.size()
         policy_kl_dict = utils.approx_kl(
-            log_p=batch['ift_log_probs'].flatten(0, 1),
+            log_p=old_log_probs.flatten(0, 1),
             log_q=online_log_probs.flatten(0, 1), #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
         )
