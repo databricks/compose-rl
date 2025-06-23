@@ -126,7 +126,7 @@ class MessagesStreamingDataset(StreamingDataset):
 
     # How to process a sample
     def __getitem__(self, idx: int) -> dict[str, Any]:
-        """Gets the messages and metadata from the StreamingDataset at a given index.
+        """Gets the messages + (optionally) metadata at the given index.
 
         Args:
             idx (int): the index where we fetch the data in the StreamingDataset.
