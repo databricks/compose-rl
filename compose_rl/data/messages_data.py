@@ -126,13 +126,14 @@ class MessagesStreamingDataset(StreamingDataset):
 
     # How to process a sample
     def __getitem__(self, idx: int) -> dict[str, Any]:
-        """Get an item from StreamingDataset at a given index.
+        """Gets the messages and metadata from the StreamingDataset at a given index.
 
         Args:
             idx (int): the index where we fetch the data in the StreamingDataset.
         """
         sample = super().__getitem__(idx)
         messages = sample['messages']
+        metadata = sample.get('metadata', {})
         prompt: torch.Tensor = self._tokenize_messages(messages)
 
         # TODO (bcui): Maybe add in an option to truncate a prompt by a given length?
@@ -142,15 +143,20 @@ class MessagesStreamingDataset(StreamingDataset):
             prompt = prompt[:-truncate_len]
 
         prompt_len = torch.Tensor([len(prompt)]).to(dtype=torch.int64)
-        # Send the prompt id along with prompt data
+        #  Create the return dictionary
         item_dict = {
             'prompt_id': idx,
             'prompt': prompt,
             'prompt_len': prompt_len,
             'messages': messages,
+            'metadata': metadata,
         }
 
-        verified_answer = sample.get('verified_answer', None)
+        # extract the verified answer, if there is one
+        verified_answer = metadata.get('verified_answer', None)
+        if verified_answer is None:
+            # for backwards compatibility, we also check the sample directly for the verified answer
+            verified_answer = sample.get('verified_answer', None)
         if verified_answer:
             if isinstance(verified_answer, str):
                 _answer = verified_answer

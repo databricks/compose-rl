@@ -37,6 +37,7 @@ class UnifiedMessagesDataset(IterableDataset):
         dataset_path: str,
         split: str | None = None,
         subset: str | None = None,
+        token: str | None = None,
     ):
         self.dataset_path = dataset_path
         self.split = split
@@ -46,9 +47,10 @@ class UnifiedMessagesDataset(IterableDataset):
             dataset_path,
             split=split,
             subset=subset,
+            token=token,
         )
 
-    def load_dataset(self, dataset_path: str, split: str | None = None, subset: str | None = None):
+    def load_dataset(self, dataset_path: str, split: str | None = None, subset: str | None = None, token: str | None = None):
         if dataset_path.endswith('.jsonl'):
             log.info(f'Assuming dataset path is a jsonl file. Loading from {dataset_path}')
             dataset = []
@@ -62,38 +64,54 @@ class UnifiedMessagesDataset(IterableDataset):
             return hf_datasets.load_dataset(
                 path=dataset_path,
                 split=split,
-                subset=subset,
+                name=subset,
+                streaming=True,
+                token=token,
             )
     
     def get_preprocess_fn(self, dataset_path: str):
-        """Returns the preprocessing function for the dataset."""
+        """Returns the preprocessing function for the dataset. 
+        
+        Each preprocessing function should return a tuple of (messages, metadata).
+        Messages should be a list of dictionaries with a 'role' key and a 'content' key.
+        Metadata should be a dictionary with any additional metadata. If there is no metadata, then the metadata can just be None.
+        Both the messages and metadata (if not None)must be json serializable.
+
+        Args:
+            dataset_path (str): the path to the dataset
+
+        Returns:
+            A function that takes in a sample and returns a tuple of (messages, metadata).
+        """
         if 'gsm8k' in dataset_path:
             return prepare_gsm8k_messages
         elif 'math' in dataset_path:
             return prepare_math_messages
         else:
             log.warning(f'No preprocessing function found for dataset path: {dataset_path}. Defaulting to writing the dataset as is.')
-            return lambda x: x
+            return lambda x: (x, None)
 
     def __iter__(
         self,
     ) -> Iterator[dict[str, Any]]:
         """Iterate over the dataset and yield samples, with potential preprocessing of the data.
-        Each sample must be a valid json object with a "messages" key.
         """
         for sample in self.dataset:
-            processed_sample = self.dataset_preprocess_fn(sample)
-            assert 'messages' in processed_sample, f'Processed sample must have a "messages" key: {processed_sample} for dataset: {self.dataset_path}'
-            try:
-                json.loads(json.dumps(processed_sample))
-            except Exception as e:
-                log.error(f'Error converting sample to json: {e}')
-                log.error(f'Sample: {processed_sample}')
-                raise e
-            yield processed_sample
+            messages, metadata = self.dataset_preprocess_fn(sample)
+            if metadata is None:
+                metadata = {}
+            # time for some good ol fashioned type checking
+            for item, name in zip([messages, metadata], ['messages', 'metadata']):
+                try:
+                    json.loads(json.dumps(item))
+                except Exception as e:
+                    log.error(f'Error converting {name} to json: {e}')
+                    log.error(f'{name}: {item}')
+                    raise e
+            yield {'messages': messages, 'metadata': metadata}
 
 def main(
-    dataset_name: str,
+    dataset_path: str,
     compression: str,
     local_dir: str,
     hashes: list[str],
@@ -103,13 +121,13 @@ def main(
     num_written = 0
     for split in splits:
         with MDSWriter(
-            columns={'row': 'json'},
+            columns={'messages': 'json', 'metadata': 'json'},
             out=os.path.join(local_dir, split),
             compression=compression,
             hashes=hashes,
         ) as out:
             dataset = UnifiedMessagesDataset(
-                dataset_name=dataset_name,
+                dataset_path=dataset_path,
                 split=split,
                 subset=subset,
             )
@@ -118,16 +136,16 @@ def main(
                 num_written += 1
                 out.write(sample)
         log.info(f'Finished writing {num_written} samples')
-    log.info(f'Dataset has: {num_written} samples')
+    log.info(f'Dataset has {num_written} samples')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--dataset_name',
+        '--dataset_path',
         type=str,
         required=True,
-        help='Name of the dataset to process',
+        help='Path to the dataset to process',
     )
     parser.add_argument('--compression', type=str, default='zstd')
     parser.add_argument('--local_dir', type=str, required=True)
@@ -143,14 +161,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     hf_token = os.environ.get('HF_TOKEN')
     main(
-        dataset_name=args.dataset_name,
+        dataset_path=args.dataset_path,
         compression=args.compression,
         local_dir=args.local_dir,
         hashes=args.hashes,
         splits=args.splits,
-        tokenizer_name=args.tokenizer_name,
-        dataset_type=args.dataset_type,
-        max_length=args.max_length,
         subset=args.subset,
-        token=hf_token,
     )
