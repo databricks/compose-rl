@@ -220,7 +220,7 @@ def critic_loss(
 
 
 def policy_loss(
-    advantages: torch.Tensor,
+    advantages: torch.Tensor | None,
     outputs: MutableMapping,
     batch: MutableMapping,
     loss_type: OnPolicyEnum,
@@ -233,6 +233,7 @@ def policy_loss(
 ) -> MutableMapping:
 
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
+        assert advantages is not None
         online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
             'old_log_probs']
         old_entropies = batch['old_entropies']
@@ -365,7 +366,7 @@ def policy_loss(
         )
         with torch.no_grad():
             policy_kl = utils.masked_mean(
-                policy_kl_dict[kl_estimator],
+                policy_kl_dict[kl_estimator],  # pyright: ignore
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
 
@@ -388,8 +389,7 @@ def policy_loss(
                         (rewards - vstars))**2).mean()
         policy_dict = {
             'loss/policy_loss': policy_loss,
-            'kl/policy_kl':  #TODO: add more KLs
-                policy_kl,
+            'kl/policy_kl': policy_kl,
             'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
             'gen/entropy': old_entropies,
             'rewards/mean': torch.mean(
