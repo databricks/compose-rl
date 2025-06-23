@@ -683,9 +683,7 @@ class OnPolicyCallback(CallbackWithConfig):
             if isinstance(curr_values[0], torch.Tensor):
                 ret_batch[key] = torch.cat(curr_values)
             else:
-                if key == 'verified_answer':
-                    ret_batch[key] = list(flatten(curr_values))
-                elif key == 'vstar':
+                if key in ['verified_answer', 'vstar']:
                     ret_batch[key] = list(flatten(curr_values))
                 else:
                     # this is an edge case that we will not hit currently, but just handling it as needed
