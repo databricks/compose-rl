@@ -3,8 +3,8 @@
 
 import logging
 import re
-from typing import Any
 import signal
+from typing import Any
 
 import sympy
 from sympy.parsing.latex import parse_latex
@@ -73,7 +73,7 @@ def remove_boxed(s: str) -> str:
 
 class timeout:
 
-    def __init__(self, seconds=1, error_message='Timeout'):
+    def __init__(self, seconds:int=1, error_message:str='Timeout'):
         self.seconds = seconds
         self.error_message = error_message
 
@@ -86,7 +86,6 @@ class timeout:
 
     def __exit__(self, type, value, traceback):
         signal.alarm(0)
-
 
 
 def is_equiv(x1: str, x2: str) -> bool:
