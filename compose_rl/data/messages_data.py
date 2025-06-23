@@ -149,7 +149,7 @@ class MessagesStreamingDataset(StreamingDataset):
             'prompt': prompt,
             'prompt_len': prompt_len,
             'messages': messages,
-            'metadata': metadata,
+            # 'metadata': metadata,  # removing metadata for now
         }
 
         # extract the verified answer, if there is one
