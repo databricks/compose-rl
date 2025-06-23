@@ -255,11 +255,11 @@ def policy_loss(
             policy_kl = utils.masked_sum(
                 policy_kl_dict[kl_estimator], # pyright: ignore
                 batch['action_mask'],
-            )
+            ) / batch['max_gen_len']
             online_ift_kl = utils.masked_sum(
                 online_ift_kl_dict[kl_estimator], # pyright: ignore
                 batch['action_mask'],
-            )
+            ) / batch['max_gen_len']
 
         ratio = torch.exp(online_log_probs - old_log_probs)
         policy_loss_1 = -advantages * ratio
@@ -286,7 +286,15 @@ def policy_loss(
                 batch['action_mask'],
             )
         else:
-            policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
+            print(
+                'loss was: ',
+                utils.masked_sum(policy_loss, batch['action_mask']),
+            )
+            policy_loss = utils.masked_sum(
+                policy_loss,
+                batch['action_mask'],
+            ) / batch['max_gen_len']
+            print('loss after now is: ', policy_loss)
 
         policy_token_kl_logging_dict = {
             f'token_kl/policy_token_kl_{k}_estimate':
