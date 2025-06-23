@@ -218,7 +218,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
-            beta = self.config.beta, #added beta parameter
+            beta = self.config.beta,
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
@@ -257,7 +257,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         length_normalize_policy_loss: bool = True,
         policy_clip_ratio: float = 0.15,
         policy_clip_high_ratio: float | None = None,
-        beta: float = 1e-3, #added beta
+        beta: float = 1e-3,
         compute_kl_loss: bool = True,
         target_kl: float = 0.1,
         kl_estimator: str = 'k3',
@@ -311,7 +311,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             loss_type=self.loss_type,
             policy_clip_ratio=self.policy_clip_ratio,
             policy_clip_high_ratio=self.policy_clip_high_ratio,
-            beta = self.beta,  #added beta
+            beta = self.beta,
             length_normalize_policy_loss=self.length_normalize_policy_loss,
             add_direct_kl_loss=self.compute_kl_loss,
             kl_estimator=self.kl_estimator,
