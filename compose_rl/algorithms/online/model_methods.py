@@ -143,8 +143,13 @@ def composer_online_rl_forward(
 
     if is_packed:
         # Pack Again
-        log_probs_outputs = log_prob_outputs.view(bs, 2, -1)
+        print("Starting repack")
+        print(f"Batch Size = {bs}")
+        print(f"Log Prob Outputs = {log_prob_outputs.shape}")
+        log_prob_outputs = log_prob_outputs.view(bs, 2, -1)
         logits = logits.view(bs, 2, -1)
+        print(log_prob_outputs.shape)
+        print(logits.shape)
         print("DONE WITH FORWARD REPACK")
 
     return_dict = {
@@ -363,8 +368,15 @@ def policy_loss(
         }
         return policy_dict
     elif loss_type == OnPolicyEnum.REBEL:
+        for k, v in outputs.items():
+            print(f"{k}: {v.shape}")
         # Assumption that all tensors are packed: (batch size, 2, sequence_length)
         online_log_probs = outputs['online_log_probs']
+
+        print("HIIIIII")
+        print(batch['ift_log_probs'].shape)
+        print("HI2")
+        print(online_log_probs)
 
         # Choose base policy
         if use_reference_log_probs:

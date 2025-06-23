@@ -93,8 +93,9 @@ variables:
   lambda_gae: 1
 
   num_train_nodes: 1
-  num_batches_per_update: 4
+  num_batches_per_update: 2
   generations_per_prompt: 2
+    #generations_per_prompt: 1
   device_generate_batch_size: 1
   epoch_per_iteration: 1
 

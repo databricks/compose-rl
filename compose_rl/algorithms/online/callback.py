@@ -171,7 +171,7 @@ def env_reward(
         # Sanity checking we're adding max_gen_len to prompt_tokens
         if prompt_tokens.size(1) + max_gen_len != sequences.size(1):
             raise ValueError(
-                f'Prompts {prompt_tokens.size(1)} + max_gen_len {max_gen_len} != sequences {sequences.size(1)}',
+                    f'Prompts {prompt_tokens.size(1)} + max_gen_len {max_gen_len} != sequences {sequences.size(1)}',
             )
 
         # Actions are what tokens the current policy would generate.
@@ -413,6 +413,10 @@ class OnPolicyCallback(CallbackWithConfig):
             1,
         )
 
+        #if train_config['model']['loss_type'] == "rebel":
+            #    # With packing assume 1
+        #    self.num_batches_per_update = 1
+        #else:
         if self.num_batches_per_update % self.generations_per_prompt != 0:
             raise ValueError(
                 f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}',
@@ -425,7 +429,11 @@ class OnPolicyCallback(CallbackWithConfig):
         assert self.epochs_per_iteration.unit == TimeUnit.EPOCH
 
         # Programmatically setting the max buffer size instead of the yaml
-        var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
+        buffer_size = self.num_batches_per_update
+        if train_config['model']['loss_type'] == "rebel":
+            buffer_size /= 2
+        #var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
+        var_config['buffer']['max_buffer_size'] = buffer_size
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
 
         # Build the KL controller through registries
@@ -521,6 +529,8 @@ class OnPolicyCallback(CallbackWithConfig):
             raise ValueError('auto microbatching is not supported for PPO')
 
         self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
+        if self.actor_critic.loss_type == OnPolicyEnum.REBEL:
+            self.iter_batch_size = self.iter_batch_size // 2
 
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
@@ -648,6 +658,7 @@ class OnPolicyCallback(CallbackWithConfig):
             for batch in batches:
                 # Explode the batch into multiple batches for each generation
                 for _ in range(self.generations_per_prompt):
+                #for _ in range(n_gens):
                     # For keys that do not require additional processing
                     if key in ['prompt_len', 'verified_answer', 'prompt_id']:
                         curr_values.append(batch[key])
@@ -791,6 +802,9 @@ class OnPolicyCallback(CallbackWithConfig):
         )
 
         # We need to split the resolved outputs into minibatches
+        print("CHECKING BUFFER")
+        print(f"Iter Batch Size: {self.iter_batch_size}")
+        print(f"Device Train Batch Size: {self.device_train_batch_size}")
         for idx in range(self.iter_batch_size // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
                 resolved_outputs,
@@ -800,7 +814,10 @@ class OnPolicyCallback(CallbackWithConfig):
             self.buffer.add(minibatch)
 
         # Making sure we correctly parsed the minibatches
-        assert len(self.buffer) == self.num_batches_per_update
+        if self.actor_critic.loss_type == OnPolicyEnum.REBEL:
+            assert len(self.buffer) == (self.num_batches_per_update // 2)
+        else:
+            assert len(self.buffer) == self.num_batches_per_update
 
         self.actor_critic.train()
 
@@ -1000,14 +1017,20 @@ class OnPolicyCallback(CallbackWithConfig):
 
             iter_batch.update({
                 'max_gen_len':
-                    torch.ones(self.iter_batch_size).to(torch.int32) *
+                    torch.ones(self.iter_batch_size * 2).to(torch.int32) *
                     self.max_gen_len,
                 'ift_kl_scalar':
-                    torch.ones(self.iter_batch_size) * self.kl_ctl.value,
+                    torch.ones(self.iter_batch_size * 2) * self.kl_ctl.value,
                 'reward_std':
-                    torch.ones(self.iter_batch_size) *
+                    torch.ones(self.iter_batch_size * 2) *
                     env_outs['rewards'].std().to('cpu'),
             })
+
+            for k, v in iter_batch.items():
+                if not isinstance(v, torch.Tensor):
+                    print(k)
+                    print(type(v))
+            del(iter_batch['verified_answer'])
 
             # Assuming 2 generations per prompt and packing them for preferences
             _, inverse_indices, counts = torch.unique(
