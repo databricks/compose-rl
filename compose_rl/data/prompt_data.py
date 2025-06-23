@@ -40,7 +40,6 @@ def prompt_dataset_collate_fn(
         mlm_probability=0.0,
     )
 
-
     keys = batch[0].keys()
     collated_batch: dict[str, torch.Tensor] = {}
     for key in keys:
@@ -128,7 +127,7 @@ class PromptStreamingDataset(StreamingDataset):
                     _answer = ''
 
             item_dict['verified_answer'] = _answer  # type: ignore
-        
+
         #vstar
         vstar = sample.get('vstar', None)
         if vstar is not None:

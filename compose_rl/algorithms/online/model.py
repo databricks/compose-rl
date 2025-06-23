@@ -104,7 +104,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
-            beta = self.config.beta, #added beta 
+            beta=self.config.beta,
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
@@ -218,7 +218,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
-            beta = self.config.beta, #added beta parameter 
+            beta = self.config.beta, #added beta parameter
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
@@ -276,6 +276,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             target_kl (float): The target KL value. Default: ``0.1``.
             kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
             kl_clip_range (float): The KL clip range. Default: ``40.0``.
+            beta (float): pi_ref KL hyperparameter for APO. Default: ``1e-3``
         """
         super().__init__(**kwargs)
         self.policy_kl = []

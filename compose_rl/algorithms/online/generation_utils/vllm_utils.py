@@ -45,7 +45,10 @@ from torch.distributed.distributed_c10d import (
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from compose_rl.algorithms.online.generation_utils.vllm_actor import LLMRayActor
-from compose_rl.algorithms.online.model_methods import ALGORITHM_TYPE, OnPolicyEnum
+from compose_rl.algorithms.online.model_methods import (
+    ALGORITHM_TYPE,
+    OnPolicyEnum,
+)
 
 log = logging.getLogger(__name__)
 

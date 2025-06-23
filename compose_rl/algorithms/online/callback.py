@@ -650,7 +650,12 @@ class OnPolicyCallback(CallbackWithConfig):
                 # Explode the batch into multiple batches for each generation
                 for _ in range(self.generations_per_prompt):
                     # For keys that do not require additional processing
-                    if key in ['prompt_len', 'verified_answer', 'prompt_id', 'vstar']:
+                    if key in [
+                        'prompt_len',
+                        'verified_answer',
+                        'prompt_id',
+                        'vstar',
+                    ]:
                         curr_values.append(batch[key])
                         continue
 
@@ -1002,7 +1007,6 @@ class OnPolicyCallback(CallbackWithConfig):
                     torch.ones(self.iter_batch_size) *
                     env_outs['rewards'].std().to('cpu'),
             })
-
 
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():

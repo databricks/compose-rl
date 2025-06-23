@@ -3,8 +3,8 @@
 
 import logging
 import re
-from typing import Any
 import signal
+from typing import Any
 
 import sympy
 from sympy.parsing.latex import parse_latex
@@ -72,7 +72,8 @@ def remove_boxed(s: str) -> str:
 
 
 class timeout:
-    def __init__(self, seconds=1, error_message="Timeout"):
+
+    def __init__(self, seconds=1, error_message='Timeout'):
         self.seconds = seconds
         self.error_message = error_message
 
@@ -88,10 +89,9 @@ class timeout:
 
 
 def is_equiv(x1: str, x2: str) -> bool:
-
     """Checks mathematical equivalence between two normalized LaTeX strings."""
     try:
-        with timeout(seconds = 5):
+        with timeout(seconds=5):
             try:
                 parsed_x1 = parse_latex(x1)
                 parsed_x2 = parse_latex(x2)
@@ -117,7 +117,7 @@ def is_equiv(x1: str, x2: str) -> bool:
                     f'Had some trouble simplifying when comparing {x1} and {x2}',
                 )
                 return False
-    
+
     except TimeoutError:
         log.debug(f"Timed out comparing {x1} and {x2}")
         return False
