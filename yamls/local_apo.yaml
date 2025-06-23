@@ -6,18 +6,18 @@ model:
   pretrained: true
   use_auth_token: true
   loss_type: apo
-  beta: 1e-3 # TODO: need to
+  beta: 1e-3  # TODO: need to
   normalize_advantage: true
   length_normalize_policy_loss: true
   policy_clip_ratio: 0.2
-  compute_kl_loss: false # turn off kl in loss
-  target_kl: 100000 # turn off early stopping
+  compute_kl_loss: false  # turn off kl in loss
+  target_kl: 100000  # turn off early stopping
   kl_estimator: k3
   kl_clip_range: 40.0
   use_flash_attention_2: true
   pretrained_model_name_or_path: Qwen/Qwen2.5-1.5B-Instruct
 
-#loggers:
+# loggers:
 #  mlflow:
 #    tags:
 #      run: apo_test
@@ -67,7 +67,7 @@ variables:
       use_flash_attention_2: true
       pretrained_model_name_or_path: Qwen/Qwen2.5-1.5B-Instruct
 
-  kl_controller: # Turn off reward KL
+  kl_controller:  # Turn off reward KL
     kl_ctl_type: fixed
     init_kl_coef: 0.0
 
