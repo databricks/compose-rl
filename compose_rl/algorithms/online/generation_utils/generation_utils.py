@@ -120,14 +120,17 @@ def vllm_generate(
     # Pull the necessary variables from the batch and self
     cur_device = batch['prompt'].device
     prompt_tokens = batch['prompt']
+    messages = batch['messages']
 
-    prompt_all_gather_start_time = time.time()
+    prompt_and_messages_all_gather_start_time = time.time()
 
+    # TODO: (seank) update this to use gather_object(dst=0) rather than all_gather_object
     all_batched_prompts = dist.all_gather_object(prompt_tokens)
+    all_batched_messages = dist.all_gather_object(messages)
     batch_sizes = [len(batch) for batch in all_batched_prompts]
 
     log.info(
-        f'took : {time.time() - prompt_all_gather_start_time} to gather prompts',
+        f'took : {time.time() - prompt_and_messages_all_gather_start_time} to gather prompts and messages',
     )
     all_prompts = [prompt for batch in all_batched_prompts for prompt in batch]
 
