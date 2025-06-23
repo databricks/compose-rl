@@ -92,7 +92,6 @@ def prepare_critic_values_for_training(
     )
     values *= action_mask
 
-    #TODO: why zero padding?
     if zero_pad:
         zero_pad_tensor = torch.zeros((bs, 1),
                                       device=values.device,
