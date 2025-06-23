@@ -135,23 +135,68 @@ def get_log_probs(
 
 def get_entropies(
     logits: torch.Tensor,
-    actions: torch.Tensor,
+    action_mask: torch.Tensor,
     prompt_len: torch.Tensor,
     max_gen_len: Union[torch.Tensor, int],
 ) -> torch.Tensor:
-    """Gets the entropies from the generated logits.
+    """Gets the entropies of generated logits from all logits.
 
     Args:
         logits (torch.Tensor): the logits of the actions. Size (bs, seq_len + gen_len, vocab_size)
-        actions (torch.Tensor): the actions taken, typically tokens generated. Size (bs, gen_len)
+        action_mask (torch.Tensor): the mask of the actions taken. Size (bs, gen_len)
         prompt_len (torch.Tensor): length of the prompt.
         max_gen_len (int): maximum generation length.
 
     Returns:
         entropies (torch.Tensor): the entropies of the sequence. Size (bs)
     """
+    # get_batched_generated_values extracts tokens from prompt_len-1 to prompt_len+max_gen_len-1
+    # This includes the last token of the prompt and excludes the last token of the generation
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
-    return get_entropies_from_logits(gen_logits, actions)
+    token_entropies = get_token_entropies(gen_logits)
+    entropies = get_sequence_entropies(token_entropies, action_mask)
+    return entropies
+
+
+def get_token_entropies(
+    logits: torch.Tensor,
+) -> torch.Tensor:
+    """Calculates the entropy of the probability distribution for each token.
+
+    Args:
+        logits (torch.Tensor): Logits tensor of shape (batch_size, seq_len, vocab_size).
+
+    Returns:
+        torch.Tensor: Entropy values for each token in the sequence (batch_size, seq_len).
+    """
+    # Calculate entropy using the logsumexp trick
+    pd = F.softmax(logits, dim=-1)
+    token_entropies = torch.logsumexp(logits,
+                                      dim=-1) - torch.sum(pd * logits, dim=-1)
+
+    return token_entropies
+
+
+def get_sequence_entropies(
+    token_entropies: torch.Tensor,
+    action_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Calculates the seq level average token entropy.
+
+    Args:
+        token_entropies (torch.Tensor): Token entropies tensor of shape (batch_size, seq_len).
+        action_mask (torch.Tensor): Mask tensor of shape (batch_size, seq_len) where 1 indicates
+                                    tokens to include in the entropy calculation.
+
+    Returns:
+        torch.Tensor: Entropy values for each item in the batch (batch_size,).
+    """
+    # Apply action mask and calculate mean entropy across valid positions
+    masked_entropy = token_entropies * action_mask
+    num_valid_positions = action_mask.sum(
+        dim=-1,
+    ) + 1e-12  # avoid division by zero
+    return masked_entropy.sum(dim=-1) / num_valid_positions
 
 
 def switch_left_to_right_padding(
@@ -1011,33 +1056,6 @@ def get_log_probs_from_logits(logits: torch.Tensor, actions: torch.Tensor):
     logp = F.log_softmax(logits, dim=2)
     logpy = torch.gather(logp, 2, actions.unsqueeze(2).long()).squeeze(-1)
     return logpy
-
-
-def get_entropies_from_logits(
-    logits: torch.Tensor,
-    actions: torch.Tensor,
-) -> torch.Tensor:
-    """Gets the entropies from a set of logits and actions mask.
-
-    Args:
-        logits (torch.Tensor): The logits over the entire sequence (batch_size, seq_len, vocab_size).
-        actions (torch.Tensor): The actions taken (tokens generated) (batch_size, seq_len).
-
-    Returns:
-        torch.Tensor: The entropies for the entire sequence (batch_size).
-    """
-    # Get probability distribution
-    pd = F.softmax(logits, dim=2)
-
-    # Get probabilities for the specific actions
-    actions_probs = torch.gather(pd, 2, actions.unsqueeze(2).long()).squeeze(-1)
-
-    # Calculate entropy for those specific actions: -p*log(p)
-    # Adding small epsilon to avoid log(0)
-    pointwise_entropies = -actions_probs * torch.log(actions_probs + 1e-10)
-
-    # Mean over sequence length (dim=1) to get one entropy value per sequence
-    return torch.mean(pointwise_entropies, dim=1)
 
 
 def extract_packed_chosen_rejected(
