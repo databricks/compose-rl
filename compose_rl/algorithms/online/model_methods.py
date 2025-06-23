@@ -111,15 +111,21 @@ def composer_online_rl_forward(
         model (torch.nn.Module): The PPO Actor Critic model to run forwards over.
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to ``ppo``.
     """
-    is_packed = len(batch['obs'].shape) == 3 # additional packed variable
+    is_packed = len(batch['obs'].shape) == 3  # additional packed variable
     bs = batch['obs'].shape[0]
 
     if is_packed:
-        flatten_keys = ['obs', 'actions', 'right_padded_attn_mask', 'prompt_len', 'action_mask', 'max_gen_len']
-
-        batch = {k: v.flatten(0, 1) for k, v in batch.items() if k in flatten_keys}
-        print(batch.keys())
-        print("DONE WITH FORWARD UNPACKING")
+        flatten_keys = [
+            'obs',
+            'actions',
+            'right_padded_attn_mask',
+            'prompt_len',
+            'action_mask',
+            'max_gen_len',
+        ]
+        batch = {
+            k: v.flatten(0, 1) for k, v in batch.items() if k in flatten_keys
+        }
 
     model_forward_kwargs = {
         'attention_mask': batch['right_padded_attn_mask'],
@@ -143,14 +149,8 @@ def composer_online_rl_forward(
 
     if is_packed:
         # Pack Again
-        print("Starting repack")
-        print(f"Batch Size = {bs}")
-        print(f"Log Prob Outputs = {log_prob_outputs.shape}")
         log_prob_outputs = log_prob_outputs.view(bs, 2, -1)
         logits = logits.view(bs, 2, -1)
-        print(log_prob_outputs.shape)
-        print(logits.shape)
-        print("DONE WITH FORWARD REPACK")
 
     return_dict = {
         'online_log_probs': log_prob_outputs,
@@ -368,28 +368,18 @@ def policy_loss(
         }
         return policy_dict
     elif loss_type == OnPolicyEnum.REBEL:
-        for k, v in outputs.items():
-            print(f"{k}: {v.shape}")
         # Assumption that all tensors are packed: (batch size, 2, sequence_length)
         online_log_probs = outputs['online_log_probs']
 
-        print("HIIIIII")
-        print(batch['ift_log_probs'].shape)
-        print("HI2")
-        print(online_log_probs)
-
         # Choose base policy
         if use_reference_log_probs:
-            old_log_probs = batch['ift_log_probs'] 
+            old_log_probs = batch['ift_log_probs']
         else:
             old_log_probs = batch['old_log_probs']
 
         log_probs_diff = online_log_probs - old_log_probs
         old_entropies = batch['old_entropies']
 
-        print(old_log_probs.shape)
-        print(online_log_probs.shape)
-        print(batch['old_log_probs'].shape)
         #compute KL to pi_ref to keep track the divergence to \pi_ref
         assert online_log_probs.size() == old_log_probs.size()
         policy_kl_dict = utils.approx_kl(
@@ -398,25 +388,37 @@ def policy_loss(
             kl_clip_range=kl_clip_range,
         )
         with torch.no_grad():
-            policy_kl = utils.masked_mean(policy_kl_dict[kl_estimator], batch['action_mask'].flatten(0, 1)) #plain average over all tokens (KL to pi_ref)
-        
-        masked_log_probs_diff = utils.masked_sum(log_probs_diff, batch['action_mask'], dim = -1)
-        rewards = utils.masked_sum(batch['rewards'], batch['action_mask'], dim = -1)
+            policy_kl = utils.masked_mean(
+                policy_kl_dict[kl_estimator],
+                batch['action_mask'].flatten(0, 1),
+            )  #plain average over all tokens (KL to pi_ref)
+
+        masked_log_probs_diff = utils.masked_sum(
+            log_probs_diff,
+            batch['action_mask'],
+            dim=-1,
+        )
+        rewards = utils.masked_sum(
+            batch['rewards'],
+            batch['action_mask'],
+            dim=-1,
+        )
 
         assert rewards.size() == masked_log_probs_diff.size()
-        policy_loss = (beta * (masked_log_probs_diff[:, 0] - masked_log_probs_diff[:, 1]) - (rewards[:, 0] - rewards[:, 1])) ** 2
+        policy_loss = (
+            beta * (masked_log_probs_diff[:, 0] - masked_log_probs_diff[:, 1]) -
+            (rewards[:, 0] - rewards[:, 1])
+        )**2
 
         policy_dict = {
-            'loss/policy_loss':
-                policy_loss,
-            'kl/policy_kl': #TODO: add more KLs
-                policy_kl, 
-            'gen/gen_length':
-                batch['action_mask'].sum(dim=1).to(torch.float32),
-            'gen/entropy':
-                old_entropies,
-            'rewards/mean':
-                torch.mean(rewards), #compute the average reward of the current batch
+            'loss/policy_loss': policy_loss,
+            'kl/policy_kl':  #TODO: add more KLs
+                policy_kl,
+            'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
+            'gen/entropy': old_entropies,
+            'rewards/mean': torch.mean(
+                rewards,
+            ),  #compute the average reward of the current batch
         }
         return policy_dict
     else:
@@ -453,6 +455,7 @@ def online_rl_loss(
         add_direct_kl_loss (bool): Whether to add the KL loss directly to the loss. Default: ``False``.
         kl_estimator (str): The KL estimator to use. Default: ``'k1'``.
         kl_clip_range (float): The clip range for the KL divergence. Default: ``40.0``.
+        use_reference_log_probs (bool): Whether old policy is previous or reference
     """
     # log_probs: [bs, gen_len] log probability of each action
     # action_mask: [bs, gen_len] action mask
@@ -515,7 +518,7 @@ def online_rl_loss(
     return_dict.update(**policy_dict)
 
     # Flatten Batch for logging
-    is_packed = len(batch['obs'].shape) == 3 # additional packed variable
+    is_packed = len(batch['obs'].shape) == 3  # additional packed variable
     if is_packed:
         for key, value in batch.items():
             if isinstance(value, torch.Tensor):

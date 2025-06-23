@@ -6,24 +6,16 @@ model:
   pretrained: true
   use_auth_token: true
   loss_type: rebel
-  beta: 1e-3 # TODO: need to
+  beta: 1e-3
   normalize_advantage: true
   length_normalize_policy_loss: true
   policy_clip_ratio: 0.2
-  compute_kl_loss: false # turn off kl in loss
+  compute_kl_loss: false  # turn off kl in loss
   target_kl: 0.1
   kl_estimator: k3
   kl_clip_range: 40.0
   use_flash_attention_2: true
   pretrained_model_name_or_path: Qwen/Qwen2.5-1.5B-Instruct
-
-#loggers:
-#  mlflow:
-#    tags:
-#      run: apo_test
-#      project: apo
-#    tracking_uri: databricks
-#    experiment_name: null  # TODO: add mlflow experiment name
 
 callbacks:
   on_policy_rl: {}
@@ -67,7 +59,7 @@ variables:
       use_flash_attention_2: true
       pretrained_model_name_or_path: Qwen/Qwen2.5-1.5B-Instruct
 
-  kl_controller: # Turn off reward KL
+  kl_controller:  # Turn off reward KL
     kl_ctl_type: fixed
     init_kl_coef: 0.0
 
@@ -95,7 +87,6 @@ variables:
   num_train_nodes: 1
   num_batches_per_update: 2
   generations_per_prompt: 2
-    #generations_per_prompt: 1
   device_generate_batch_size: 1
   epoch_per_iteration: 1
 

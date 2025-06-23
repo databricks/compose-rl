@@ -171,7 +171,7 @@ def env_reward(
         # Sanity checking we're adding max_gen_len to prompt_tokens
         if prompt_tokens.size(1) + max_gen_len != sequences.size(1):
             raise ValueError(
-                    f'Prompts {prompt_tokens.size(1)} + max_gen_len {max_gen_len} != sequences {sequences.size(1)}',
+                f'Prompts {prompt_tokens.size(1)} + max_gen_len {max_gen_len} != sequences {sequences.size(1)}',
             )
 
         # Actions are what tokens the current policy would generate.
@@ -414,7 +414,7 @@ class OnPolicyCallback(CallbackWithConfig):
         )
 
         #if train_config['model']['loss_type'] == "rebel":
-            #    # With packing assume 1
+        #    # With packing assume 1
         #    self.num_batches_per_update = 1
         #else:
         if self.num_batches_per_update % self.generations_per_prompt != 0:
@@ -430,7 +430,7 @@ class OnPolicyCallback(CallbackWithConfig):
 
         # Programmatically setting the max buffer size instead of the yaml
         buffer_size = self.num_batches_per_update
-        if train_config['model']['loss_type'] == "rebel":
+        if train_config['model']['loss_type'] == 'rebel':
             buffer_size /= 2
         #var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
         var_config['buffer']['max_buffer_size'] = buffer_size
@@ -658,7 +658,7 @@ class OnPolicyCallback(CallbackWithConfig):
             for batch in batches:
                 # Explode the batch into multiple batches for each generation
                 for _ in range(self.generations_per_prompt):
-                #for _ in range(n_gens):
+                    #for _ in range(n_gens):
                     # For keys that do not require additional processing
                     if key in ['prompt_len', 'verified_answer', 'prompt_id']:
                         curr_values.append(batch[key])
@@ -802,9 +802,6 @@ class OnPolicyCallback(CallbackWithConfig):
         )
 
         # We need to split the resolved outputs into minibatches
-        print("CHECKING BUFFER")
-        print(f"Iter Batch Size: {self.iter_batch_size}")
-        print(f"Device Train Batch Size: {self.device_train_batch_size}")
         for idx in range(self.iter_batch_size // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
                 resolved_outputs,
@@ -1026,17 +1023,18 @@ class OnPolicyCallback(CallbackWithConfig):
                     env_outs['rewards'].std().to('cpu'),
             })
 
+            keys_to_remove = []
             for k, v in iter_batch.items():
                 if not isinstance(v, torch.Tensor):
-                    print(k)
-                    print(type(v))
-            del(iter_batch['verified_answer'])
+                    keys_to_remove.append(k)
+            for k in keys_to_remove:
+                del (iter_batch[k])
 
             # Assuming 2 generations per prompt and packing them for preferences
             _, inverse_indices, counts = torch.unique(
-                prompt_id, 
+                prompt_id,
                 return_inverse=True,
-                return_counts=True
+                return_counts=True,
             )
 
             # Assumption for REBEL: 2 generations, verify all IDs appear exactly twice
@@ -1045,29 +1043,12 @@ class OnPolicyCallback(CallbackWithConfig):
             # Sort for grouping
             sorted_indices = torch.argsort(inverse_indices)
             pair_indices = sorted_indices.view(-1, 2)
-            print(pair_indices)
-            print(iter_batch.keys())
-
-            for k, v in iter_batch.items():
-                if isinstance(v, torch.Tensor):
-                    print(f"{k}: {v.shape}")
-
-            print(iter_batch['prompt_len'])
-            print(iter_batch['generated_len'])
-            print(iter_batch['prompt_attention_mask'][0])
-            print(iter_batch['action_mask'][0])
-            print(iter_batch['right_padded_attn_mask'][0])
 
             # Pair based on batches
             for k, v in iter_batch.items():
                 if isinstance(v, torch.Tensor):
                     pair_indices = pair_indices.to(v.device)
                     iter_batch[k] = v[pair_indices]
-
-            print("Post Pairing")
-            for k, v in iter_batch.items():
-                if isinstance(v, torch.Tensor):
-                    print(f"{k}: {v.shape}")
 
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
