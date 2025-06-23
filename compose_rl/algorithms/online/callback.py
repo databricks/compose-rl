@@ -683,15 +683,7 @@ class OnPolicyCallback(CallbackWithConfig):
             else:
                 if key == 'verified_answer':
                     ret_batch[key] = list(flatten(curr_values))
-                elif key == 'messages':
-                    # the messages should be [num_batches_per_update, batch_size, num_turns]
-                    # need to flatten this to [num_batches_per_update * batch_size, num_turns]
-                    ret_batch[key] = [
-                        message_chain for batch in curr_values
-                        for message_chain in batch
-                    ]
                 else:
-                    # this is an edge case that we will not hit currently, but just handling it as needed
                     ret_batch[key] = curr_values
 
         return ret_batch
