@@ -119,7 +119,7 @@ def is_equiv(x1: str, x2: str) -> bool:
                 return False
 
     except TimeoutError:
-        log.debug(f"Timed out comparing {x1} and {x2}")
+        log.debug(f'Timed out comparing {x1} and {x2}')
         return False
     except ImportError as e:
         log.error(e)

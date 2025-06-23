@@ -311,7 +311,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             loss_type=self.loss_type,
             policy_clip_ratio=self.policy_clip_ratio,
             policy_clip_high_ratio=self.policy_clip_high_ratio,
-            beta = self.beta,
+            beta=self.beta,
             length_normalize_policy_loss=self.length_normalize_policy_loss,
             add_direct_kl_loss=self.compute_kl_loss,
             kl_estimator=self.kl_estimator,

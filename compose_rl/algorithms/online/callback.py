@@ -958,54 +958,31 @@ class OnPolicyCallback(CallbackWithConfig):
                 env_outs['action_mask'],
             )
 
-            mean_ift = masked_mean(
-                env_outs['ift_kl'],
-                env_outs['action_mask'],
-            )
-            self.kl_ift.append(mean_ift.cpu())
-
-            iter_batch.update(env_outs)
-
             iter_batch.update({
-                'max_gen_len':
-                    torch.ones(self.iter_batch_size).to(torch.int32) *
-                    self.max_gen_len,
                 'adv_masked_mean':
                     torch.ones(self.iter_batch_size) * batch_adv_mean.cpu(),
                 'adv_masked_var':
                     torch.ones(self.iter_batch_size) * batch_adv_var.cpu(),
-                'ift_kl_scalar':
-                    torch.ones(self.iter_batch_size) * self.kl_ctl.value,
-                'reward_std':
-                    torch.ones(self.iter_batch_size) *
-                    env_outs['rewards'].std().to('cpu'),
-            })
-        else:
-            # APO and REBEL
-
-            mean_ift = masked_mean(
-                env_outs['ift_kl'],
-                env_outs['action_mask'],
-            )
-            self.kl_ift.append(mean_ift.cpu())
-
-            iter_batch.update(env_outs)
-
-            iter_batch.update({
-                'max_gen_len':
-                    torch.ones(self.iter_batch_size).to(torch.int32) *
-                    self.max_gen_len,
-                'adv_masked_mean':
-                    torch.ones(self.iter_batch_size),
-                'adv_masked_var':
-                    torch.ones(self.iter_batch_size),
-                'ift_kl_scalar':
-                    torch.ones(self.iter_batch_size) * self.kl_ctl.value,
-                'reward_std':
-                    torch.ones(self.iter_batch_size) *
-                    env_outs['rewards'].std().to('cpu'),
             })
 
+        mean_ift = masked_mean(
+            env_outs['ift_kl'],
+            env_outs['action_mask'],
+        )
+        self.kl_ift.append(mean_ift.cpu())
+
+        iter_batch.update(env_outs)
+
+        iter_batch.update({
+            'max_gen_len':
+                torch.ones(self.iter_batch_size).to(torch.int32) *
+                self.max_gen_len,
+            'ift_kl_scalar':
+                torch.ones(self.iter_batch_size) * self.kl_ctl.value,
+            'reward_std':
+                torch.ones(self.iter_batch_size) *
+                env_outs['rewards'].std().to('cpu'),
+        })
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
             if hasattr(v, 'cpu'):
