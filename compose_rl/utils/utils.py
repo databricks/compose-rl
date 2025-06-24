@@ -415,7 +415,7 @@ def dist_compute_masked_mean_and_var(
     num_unmasked_elements = mask.sum()
     masked_tensor_sum = (tensor * mask).sum() # Get the masked tensor sum
 
-    dist.monitored_barrier()  # monitor the barrier
+    torch.distributed.monitored_barrier()  # monitor the barrier
     dist.all_reduce(num_unmasked_elements)
     dist.all_reduce(masked_tensor_sum)
 
