@@ -413,10 +413,9 @@ def dist_compute_masked_mean_and_var(
     assert len(tensor.shape) == 2
 
     num_unmasked_elements = mask.sum()
+    masked_tensor_sum = (tensor * mask).sum() # Get the masked tensor sum
 
-    # Get the masked tensor sum
-    masked_tensor_sum = (tensor * mask).sum()
-
+    dist.monitored_barrier()  # monitor the barrier
     dist.all_reduce(num_unmasked_elements)
     dist.all_reduce(masked_tensor_sum)
 
