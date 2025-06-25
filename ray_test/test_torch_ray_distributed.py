@@ -125,3 +125,5 @@ if __name__ == '__main__':
         finally:
             ray.shutdown()
             subprocess.run(['ray', 'stop'], check=True)
+    else:
+        time.sleep(60)
