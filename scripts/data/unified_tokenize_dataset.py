@@ -42,9 +42,8 @@ class UnifiedTokenizedDataset(IterableDataset):
         split: str,
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
-        dataset_type: Literal['preference', 'single_prompt', 'single_message',
-                              'verifiable_answers', 'messages_with_answer',
-                              'classifier'],
+        dataset_type: Literal['preference', 'single_prompt',
+                              'verifiable_answers'],
         subset: str | None = None,
         token: str | None = None,
     ):
@@ -68,9 +67,7 @@ class UnifiedTokenizedDataset(IterableDataset):
             token=token,
         )
 
-    def __iter__(
-        self,
-    ) -> Iterator[dict[str, Any]]:
+    def __iter__(self) -> Iterator[dict[str, bytes]]:
         for sample in self.hf_dataset:
             if self.dataset_type == 'preference':
                 yield self._process_preference_sample(sample)
@@ -78,27 +75,9 @@ class UnifiedTokenizedDataset(IterableDataset):
                 result = self._process_single_prompt_sample(sample)
                 if result is not None:
                     yield result
-            elif self.dataset_type == 'single_message':
-                result = self._process_single_prompt_sample(
-                    sample,
-                    return_messages=True,
-                )
-                if result is not None:
-                    # delete the prompt from the results since it's not needed
-                    result.pop('prompt')
-                    yield result
             elif self.dataset_type == 'verifiable_answers':
                 result = self._process_verifiable_answer_sample(sample)
                 if result is not None:
-                    yield result
-            elif self.dataset_type == 'messages_with_answer':
-                result = self._process_verifiable_answer_sample(
-                    sample,
-                    return_messages=True,
-                )
-                if result is not None:
-                    # delete the prompt from the results since it's not needed
-                    result.pop('prompt')
                     yield result
             elif self.dataset_type == 'classifier':
                 yield self._process_classifier_sample(sample)
@@ -126,16 +105,11 @@ class UnifiedTokenizedDataset(IterableDataset):
             'rejected': np.asarray(curr_rejected).tobytes(),
         }
 
-    def _process_single_prompt_sample(
-        self,
-        sample: Any,
-        return_messages: bool = False,
-    ):
+    def _process_single_prompt_sample(self, sample: Any):
         """Process a prompt sample.
 
         Args:
             sample (Any): a sample from the dataset
-            return_messages (bool): whether to include chat-ml messages in the output
         """
         prompt = sample['prompt']
         messages = [{
@@ -144,7 +118,6 @@ class UnifiedTokenizedDataset(IterableDataset):
             'content':
                 f'Can you summarize the following content in 50 words or less: {prompt}',
         }]
-
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
@@ -154,10 +127,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         if len(encoded_prompt) > self.max_length:
             return None
 
-        output = {'prompt': np.asarray(encoded_prompt).tobytes()}
-        if return_messages:
-            output['messages'] = messages  # type: ignore
-        return output
+        return {'prompt': np.asarray(encoded_prompt).tobytes()}
 
     def _process_classifier_sample(self, sample: Any):
         """A dummy process a classifier sample.
@@ -199,18 +169,13 @@ class UnifiedTokenizedDataset(IterableDataset):
 
         return prompt_fn, answer_fn
 
-    def _process_verifiable_answer_sample(
-        self,
-        sample: Any,
-        return_messages: bool = False,
-    ):
+    def _process_verifiable_answer_sample(self, sample: Any):
         """Process a prompt sample and extract the answer.
 
         This function is currently hard-coded for the GSM8K dataset.
 
         Args:
             sample (Any): a sample from the dataset
-            return_messages (bool): whether to include chat-ml messages in the output
         """
         prompt_fn, answer_fn = self._get_processing_fn_from_dataset()
 
@@ -242,13 +207,10 @@ class UnifiedTokenizedDataset(IterableDataset):
             )
             return None
 
-        output = {
+        return {
             'prompt': np.asarray(encoded_prompt).tobytes(),
             'verified_answer': verified_answer,
         }
-        if return_messages:
-            output['messages'] = messages
-        return output
 
     def _check_for_encoding(self, sample: str) -> bool:
         """Check if a sample is encodable by streaming.
@@ -285,9 +247,7 @@ def main(
     hashes: list[str],
     splits: list[str],
     tokenizer_name: str,
-    dataset_type: Literal['preference', 'single_prompt', 'single_message',
-                          'verifiable_answers', 'messages_with_answer',
-                          'classifier'],
+    dataset_type: Literal['preference', 'single_prompt', 'verifiable_answers'],
     max_length: int = 2048,
     subset: str | None = None,
     token: str | None = None,
@@ -300,9 +260,6 @@ def main(
         'single_prompt': {
             'prompt': 'bytes',
         },
-        'single_message': {
-            'messages': 'json',
-        },
         'verifiable_answers': {
             'prompt': 'bytes',
             'verified_answer': 'str',
@@ -310,10 +267,6 @@ def main(
         'classifier': {
             'input': 'bytes',
             'label': 'bytes',
-        },
-        'messages_with_answer': {
-            'messages': 'json',
-            'verified_answer': 'str',
         },
     }[dataset_type]
 
@@ -385,8 +338,6 @@ if __name__ == '__main__':
             'single_prompt',
             'classifier',
             'verifiable_answers',
-            'messages_with_answer',
-            'single_message',
         ],
         required=True,
         help='Type of dataset to process',
