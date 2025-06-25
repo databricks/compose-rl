@@ -14,12 +14,12 @@ def ray_noset_visible_devices():
 
 def get_ranks():
     # get envs set by torchrun
-    world_size = os.environ.get('WORLD_SIZE', None)
-    rank = os.environ.get('RANK', None)
-    local_rank = os.environ.get('LOCAL_RANK', None)
-    node_rank = os.environ.get('NODE_RANK', None)
-    master_addr = os.environ.get('MASTER_ADDR', None)
-    master_port = os.environ.get('MASTER_PORT', None)
+    world_size = os.environ.get('WORLD_SIZE', '1')
+    rank = os.environ.get('RANK', '0')
+    local_rank = os.environ.get('LOCAL_RANK', '0')
+    node_rank = os.environ.get('NODE_RANK', '0')
+    master_addr = os.environ.get('MASTER_ADDR', '127.0.0.1')
+    master_port = os.environ.get('MASTER_PORT', '8265')
 
     return world_size, rank, local_rank, node_rank, master_addr, master_port
 
@@ -29,7 +29,8 @@ def init_ray(rank: str):
 
     # init ray on master node, rank 0
     if rank == '0':
-        subprocess.run(['ray', 'start', '--head', '--port=6379', '--num-gpus=1'], check=True)
+        # subprocess.run(['ray', 'start', '--head', '--port=6379', '--num-gpus=1'], check=True)
+        subprocess.run(['ray', 'start', '--head', '--port=6379'], check=True)
         ray.init(address='auto')
         # get existing ray ip and port
         ctx = ray.get_runtime_context()
@@ -43,7 +44,8 @@ def init_ray(rank: str):
     dist.broadcast_object_list(address_list, src=0)
     if rank != '0':
         address = address_list[0]
-        subprocess.run(['ray', 'start', f'--address={address}', '--num-gpus=1'], check=True)
+        # subprocess.run(['ray', 'start', f'--address={address}', '--num-gpus=1'], check=True)
+        subprocess.run(['ray', 'start', f'--address={address}'], check=True)
         ray.init(address='auto')
     # wait until num of gpus reach world_size
     while ray.cluster_resources().get('GPU', 0) < dist.get_world_size():
@@ -64,16 +66,16 @@ def simple_gpu_task(master_addr: str, master_port: int, rank: int, node_rank: in
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["RANK"] = str(rank)
     os.environ["NODE_RANK"] = str(node_rank)
-    local_rank = rank % 8
-    os.environ["LOCAL_RANK"] = str(local_rank)
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
+    # local_rank = rank % 8
+    # os.environ["LOCAL_RANK"] = str(local_rank)
+    # os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
     # # NOTE: Ray will automatically set the *_VISIBLE_DEVICES
     # # environment variable for each actor, unless
     # # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set, so
     # # set local rank to 0 when the flag is not applicable.
-    # print(f'CUDA_VISIBLE_DEVICES: {os.environ["CUDA_VISIBLE_DEVICES"]}')
-    # print(f'ray.get_gpu_ids(): {ray.get_gpu_ids()}')
-    # os.environ["LOCAL_RANK"] = str(ray.get_gpu_ids()[0]) if ray_noset_visible_devices() else "0"
+    print(f'CUDA_VISIBLE_DEVICES: {os.environ["CUDA_VISIBLE_DEVICES"]}')
+    print(f'ray.get_gpu_ids(): {ray.get_gpu_ids()}')
+    os.environ["LOCAL_RANK"] = str(ray.get_gpu_ids()[0]) if ray_noset_visible_devices() else "0"
 
     # # number of visible devices
     num_visible_devices = torch.cuda.device_count()
@@ -112,9 +114,9 @@ if __name__ == '__main__':
         try:
             master_addr, _ = address.split(':')
             # if I uncomment this, dist.init_process_group will timeout
-            # with socket.socket() as sock:
-            #     sock.bind(("", 0))
-            #     master_port = sock.getsockname()[1]
+            with socket.socket() as sock:
+                sock.bind(("", 0))
+                master_port = sock.getsockname()[1]
 
             print(f"\n=== STARTING DISTRIBUTED TRAINING ===")
             tasks = [simple_gpu_task.remote(master_addr, master_port, rank, node_rank, world_size) for rank in range(int(world_size))]
