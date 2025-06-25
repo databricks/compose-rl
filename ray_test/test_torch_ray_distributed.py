@@ -14,10 +14,10 @@ def ray_noset_visible_devices():
 
 def get_ranks():
     # get envs set by torchrun
-    world_size = int(os.environ.get('WORLD_SIZE', '1'))
-    rank = int(os.environ.get('RANK', '0'))
-    local_rank = int(os.environ.get('LOCAL_RANK', '0'))
-    node_rank = int(os.environ.get('NODE_RANK', '0'))
+    world_size = int(os.environ.get('WORLD_SIZE', None))
+    rank = int(os.environ.get('RANK', None))
+    local_rank = int(os.environ.get('LOCAL_RANK', None))
+    node_rank = int(os.environ.get('NODE_RANK', None))
     master_addr = os.environ.get('MASTER_ADDR', '127.0.0.1')
     master_port = int(os.environ.get('MASTER_PORT', '8265'))
 
@@ -45,7 +45,7 @@ def init_ray():
     if rank != 0 and local_rank == 0:
         address = address_list[0]
         print(f'rank: {rank} connecting to address: {address}')
-        subprocess.run(['ray', 'start', f'--address={address}'], check=True)
+        subprocess.run(['ray', 'start', f'--address={address}', '--resources={"worker_node": 8, "accelerator_type:H100":8}'], check=True)
     if rank == 0:
         # wait until num of gpus reach world_size
         cluster_gpus = ray.cluster_resources().get('GPU', 0)
