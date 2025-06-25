@@ -45,7 +45,7 @@ def init_ray():
     if rank != 0 and local_rank == 0:
         address = address_list[0]
         print(f'rank: {rank} connecting to address: {address}')
-        subprocess.run(['ray', 'start', f'--address={address}', '--resources={"worker_node": 8, "accelerator_type:H100":8}'], check=True)
+        subprocess.run(['ray', 'start', f'--address={address}'], check=True)
     dist.barrier()
     if rank == 0:
         # wait until num of gpus reach world_size
