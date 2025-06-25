@@ -14,6 +14,7 @@ import fsspec
 from messages_preprocessing_utils import (
     prepare_gsm8k_messages,
     prepare_math_messages,
+    prepare_ultrafeedback_summarization_messages,
 )
 from streaming import MDSWriter
 from torch.utils.data import IterableDataset
@@ -96,6 +97,9 @@ class UnifiedMessagesDataset(IterableDataset):
         elif 'math' in dataset_path.lower():
             log.info('Using MATH preprocessing function')
             return prepare_math_messages
+        elif 'allenai/ultrafeedback_binarized_cleaned' in dataset_path.lower():
+            log.info('Using UltraFeedback summarization preprocessing function')
+            return prepare_ultrafeedback_summarization_messages
         else:
             log.warning(
                 f'No preprocessing function found for dataset path: {dataset_path}. Defaulting to writing the dataset as is.',

@@ -65,10 +65,8 @@ Below is the command to prepare single-turn message data -- which can be used fo
 <!--pytest.mark.skip-->
 ```bash
 cd scripts
-python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_binarized_cleaned \
---local_dir single_message_data \
---dataset_type single_message \
---tokenizer_name meta-llama/Llama-3.1-8B-Instruct \
+python data/messages_dataset_to_mds.py --dataset_name allenai/ultrafeedback_binarized_cleaned \
+--local_dir ultrafeedback_summarization_data \
 --split train_prefs
 ```
 
@@ -136,7 +134,7 @@ Below is the command to run Online PPO training:
 ```bash
 composer llm-foundry/scripts/train/train.py \
 compose-rl/yamls/local_ppo.yaml \
-train_loader.dataset.local=/compose-rl/scripts/single_message_data/ \
+train_loader.dataset.local=/compose-rl/scripts/ultrafeedback_summarization_data/ \
 train_loader.dataset.split=train_prefs
 ```
 
