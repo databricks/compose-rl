@@ -244,6 +244,7 @@ def env_reward(
             cur_logits = cur_output['logits']
             # need to pull out current actions and prompt len
             cur_actions = curr_kwargs['actions']
+            cur_action_mask = curr_kwargs['action_mask']
             cur_prompt_len = curr_kwargs['prompt_len']
 
             cur_log_probs = get_log_probs(
@@ -254,7 +255,7 @@ def env_reward(
             )
             cur_entropies = get_entropies(
                 logits=cur_logits,
-                actions=cur_actions,
+                action_mask=cur_action_mask,
                 prompt_len=cur_prompt_len,
                 max_gen_len=max_gen_len,
             )
@@ -407,6 +408,7 @@ class OnPolicyCallback(CallbackWithConfig):
             None,
         )
         assert self.device_train_batch_size is not None
+        assert self.global_train_batch_size is not None
 
         # Number of batches to use for a single PPO epoch.
         self.num_batches_per_update = var_config.get(
@@ -419,16 +421,19 @@ class OnPolicyCallback(CallbackWithConfig):
             1,
         )
 
-        # The
         self.num_unique_prompts_per_iter: int = var_config.get(
             'num_unique_prompts_per_iter',
             self.num_batches_per_update * self.global_train_batch_size //
             self.generations_per_prompt,
         )
 
-        if self.num_batches_per_update % self.generations_per_prompt != 0:
+        log.info(
+            f'Per iteration using: {self.num_unique_prompts_per_iter} prompts.',
+        )
+
+        if self.num_unique_prompts_per_iter * self.generations_per_prompt != self.global_train_batch_size * self.num_batches_per_update:
             raise ValueError(
-                f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}',
+                f'{self.num_unique_prompts_per_iter=} * {self.generations_per_prompt=} must equal {self.global_train_batch_size=} * {self.num_batches_per_update=}',
             )
 
         self.epochs_per_iteration = ensure_time(
@@ -541,7 +546,6 @@ class OnPolicyCallback(CallbackWithConfig):
         if self.device_train_microbatch_size == 'auto':  # type: ignore
             raise ValueError('auto microbatching is not supported for PPO')
 
-        self.iter_batch_size = self.num_unique_prompts_per_iter * self.generations_per_prompt // self.global_train_batch_size
         self.global_iter_batch_size = self.num_batches_per_update * self.global_train_batch_size
 
         # The KL penalty in the reward should only exist if we aren't minimizing
@@ -715,8 +719,6 @@ class OnPolicyCallback(CallbackWithConfig):
 
     def _get_next_iter_prompts(self, state: State):
         """Gets the next iteration's batch of prompts."""
-        # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
-
         n_unique_batches = self.num_unique_prompts_per_iter // self.global_train_batch_size
         log.info(
             f"Getting {n_unique_batches} unique batches of prompts for the current iteration.",
@@ -799,6 +801,7 @@ class OnPolicyCallback(CallbackWithConfig):
         max_gen_len = self.max_gen_len
         pad_token_id = self.pad_token_idx
         generation_kwargs = self.generation_kwargs
+        bs = batch['prompt_id'].shape[0]
         with get_precision_context(self.precision), torch.no_grad():
             # If vllm engines are available, we use them to generate sequences in one go
             if self.vllm_engines is not None:
@@ -814,9 +817,7 @@ class OnPolicyCallback(CallbackWithConfig):
                 # Need to explicitly minibatch here to avoid memory issues
                 # Determine the number of generating calls we want to make
                 # We can have the generate size be greater than the device train microbatch size
-                # num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
-
-                bs = batch['prompt_id'].shape[0]
+                # When we hit this function, we should already have all the prompts we need per iteration.
                 num_gen_calls = bs // self.device_generate_batch_size
 
                 gen_batch_partial_outputs = []
