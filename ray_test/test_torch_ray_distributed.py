@@ -64,12 +64,17 @@ def simple_gpu_task(master_addr: str, master_port: int, rank: int, node_rank: in
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["RANK"] = str(rank)
     os.environ["NODE_RANK"] = str(node_rank)
+    local_rank = rank % 8
+    os.environ["LOCAL_RANK"] = str(local_rank)
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
     # # NOTE: Ray will automatically set the *_VISIBLE_DEVICES
     # # environment variable for each actor, unless
     # # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set, so
     # # set local rank to 0 when the flag is not applicable.
-    # # os.environ["LOCAL_RANK"] = str(ray.get_gpu_ids()[0]) if ray_noset_visible_devices() else "0"
-    os.environ["LOCAL_RANK"] = str(rank)
+    # print(f'CUDA_VISIBLE_DEVICES: {os.environ["CUDA_VISIBLE_DEVICES"]}')
+    # print(f'ray.get_gpu_ids(): {ray.get_gpu_ids()}')
+    # os.environ["LOCAL_RANK"] = str(ray.get_gpu_ids()[0]) if ray_noset_visible_devices() else "0"
+
     # # number of visible devices
     num_visible_devices = torch.cuda.device_count()
     print(f'num_visible_devices: {num_visible_devices}')
@@ -86,7 +91,7 @@ def simple_gpu_task(master_addr: str, master_port: int, rank: int, node_rank: in
     print(f'is distributed initialized: {dist.is_initialized()}')
 
     # Create a tensor on the GPU
-    device = torch.device(f"cuda:{local_rank}")
+    device = torch.device(f"cuda")
     x = torch.randn(1000, 1000, device=device).sum()
     dist.all_reduce(x)
     dist.destroy_process_group()
