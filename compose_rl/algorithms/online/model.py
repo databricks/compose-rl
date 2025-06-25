@@ -104,6 +104,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
+            beta=self.config.beta,
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
@@ -217,6 +218,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
+            beta = self.config.beta,
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
@@ -255,6 +257,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         length_normalize_policy_loss: bool = True,
         policy_clip_ratio: float = 0.15,
         policy_clip_high_ratio: float | None = None,
+        beta: float = 1e-3,
         compute_kl_loss: bool = True,
         entropy_loss_weight: float | None = None,
         target_kl: float = 0.1,
@@ -275,6 +278,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             target_kl (float): The target KL value. Default: ``0.1``.
             kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
             kl_clip_range (float): The KL clip range. Default: ``40.0``.
+            beta (float): pi_ref KL hyperparameter for APO. Default: ``1e-3``
         """
         super().__init__(**kwargs)
         self.policy_kl = []
@@ -285,6 +289,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.policy_clip_high_ratio = policy_clip_high_ratio
         self.compute_kl_loss = compute_kl_loss
         self.target_kl = target_kl
+        self.beta = beta
         self.kl_estimator = kl_estimator
         self.kl_clip_range = kl_clip_range
         self.entropy_loss_weight = entropy_loss_weight
@@ -309,6 +314,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             loss_type=self.loss_type,
             policy_clip_ratio=self.policy_clip_ratio,
             policy_clip_high_ratio=self.policy_clip_high_ratio,
+            beta=self.beta,
             length_normalize_policy_loss=self.length_normalize_policy_loss,
             add_direct_kl_loss=self.compute_kl_loss,
             kl_estimator=self.kl_estimator,
