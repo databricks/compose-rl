@@ -60,7 +60,8 @@ class ReferencePolicyCallback(CallbackWithConfig):
                 strict_model_weights=callback.strict_model_weights,
                 ignore_keys=callback.ignore_keys,
                 event=callback.event,
-            ) for callback in state.callbacks
+            )
+            for callback in state.callbacks
             if isinstance(callback, LoadCheckpoint)
         ]
 
