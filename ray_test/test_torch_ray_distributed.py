@@ -30,8 +30,7 @@ def init_ray():
 
     # init ray on master node, rank 0
     if rank == 0:
-        # subprocess.run(['ray', 'start', '--head', '--port=6379', '--num-gpus=1'], check=True)
-        subprocess.run(['ray', 'start', '--head', '--port=6379'], check=True)
+        subprocess.run(['ray', 'start', '--head'], check=True)
         ray.init(address='auto')
         # get existing ray ip and port 
         ctx = ray.get_runtime_context()
@@ -45,7 +44,7 @@ def init_ray():
     dist.broadcast_object_list(address_list, src=0)
     if rank != 0 and local_rank == 0:
         address = address_list[0]
-        # subprocess.run(['ray', 'start', f'--address={address}', '--num-gpus=1'], check=True)
+        print(f'rank: {rank} connecting to address: {address}')
         subprocess.run(['ray', 'start', f'--address={address}'], check=True)
     if rank == 0:
         # wait until num of gpus reach world_size
