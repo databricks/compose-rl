@@ -46,12 +46,14 @@ def init_ray():
         address = address_list[0]
         print(f'rank: {rank} connecting to address: {address}')
         subprocess.run(['ray', 'start', f'--address={address}', '--resources={"worker_node": 8, "accelerator_type:H100":8}'], check=True)
+    dist.barrier()
     if rank == 0:
         # wait until num of gpus reach world_size
         num_nodes = ray.nodes()
         counter = 0
         while len(num_nodes) < dist.get_world_size() // 8:
             print(f'waiting for {dist.get_world_size() // 8 - len(num_nodes)} nodes to be available')
+            num_nodes = ray.nodes()
             time.sleep(5)
             counter += 1
             if counter > 4:
