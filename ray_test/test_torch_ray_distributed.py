@@ -52,9 +52,9 @@ def init_ray():
         counter = 0
         while cluster_gpus < dist.get_world_size():
             print(f'waiting for {dist.get_world_size() - cluster_gpus} gpus to be available')
-            time.sleep(1)
+            time.sleep(3)
             counter += 1
-            if counter > 30:
+            if counter > 20:
                 ray.shutdown()
                 subprocess.run(['ray', 'stop'], check=True)
                 raise RuntimeError('Timeout waiting for gpus to be available')
