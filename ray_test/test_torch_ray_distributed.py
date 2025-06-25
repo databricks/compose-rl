@@ -48,16 +48,14 @@ def init_ray():
         subprocess.run(['ray', 'start', f'--address={address}', '--resources={"worker_node": 8, "accelerator_type:H100":8}'], check=True)
     if rank == 0:
         # wait until num of gpus reach world_size
-        cluster_gpus = ray.cluster_resources().get('GPU', 0)
+        num_nodes = ray.nodes()
         counter = 0
-        while cluster_gpus < dist.get_world_size():
-            print(f'waiting for {dist.get_world_size() - cluster_gpus} gpus to be available')
-            time.sleep(3)
+        while len(num_nodes) < dist.get_world_size() // 8:
+            print(f'waiting for {dist.get_world_size() // 8 - len(num_nodes)} nodes to be available')
+            time.sleep(5)
             counter += 1
-            if counter > 20:
-                ray.shutdown()
-                subprocess.run(['ray', 'stop'], check=True)
-                raise RuntimeError('Timeout waiting for gpus to be available')
+            if counter > 4:
+                break
         print(f'Total available gpus: {ray.available_resources()}')
     dist.destroy_process_group()
     return address
