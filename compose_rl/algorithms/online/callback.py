@@ -722,6 +722,7 @@ class OnPolicyCallback(CallbackWithConfig):
         max_gen_len = self.max_gen_len
         pad_token_id = self.pad_token_idx
         generation_kwargs = self.generation_kwargs
+        bs = batch['prompt_id'].shape[0]
         with get_precision_context(self.precision), torch.no_grad():
             # If vllm engines are available, we use them to generate sequences in one go
             if self.vllm_engines is not None:
@@ -738,7 +739,6 @@ class OnPolicyCallback(CallbackWithConfig):
                 # Determine the number of generating calls we want to make
                 # We can have the generate size be greater than the device train microbatch size
                 # When we hit this function, we should already have all the prompts we need per iteration.
-                bs = batch['prompt_id'].shape[0]
                 num_gen_calls = bs // self.device_generate_batch_size
 
                 gen_batch_partial_outputs = []
@@ -805,7 +805,6 @@ class OnPolicyCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
-        bs = resolved_outputs['prompt_id'].shape[0]
         # We need to split the resolved outputs into minibatches
         for idx in range(bs // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
