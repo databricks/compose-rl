@@ -54,7 +54,13 @@ class ReferencePolicyCallback(CallbackWithConfig):
         # The base model checkpoint may have been supplied by a LoadCheckpoint callback,
         # so we need to check and apply that checkpoint to the reference model.
         load_checkpoint_callbacks = [
-            copy.deepcopy(callback) for callback in state.callbacks
+            LoadCheckpoint(
+                load_path=callback.load_path,
+                load_weights_only=callback.load_weights_only,
+                strict_model_weights=callback.strict_model_weights,
+                ignore_keys=callback.ignore_keys,
+                event=callback.event,
+            ) for callback in state.callbacks
             if isinstance(callback, LoadCheckpoint)
         ]
 
