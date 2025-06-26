@@ -46,7 +46,7 @@ Here is an end-to-end workflow of performing data preparation for training along
 
 ### Data preparation
 
-Below is the set of commands to run to prepare datasets into the appropriate Mosaic Data Shard (MDS) format, which is a pre-tokenized version of the data, that we will use for training.
+Below is the set of commands to run to prepare datasets into the appropriate Mosaic Data Shard (MDS) format, which is either a pre-tokenized version of the data or the raw chat-message data, that we will use for training.
 
 Below is the command to prepare preference data -- which can be used for reward model or offline RL (e.g. DPO) training:
 
@@ -60,36 +60,41 @@ python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_bin
 --split train_prefs
 ```
 
-Below is the command to prepare prompt data -- which can be used for online RL (e.g. PPO) training:
+Below is the command to prepare single-turn message data -- which can be used for online RL (e.g. PPO) training:
 
 <!--pytest.mark.skip-->
 ```bash
 cd scripts
-python data/unified_tokenize_dataset.py --dataset_name allenai/ultrafeedback_binarized_cleaned \
---local_dir prompt_data \
---dataset_type single_prompt \
---tokenizer_name meta-llama/Llama-3.1-8B-Instruct \
+python data/messages_dataset_to_mds.py --dataset_name allenai/ultrafeedback_binarized_cleaned \
+--local_dir ultrafeedback_summarization_data \
 --split train_prefs
 ```
 
-To further enable online RL with [verifiable rewards](https://arxiv.org/abs/2411.15124) you can use the following command:
+To further enable online RL with [verifiable rewards](https://arxiv.org/abs/2411.15124) you can use the following command to prepare the chat-message data and their corresponding verifiable answers:
 
 <!--pytest.mark.skip-->
 ```bash
 cd scripts
-python data/unified_tokenize_dataset.py --dataset_name <hf_dataset_name> \
+python data/messages_dataset_to_mds.py --dataset_path <hf_dataset_name> \
 --local_dir verifiable_data \
---dataset_type verifiable_answers \
---tokenizer_name meta-llama/Llama-3.1-8B-Instruct \
 --split train \
 ```
 
-We currently support the following two HuggingFace datasets for verifiable rewards:
+For RLVR, We currently support the following two HuggingFace datasets for verifiable rewards:
 
 - GMS8k: `openai/gsm8k`
 - MATH: `DigitalLearningGmbH/MATH-lighteval`
 
 The data preparation scripts also supports additional arguments for specifying the subset of the HuggingFace dataset `--subset <str>` and max sequence length `--max_length <int>`
+
+For custom datasets, you can create a custom preprocessing function in the `compose-rl/scripts/data/messages_preprocessing_utils.py` file, or you can preprocess your own dataset directly, save it locally as a .jsonl file, and then use the following command to convert it to the MDS format:
+<!--pytest.mark.skip-->
+```bash
+cd scripts
+python data/messages_dataset_to_mds.py --dataset_path <path_to_jsonl_file> \
+--local_dir custom_dataset \
+```
+
 
 ### Model training
 
@@ -129,7 +134,7 @@ Below is the command to run Online PPO training:
 ```bash
 composer llm-foundry/scripts/train/train.py \
 compose-rl/yamls/local_ppo.yaml \
-train_loader.dataset.local=/compose-rl/scripts/prompt_data/ \
+train_loader.dataset.local=/compose-rl/scripts/ultrafeedback_summarization_data/ \
 train_loader.dataset.split=train_prefs
 ```
 

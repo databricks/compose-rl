@@ -662,7 +662,12 @@ class OnPolicyCallback(CallbackWithConfig):
                 # Explode the batch into multiple batches for each generation
                 for _ in range(self.generations_per_prompt):
                     # For keys that do not require additional processing
-                    if key in ['prompt_len', 'verified_answer', 'prompt_id']:
+                    if key in [
+                        'prompt_len',
+                        'verified_answer',
+                        'prompt_id',
+                        'messages',
+                    ]:
                         curr_values.append(batch[key])
                         continue
 
@@ -693,7 +698,6 @@ class OnPolicyCallback(CallbackWithConfig):
                 if key == 'verified_answer':
                     ret_batch[key] = list(flatten(curr_values))
                 else:
-                    # this is an edge case that we will not hit currently, but just handling it as needed
                     ret_batch[key] = curr_values
 
         return ret_batch
