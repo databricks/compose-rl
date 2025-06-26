@@ -17,8 +17,10 @@ from composer.utils import checkpoint, dist
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizer
 
-from compose_rl.algorithms.offline import (ComposerHFPairwiseOfflinePolicyLM,
-                                           ComposerMPTPairwiseOfflinePolicyLM,)
+from compose_rl.algorithms.offline import (
+    ComposerHFPairwiseOfflinePolicyLM,
+    ComposerMPTPairwiseOfflinePolicyLM,
+)
 from compose_rl.algorithms.offline.callback import ReferencePolicyCallback
 from compose_rl.data import pairwise_preference_dataset_collate_fn
 from tests.common import PairwisePreference, world_size
@@ -49,7 +51,7 @@ def test_load_checkpoint_with_offline_callback(
         load_path=str(composer_checkpoint_path),
     )
     load_checkpoint_callback._load = MagicMock(
-        wraps=load_checkpoint_callback._load
+        wraps=load_checkpoint_callback._load,
     )
 
     assert load_checkpoint_callback.parsed_path == str(composer_checkpoint_path)
@@ -63,14 +65,15 @@ def test_load_checkpoint_with_offline_callback(
         'model': model_config,
     }
     reference_policy_callback = ReferencePolicyCallback(
-        train_config=train_config
+        train_config=train_config,
     )
 
     with patch(
         'composer.utils.checkpoint.load_checkpoint',
-        wraps=checkpoint.load_checkpoint
+        wraps=checkpoint.load_checkpoint,
     ) as mock_load_checkpoint, patch(
-        'compose_rl.algorithms.offline.callback.Trainer', wraps=Trainer
+        'compose_rl.algorithms.offline.callback.Trainer',
+        wraps=Trainer,
     ) as mock_trainer:
         trainer = Trainer(
             model=model,
