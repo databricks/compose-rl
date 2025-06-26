@@ -1254,9 +1254,9 @@ def filter_resolved_outputs(
         return_inverse=True,
     )
 
-    log.info(f"\nTotal unique prompts: {len(unique_prompt_ids)}")
+    log.info(f'\nTotal unique prompts: {len(unique_prompt_ids)}')
     log.info(
-        f"Threshold: Filter if > {filter_threshold:.0%} of rewards are the same",
+        f'Threshold: Filter if > {filter_threshold:.0%} of rewards are the same',
     )
 
     prompts_to_filter = []
@@ -1300,7 +1300,7 @@ def filter_resolved_outputs(
                 'counts': counts.tolist(),
             }
             log.info(
-                f"Prompt {unique_id.item()}: filtering as ({max_percentage:.0%} of the generations with the reward: {most_common_value}) as the most common value",
+                f'Prompt {unique_id.item()}: filtering as ({max_percentage:.0%} of the generations with the reward: {most_common_value}) as the most common value',
             )
         else:
             prompt_stats[unique_id.item()] = {
@@ -1345,12 +1345,13 @@ def filter_resolved_outputs(
         'threshold': filter_threshold,
     }
 
-    # filtered_outputs['filter_stats'] = filter_stats
+    num_kept_prompts = filter_stats['kept_prompts']
+    num_remaining_prompts = len(filtered_outputs['prompt_id'])
 
-    log.info(f"Kept: {filter_stats['kept_prompts']} prompts")
-    log.info(f"Filtered: {len(prompts_to_filter)} prompts")
-    log.info(f"Original samples: {len(prompt_id)}")
-    log.info(f"Remaining samples: {len(filtered_outputs['prompt_id'])}")
+    log.info(f'Kept: {num_kept_prompts} prompts')
+    log.info(f'Filtered: {len(prompts_to_filter)} prompts')
+    log.info(f'Original samples: {len(prompt_id)}')
+    log.info(f'Remaining samples: {num_remaining_prompts}')
 
     return filtered_outputs
 
@@ -1379,8 +1380,8 @@ def concat_resolved_outputs(
 
         tensor_list = [v for v in raw_vals if isinstance(v, torch.Tensor)]
         assert len(tensor_list) == len(raw_vals), (
-            f"Expected all values for key {key!r} to be torch.Tensor, "
-            f"but got {[type(v) for v in raw_vals]}"
+            f'Expected all values for key {key!r} to be torch.Tensor, '
+            f'but got {[type(v) for v in raw_vals]}'
         )
 
         padding_key = pad_token_id

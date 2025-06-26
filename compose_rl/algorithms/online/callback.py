@@ -522,7 +522,7 @@ class OnPolicyCallback(CallbackWithConfig):
             world_size = dist.get_world_size()
             num_gen_calls = self.global_iter_batch_size // self.device_generate_batch_size // world_size
             log.info(
-                f"Using {num_gen_calls} generation calls per iteration with HuggingFace generate.",
+                f'Using {num_gen_calls} generation calls per iteration with HuggingFace generate.',
             )
             if num_gen_calls <= 0:
                 raise ValueError(f'{num_gen_calls=} must be greater than 0')
@@ -640,9 +640,9 @@ class OnPolicyCallback(CallbackWithConfig):
 
             bs = cur_global_samples['prompt_id'].shape[0]
 
-            log.info(f"Current global batch size is {bs}.")
+            log.info(f'Current global batch size is {bs}.')
             log.info(
-                f"Current global iter batch size is {self.global_iter_batch_size}.",
+                f'Current global iter batch size is {self.global_iter_batch_size}.',
             )
 
             if bs >= self.global_iter_batch_size:
@@ -672,10 +672,10 @@ class OnPolicyCallback(CallbackWithConfig):
                     self.buffer.add(minibatch)
 
         log.info(
-            f"For iteration {self.iter_num}, we have {len(self.buffer)} samples in the buffer. Starting training.",
+            f'For iteration {self.iter_num}, we have {len(self.buffer)} samples in the buffer. Starting training.',
         )
         log.info(
-            f"It took {num_env_interactions} environment interactions to fill the buffer.",
+            f'It took {num_env_interactions} environment interactions to fill the buffer.',
         )
 
         # Making sure we correctly parsed the minibatches
@@ -723,7 +723,7 @@ class OnPolicyCallback(CallbackWithConfig):
         """Gets the next iteration's batch of prompts."""
         n_unique_batches = self.num_unique_prompts_per_iter // self.global_train_batch_size
         log.info(
-            f"Getting {n_unique_batches} unique batches of prompts for the current iteration.",
+            f'Getting {n_unique_batches} unique batches of prompts for the current iteration.',
         )
 
         batches = [
@@ -887,13 +887,13 @@ class OnPolicyCallback(CallbackWithConfig):
 
         if self.same_reward_filter_threshold is not None:
             log.info(
-                f"in reward thresholding, trying to filter with: {self.same_reward_filter_threshold}",
+                f'in reward thresholding, trying to filter with: {self.same_reward_filter_threshold}',
             )
             start_time = time.time()
             all_gathered_outputs = dist.all_gather_object(resolved_outputs)
 
             log.info(
-                f"It took {time.time() - start_time} seconds to gather all resolved outputs.",
+                f'It took {time.time() - start_time} seconds to gather all resolved outputs.',
             )
 
             all_resolved_outputs = concat_resolved_outputs(
