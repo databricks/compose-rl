@@ -1278,23 +1278,10 @@ def filter_resolved_outputs(
         # For simplicity, we should always be getting the last generated reward
         prompt_rewards = rewards[mask][batch_tensor, cur_generated_lens - 1]
 
-        # print ("masked rewards is: ", rewards[mask], rewards[mask].shape)
-        # print ("prompt rewards shape is: ", prompt_rewards.shape)
-        # print ("rewards shape is: ", rewards.shape)
-
         # Find the most common reward value and its percentage
         unique_values, counts = torch.unique(prompt_rewards, return_counts=True)
         max_count = torch.max(counts).item()
         max_percentage = max_count / n_samples
-
-        # print ("rewards are: ", prompt_rewards)
-
-        # print ("max count is: ", max_count, "n samples is: ", n_samples)
-        # print ("max percentage is: ", max_percentage)
-
-        # print ("n samples is: ", n_samples)
-        # print ("max count is: ", max_count)
-        # print ("prompt rewards size is: ", prompt_rewards.size())
 
         # Find which value is most common
         most_common_idx = torch.argmax(counts)
@@ -1333,17 +1320,13 @@ def filter_resolved_outputs(
     for prompt_idx in prompts_to_filter:
         keep_mask[inverse_indices == prompt_idx] = False
 
-    # print ("key mask shape is: ", keep_mask.shape)
-
     # get the integer indices of entries to keep
     keep_indices = keep_mask.nonzero(as_tuple=True)[0]
 
     # Apply filter to all outputs
     filtered_outputs = {}
     for key, value in outputs.items():
-        # print ("key is: ", key)
         if isinstance(value, torch.Tensor):
-            # print('value shape is: ', value.shape)
             filtered_outputs[key] = value[keep_mask]
 
         elif isinstance(value, list) and len(value) == keep_mask.shape[0]:
