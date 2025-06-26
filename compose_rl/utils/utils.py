@@ -1383,6 +1383,7 @@ def concat_resolved_outputs(
 
     Args:
         output_list (list[dict[str, Union[torch.Tensor, list]]]): A list of dictionaries containing tensors or lists.
+        pad_token_id (int): The token ID used for padding tensors that need to be padded.
     """
     all_resolved_outputs = {}
     for key in output_list[0].keys():
