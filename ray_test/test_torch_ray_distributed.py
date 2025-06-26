@@ -2,7 +2,6 @@ import ray
 import torch
 import torch.distributed as dist
 import os
-import subprocess
 import socket
 import time
 from contextlib import contextmanager
@@ -17,8 +16,8 @@ def ray_noset_visible_devices():
 def init_ray():
     # init ray on master node, rank 0
     if dist.get_rank() == 0:
-        subprocess.run(['ray', 'start', '--head'], check=True)
-        ray.init(address='auto')
+        # Start head node - Ray will auto-detect available GPUs
+        ray.init()
         # get existing ray ip and port 
         ctx = ray.get_runtime_context()
         address = ctx.gcs_address
@@ -32,19 +31,20 @@ def init_ray():
     if dist.get_rank() != 0 and os.environ.get('LOCAL_RANK', None) == '0':
         address = address_list[0]
         print(f'rank: {dist.get_rank()} connecting to address: {address}')
-        subprocess.run(['ray', 'start', f'--address={address}'], check=True)
+        # Connect to head node - Ray will auto-detect local GPUs and contribute them
+        ray.init(address=address)
     dist.barrier()
     if dist.get_rank() == 0:
         # wait until num of gpus reach world_size
-        num_nodes = ray.nodes()
+        num_gpus = int(ray.cluster_resources()['GPU'])
         counter = 0
-        while len(num_nodes) < dist.get_world_size() // 8:
-            print(f'waiting for {dist.get_world_size() // 8 - len(num_nodes)} nodes to be available')
-            num_nodes = ray.nodes()
+        while num_gpus < dist.get_world_size():
+            print(f'waiting for {dist.get_world_size() - num_gpus} gpus to be available')
+            num_gpus = int(ray.cluster_resources()['GPU'])
             time.sleep(5)
             counter += 1
             if counter > 4:
-                break
+                raise RuntimeError(f'Failed to start {dist.get_world_size()} gpus')
         print(f'Total available gpus: {ray.available_resources()}')
     return address
 
@@ -138,9 +138,6 @@ def start_ray_server():
         yield address
         dist.barrier()
     finally:
-        if dist.get_rank() == 0:
-            ray.shutdown()
-            subprocess.run(['ray', 'stop'], check=True)
         dist.destroy_process_group()
 
 def run():
