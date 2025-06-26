@@ -1300,7 +1300,7 @@ def filter_resolved_outputs(
                 'counts': counts.tolist(),
             }
             log.info(
-                f"  Prompt {unique_id.item()}: filtering as ({max_percentage:.0%} of the generations with the reward: {most_common_value}) as the most common value",
+                f"Prompt {unique_id.item()}: filtering as ({max_percentage:.0%} of the generations with the reward: {most_common_value}) as the most common value",
             )
         else:
             prompt_stats[unique_id.item()] = {
@@ -1347,10 +1347,10 @@ def filter_resolved_outputs(
 
     # filtered_outputs['filter_stats'] = filter_stats
 
-    log.info(f"  Kept: {filter_stats['kept_prompts']} prompts")
-    log.info(f"  Filtered: {len(prompts_to_filter)} prompts")
-    log.info(f"  Original samples: {len(prompt_id)}")
-    log.info(f"  Remaining samples: {len(filtered_outputs['prompt_id'])}")
+    log.info(f"Kept: {filter_stats['kept_prompts']} prompts")
+    log.info(f"Filtered: {len(prompts_to_filter)} prompts")
+    log.info(f"Original samples: {len(prompt_id)}")
+    log.info(f"Remaining samples: {len(filtered_outputs['prompt_id'])}")
 
     return filtered_outputs
 
