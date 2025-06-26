@@ -22,9 +22,9 @@ def init_ray():
         ctx = ray.get_runtime_context()
         address = ctx.gcs_address
         print(f'available gpus: {ray.available_resources()}')
-
     else:
-        address = None
+        address = ''
+    dist.barrier()
     address_list = [address]
     # broadcast address to all other ranks
     dist.broadcast_object_list(address_list, src=0)
