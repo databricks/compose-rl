@@ -32,7 +32,7 @@ def init_ray():
         address = address_list[0]
         print(f'rank: {dist.get_rank()} connecting to address: {address}')
         # Connect to head node - Ray will auto-detect local GPUs and contribute them
-        ray.init(address=address)
+        ray.init(f'ray://{address}')
     dist.barrier()
     if dist.get_rank() == 0:
         # wait until num of gpus reach world_size
