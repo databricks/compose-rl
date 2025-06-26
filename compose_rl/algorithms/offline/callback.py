@@ -11,8 +11,6 @@ from composer import Trainer
 from composer.callbacks import LoadCheckpoint
 from composer.core import State, get_precision_context
 from composer.loggers import Logger
-from composer.models.huggingface import HuggingFaceModel
-from composer.utils.checkpoint import load_checkpoint
 from llmfoundry.interfaces import CallbackWithConfig
 from llmfoundry.utils import build_composer_model
 # pyright does not recognize process_init_device though it is a declared export
