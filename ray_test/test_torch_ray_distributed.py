@@ -3,6 +3,7 @@ import torch
 import torch.distributed as dist
 import os
 import socket
+import subprocess
 import time
 from contextlib import contextmanager
 from typing import Optional, Tuple
@@ -24,7 +25,6 @@ def init_ray():
         print(f'available gpus: {ray.available_resources()}')
     else:
         address = ''
-    dist.barrier()
     address_list = [address]
     # broadcast address to all other ranks
     dist.broadcast_object_list(address_list, src=0)
@@ -32,7 +32,8 @@ def init_ray():
         address = address_list[0]
         print(f'rank: {dist.get_rank()} connecting to address: {address}')
         # Connect to head node - Ray will auto-detect local GPUs and contribute them
-        ray.init(f'ray://{address}')
+        # ray.init(f'ray://{address}')
+        subprocess.run(['ray', 'start', f'--address={address}'], check=True)
     dist.barrier()
     if dist.get_rank() == 0:
         # wait until num of gpus reach world_size
