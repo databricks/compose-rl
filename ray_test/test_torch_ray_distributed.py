@@ -37,7 +37,6 @@ def init_ray():
             print(f'rank: {dist.get_rank()} successfully connected to Ray cluster')
         except Exception as e:
             print(f'rank: {dist.get_rank()} failed to connect to Ray: {e}')
-            raise
     dist.barrier()
     if dist.get_rank() == 0:
         # wait until num of gpus reach world_size
