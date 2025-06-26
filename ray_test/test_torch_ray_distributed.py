@@ -26,8 +26,6 @@ def get_ranks():
 
 def init_ray():
     _, rank, local_rank, *_ = get_ranks()
-    dist.init_process_group(backend='gloo')
-
     # init ray on master node, rank 0
     if rank == 0:
         subprocess.run(['ray', 'start', '--head'], check=True)
@@ -59,7 +57,6 @@ def init_ray():
             if counter > 4:
                 break
         print(f'Total available gpus: {ray.available_resources()}')
-    dist.destroy_process_group()
     return address
 
 
@@ -104,6 +101,7 @@ def simple_gpu_task(master_addr: str, master_port: int, rank: int, world_size: i
 
 
 if __name__ == '__main__':
+    dist.init_process_group(backend='gloo')
     world_size, rank, *_ = get_ranks()
     address = init_ray()
     if rank == 0:
@@ -125,5 +123,5 @@ if __name__ == '__main__':
         finally:
             ray.shutdown()
             subprocess.run(['ray', 'stop'], check=True)
-    else:
-        time.sleep(60)
+    dist.barrier()
+    dist.destroy_process_group()
