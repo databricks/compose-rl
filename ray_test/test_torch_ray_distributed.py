@@ -33,7 +33,7 @@ def init_ray():
         print(f'rank: {dist.get_rank()} connecting to address: {address}')
         # Connect to head node - Ray will auto-detect local GPUs and contribute them
         # ray.init(f'ray://{address}')
-        subprocess.run(['ray', 'start', f'--address={address}'], check=True)
+        subprocess.run(['ray', 'start', f'--address={os.environ["MASTER_ADDR"]}'], check=True)
     dist.barrier()
     if dist.get_rank() == 0:
         # wait until num of gpus reach world_size
