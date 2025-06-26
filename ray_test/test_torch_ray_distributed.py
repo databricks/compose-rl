@@ -106,8 +106,8 @@ def run():
             with socket.socket() as sock:
                 sock.bind(("", 0))
                 master_port = sock.getsockname()[1]
-            print(f"\n=== STARTING DISTRIBUTED TRAINING ===")
-            tasks = [simple_gpu_task.remote(master_addr, master_port, i, dist.get_world_size()) for i in range(int(dist.get_world_size()))]
+                print(f"\n=== STARTING DISTRIBUTED TRAINING ===")
+                tasks = [simple_gpu_task.remote(master_addr, master_port, i, dist.get_world_size()) for i in range(int(dist.get_world_size()))]
             results = ray.get(tasks)
             print(results)
 
