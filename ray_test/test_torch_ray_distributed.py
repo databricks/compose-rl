@@ -83,8 +83,7 @@ class DistributedGPUActor:
         """Allocate master address and port for rank 0."""
         if self.master_addr is None:
             # Get the local IP address
-            hostname = socket.gethostname()
-            self.master_addr = socket.gethostbyname(hostname)
+            self.master_addr = ray.util.get_node_ip_address().strip('[]')
         
         if self.master_port is None:
             # Allocate a free port
