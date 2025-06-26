@@ -5,6 +5,7 @@ import os
 import subprocess
 import socket
 import time
+from contextlib import contextmanager
 
 from datetime import timedelta
 
@@ -12,22 +13,9 @@ def ray_noset_visible_devices():
     return os.environ.get('RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES', '0') == '1'
 
 
-def get_ranks():
-    # get envs set by torchrun
-    world_size = int(os.environ.get('WORLD_SIZE', None))
-    rank = int(os.environ.get('RANK', None))
-    local_rank = int(os.environ.get('LOCAL_RANK', None))
-    node_rank = int(os.environ.get('NODE_RANK', None))
-    master_addr = os.environ.get('MASTER_ADDR', '127.0.0.1')
-    master_port = int(os.environ.get('MASTER_PORT', '8265'))
-
-    return world_size, rank, local_rank, node_rank, master_addr, master_port
-
-
 def init_ray():
-    _, rank, local_rank, *_ = get_ranks()
     # init ray on master node, rank 0
-    if rank == 0:
+    if dist.get_rank() == 0:
         subprocess.run(['ray', 'start', '--head'], check=True)
         ray.init(address='auto')
         # get existing ray ip and port 
@@ -40,12 +28,12 @@ def init_ray():
     address_list = [address]
     # broadcast address to all other ranks
     dist.broadcast_object_list(address_list, src=0)
-    if rank != 0 and local_rank == 0:
+    if dist.get_rank() != 0 and os.environ.get('LOCAL_RANK', None) == '0':
         address = address_list[0]
-        print(f'rank: {rank} connecting to address: {address}')
+        print(f'rank: {dist.get_rank()} connecting to address: {address}')
         subprocess.run(['ray', 'start', f'--address={address}'], check=True)
     dist.barrier()
-    if rank == 0:
+    if dist.get_rank() == 0:
         # wait until num of gpus reach world_size
         num_nodes = ray.nodes()
         counter = 0
@@ -80,16 +68,15 @@ def simple_gpu_task(master_addr: str, master_port: int, rank: int, world_size: i
 
     # number of visible devices
     num_visible_devices = torch.cuda.device_count()
+    dist.init_process_group(timeout=timedelta(seconds=10))
     print(f'num_visible_devices: {num_visible_devices}')
     print('ray run init envs:')
-    world_size, rank, local_rank, node_rank, master_addr, master_port = get_ranks()
-    print(f'rank: {rank}')
-    print(f'node_rank: {node_rank}')
-    print(f'world_size: {world_size}')
-    print(f'local_rank: {local_rank}')
+    print(f'rank: {dist.get_rank()}')
+    print(f'node_rank: {dist.get_rank() // 8}')
+    print(f'world_size: {dist.get_world_size()}')
+    print(f'local_rank: {dist.get_rank() % 8}')
     print(f'master_addr: {master_addr}')
     print(f'master_port: {master_port}')
-    dist.init_process_group(timeout=timedelta(seconds=10))
     print(f'is distributed initialized: {dist.is_initialized()}')
 
     # Create a tensor on the GPU
@@ -99,29 +86,30 @@ def simple_gpu_task(master_addr: str, master_port: int, rank: int, world_size: i
     dist.destroy_process_group()
     return x.item()
 
-
-if __name__ == '__main__':
+@contextmanager
+def start_ray_server():
     dist.init_process_group(backend='gloo')
-    world_size, rank, *_ = get_ranks()
     address = init_ray()
-    if rank == 0:
-        try:
+    try:
+        yield address
+        dist.barrier()
+    finally:
+        if dist.get_rank() == 0:
+            ray.shutdown()
+            subprocess.run(['ray', 'stop'], check=True)
+        dist.destroy_process_group()
+
+def run():
+    with start_ray_server() as address:
+        if dist.get_rank() == 0:
             master_addr, _ = address.split(':')
-            # if I uncomment this, dist.init_process_group will timeout
             with socket.socket() as sock:
                 sock.bind(("", 0))
                 master_port = sock.getsockname()[1]
-
             print(f"\n=== STARTING DISTRIBUTED TRAINING ===")
-            tasks = [simple_gpu_task.remote(master_addr, master_port, i, world_size) for i in range(int(world_size))]
+            tasks = [simple_gpu_task.remote(master_addr, master_port, i, dist.get_world_size()) for i in range(int(dist.get_world_size()))]
             results = ray.get(tasks)
             print(results)
-            ray.shutdown()
-            subprocess.run(['ray', 'stop'], check=True)
-        except Exception as e:
-            print(f'Error: {e}')
-        finally:
-            ray.shutdown()
-            subprocess.run(['ray', 'stop'], check=True)
-    dist.barrier()
-    dist.destroy_process_group()
+
+if __name__ == '__main__':
+    run()
