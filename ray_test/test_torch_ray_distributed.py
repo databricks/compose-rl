@@ -17,9 +17,8 @@ def ray_noset_visible_devices():
 def init_ray():
     # init ray on master node, rank 0
     if dist.get_rank() == 0:
-        # Start head node - Ray will auto-detect available GPUs
-        subprocess.run(['ray', 'start', '--head'], check=True)
-        ray.init('auto')
+        # Start head node
+        ray.init()
         # get existing ray ip and port 
         ctx = ray.get_runtime_context()
         address = ctx.gcs_address
@@ -96,28 +95,22 @@ class DistributedGPUActor:
         return (self.master_addr, self.master_port)
     
     def init_process_group(self) -> bool:
-        """Initialize the distributed process group."""
-        try:
-            
-            # Initialize process group
-            dist.init_process_group(timeout=timedelta(seconds=10))
-            
-            # Print debug information
-            num_visible_devices = torch.cuda.device_count()
-            print(f'num_visible_devices: {num_visible_devices}')
-            print('Ray actor init envs:')
-            print(f'rank: {dist.get_rank()}')
-            print(f'node_rank: {dist.get_rank() // 8}')
-            print(f'world_size: {dist.get_world_size()}')
-            print(f'local_rank: {dist.get_rank() % 8}')
-            print(f'master_addr: {self.master_addr}')
-            print(f'master_port: {self.master_port}')
-            print(f'is distributed initialized: {dist.is_initialized()}')
-            
-            return True
-        except Exception as e:
-            print(f"Failed to initialize process group: {e}")
-            return False
+        """Initialize the distributed process group."""       
+        # Initialize process group
+        dist.init_process_group(timeout=timedelta(seconds=10))
+        
+        # Print debug information
+        num_visible_devices = torch.cuda.device_count()
+        print(f'num_visible_devices: {num_visible_devices}')
+        print('Ray actor init envs:')
+        print(f'rank: {dist.get_rank()}')
+        print(f'node_rank: {dist.get_rank() // 8}')
+        print(f'world_size: {dist.get_world_size()}')
+        print(f'local_rank: {dist.get_rank() % 8}')
+        print(f'master_addr: {self.master_addr}')
+        print(f'master_port: {self.master_port}')
+        print(f'is distributed initialized: {dist.is_initialized()}')
+
     
     def tensor_all_reduce(self) -> float:
         """Perform a simple tensor all_reduce operation."""
@@ -166,8 +159,7 @@ def run():
             
             # Initialize process groups for all actors
             init_tasks = [actor.init_process_group.remote() for actor in actors]
-            init_results = ray.get(init_tasks)
-            print(f"Process group initialization results: {init_results}")
+            ray.get(init_tasks)
             
             # Perform tensor all_reduce on all actors
             reduce_tasks = [actor.tensor_all_reduce.remote() for actor in actors]
