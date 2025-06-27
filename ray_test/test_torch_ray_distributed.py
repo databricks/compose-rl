@@ -3,6 +3,7 @@ import torch
 import torch.distributed as dist
 import os
 import socket
+import subprocess
 import time
 from contextlib import contextmanager
 from typing import Optional, Tuple
@@ -17,26 +18,21 @@ def init_ray():
     # init ray on master node, rank 0
     if dist.get_rank() == 0:
         # Start head node - Ray will auto-detect available GPUs
-        ray.init()
+        subprocess.run(['ray', 'start', '--head'], check=True)
+        ray.init('auto')
         # get existing ray ip and port 
         ctx = ray.get_runtime_context()
         address = ctx.gcs_address
-        print(f'Head node Ray address: {address}')
         print(f'available gpus: {ray.available_resources()}')
     else:
-        address = None
+        address = ''
     address_list = [address]
     # broadcast address to all other ranks
     dist.broadcast_object_list(address_list, src=0)
     if dist.get_rank() != 0 and os.environ.get('LOCAL_RANK', None) == '0':
         address = address_list[0]
         print(f'rank: {dist.get_rank()} connecting to address: {address}')
-        # Connect to head node - use the address directly without ray:// prefix
-        try:
-            ray.init(address=address)
-            print(f'rank: {dist.get_rank()} successfully connected to Ray cluster')
-        except Exception as e:
-            print(f'rank: {dist.get_rank()} failed to connect to Ray: {e}')
+        subprocess.run(['ray', 'start', f'--address={address}'], check=True)
     dist.barrier()
     if dist.get_rank() == 0:
         # wait until num of gpus reach world_size
