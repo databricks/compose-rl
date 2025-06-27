@@ -18,7 +18,8 @@ def init_ray():
     # init ray on master node, rank 0
     if dist.get_rank() == 0:
         # Start head node
-        ray.init()
+        subprocess.run(['ray', 'start', '--head'], check=True)
+        ray.init('auto')
         # get existing ray ip and port 
         ctx = ray.get_runtime_context()
         address = ctx.gcs_address
@@ -95,7 +96,8 @@ class DistributedGPUActor:
         return (self.master_addr, self.master_port)
     
     def init_process_group(self) -> bool:
-        """Initialize the distributed process group."""       
+        """Initialize the distributed process group."""
+            
         # Initialize process group
         dist.init_process_group(timeout=timedelta(seconds=10))
         
@@ -131,6 +133,9 @@ def start_ray_server():
         yield address
         dist.barrier()
     finally:
+        if dist.get_rank() == 0:
+            ray.shutdown()
+            subprocess.run(['ray', 'stop'], check=True)
         dist.destroy_process_group()
 
 def run():
