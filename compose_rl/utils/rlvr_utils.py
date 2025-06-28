@@ -11,6 +11,43 @@ from sympy.parsing.latex import parse_latex
 log = logging.getLogger(__name__)
 
 
+import sys
+import time
+from collections.abc import Callable
+from types import FrameType
+
+
+class ThreadTimeoutError(TimeoutError):
+    ...
+
+
+class Timeout:
+
+    def __init__(
+        self, seconds: float, *, error_message: str | None = None, exc_type: type[BaseException] = ThreadTimeoutError
+    ):
+        self.seconds = float(seconds)
+        self.error_message = error_message or f'timed out after {seconds}s'
+        self.exc_type = exc_type
+        self._deadline = 0.0
+        self._old_tracer: Callable[[FrameType, str, object], object] | None = None
+
+    def _trace(self, frame: FrameType, event: str, arg: object):
+        if time.time() >= self._deadline:
+            raise self.exc_type(self.error_message)
+        return self._trace
+
+    def __enter__(self):
+        self._deadline = time.time() + self.seconds
+        self._old_tracer = sys.gettrace()
+        sys.settrace(self._trace)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.settrace(self._old_tracer)  # type: ignore
+        return False
+
+
 def extract_gsm8k_answer(sample: Any) -> str:
     """Extract the ground truth from the answer column using regex."""
     answer = sample['answer']
@@ -73,34 +110,35 @@ def remove_boxed(s: str) -> str:
 def is_equiv(x1: str, x2: str) -> bool:
     """Checks mathematical equivalence between two normalized LaTeX strings."""
     try:
-        try:
-            parsed_x1 = parse_latex(x1)
-            parsed_x2 = parse_latex(x2)
-        except (
-            sympy.parsing.latex.  # pyright: ignore[reportGeneralTypeIssues]
-            errors.LaTeXParsingError,
-            sympy.SympifyError,
-            TypeError,
-        ):
-            log.debug(f"couldn't parse one of {x1} or {x2}")
-            return False
+        with Timeout(seconds=5, error_message='Timeout when comparing LaTeX strings'):
+            try:
+                parsed_x1 = parse_latex(x1)
+                parsed_x2 = parse_latex(x2)
+            except (
+                sympy.parsing.latex.errors.LaTeXParsingError,  # pyright: ignore[reportGeneralTypeIssues]
+                sympy.SympifyError,
+                TypeError,
+            ):
+                log.debug(f"couldn't parse one of {x1} or {x2}")
+                return False
 
-        try:
-            diff = parsed_x1 - parsed_x2  # pyright: ignore[reportOptionalOperand]
-        except TypeError:
-            log.debug(f"couldn't subtract {x1} and {x2}")
-            return False
+            try:
+                diff = parsed_x1 - parsed_x2  # pyright: ignore[reportOptionalOperand]
+            except TypeError:
+                log.debug(f"couldn't subtract {x1} and {x2}")
+                return False
 
-        try:
-            return sympy.simplify(diff) == 0
-        except ValueError:
-            log.debug(
-                f'Had some trouble simplifying when comparing {x1} and {x2}',
-            )
-            return False
+            try:
+                return sympy.simplify(diff) == 0
+            except ValueError:
+                log.debug(f'Had some trouble simplifying when comparing {x1} and {x2}')
+                return False
+    except TimeoutError:
+        log.debug(f'Timed out comparing {x1} and {x2}')
+        return False
     except ImportError as e:
         log.error(e)
-        raise
+        return False
     except Exception as e:
         log.debug(f'Failed comparing {x1} and {x2} with {e}')
         return False
