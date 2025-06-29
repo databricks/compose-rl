@@ -33,6 +33,7 @@ class PairwiseOfflineEnum(Enum):
     REBEL = 'rebel'
     IPO = 'ipo'
     KTO = 'kto'
+    APO = 'apo'  # Not a pair-wise preference algorithm
 
 
 def pairwise_offline_forward(
@@ -188,8 +189,8 @@ def pairwise_offline_loss(
         sft_alpha (float): Regularization weight for supervised finetuning loss (SFT) to
             be added to DPO type loss.
     """
-    policy_chosen_logp = outputs['policy_chosen_logp']
-    policy_rejected_logp = outputs['policy_rejected_logp']
+    policy_chosen_logp = outputs['policy_chosen_logp']  # (batch_size, )
+    policy_rejected_logp = outputs['policy_rejected_logp']  # (batch_size, )
     ref_chosen_logp = batch.get(
         'ref_chosen',
         torch.zeros_like(policy_chosen_logp),
@@ -210,6 +211,23 @@ def pairwise_offline_loss(
             -F.logsigmoid(beta * logits) * (1 - label_smoothing) -
             F.logsigmoid(-beta * logits) * label_smoothing
         )
+    elif loss_type == PairwiseOfflineEnum.APO:
+        # Reproducing the APO loss from APO paper: https://arxiv.org/pdf/2505.20686 on page 3 
+        # APO is not a pair-wise loss function. 
+        # We assume the dataset contains two responses per prompt. 
+        # The name chosen and reject just refers response 1 and response 2. This is for design simplicity. 
+        # The chosen and reject do not mean anything in APO
+        # Similar to REBEL, we assume each response has a reward in the batch. 
+        # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
+        vstars = batch['vstar'] # (batch_size, )
+        loss_1 = (
+            beta*(policy_chosen_logp - ref_chosen_logp) - (outputs['chosen_reward'] - vstars) 
+        )**2
+        loss_2 = (
+            beta*(policy_rejected_logp - ref_rejected_logp) - (outputs['rejected_reward'] -vstars )
+        )**2
+        losses = (loss_1 + loss_2) / 2
+        
     elif loss_type == PairwiseOfflineEnum.RCDPO:
         # Adding reward-difference based label_smoothing = 1 - reward_bt_prob
         chosen_reward = outputs['chosen_reward']
