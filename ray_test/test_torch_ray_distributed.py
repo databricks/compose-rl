@@ -185,7 +185,7 @@ def run():
             # results = ray.get(reduce_tasks)
             # print(f"All-reduce results: {results}")
 
-            vllm_tensor_parallel_size = 1
+            vllm_tensor_parallel_size = 8
             num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
             vllm_engines = create_vllm_engines(
                 num_engines=num_vllm_engines,
