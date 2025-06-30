@@ -64,8 +64,6 @@ def pairwise_preference_dataset_collate_fn(
         chosen_len = sample['chosen_len']
         rejected_len = sample['rejected_len']
 
-        vstars = sample['vstar']
-
         # Note: if we do any truncation, we force the last token to be EOS
         # https://github.com/mosaicml/RLHF/issues/101
 
