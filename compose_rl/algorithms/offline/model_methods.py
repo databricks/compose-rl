@@ -228,15 +228,15 @@ def pairwise_offline_loss(
             beta * (policy_rejected_logp - ref_rejected_logp) -
             (outputs['rejected_reward'] - vstars)
         )**2
-        losses = (loss_1 + loss_2) / 2
+        losses = (loss_1 + loss_2) / 2.
 
         # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
         # formula: sum_y exp( log pi(y) - log pi_ref(y) ) r(y) where y ~ pi_ref
         # use clip to ensure the output from exp is valid
         with torch.no_grad():
-            estimated_rewards = torch.exp(torch.clip(policy_chosen_logp - ref_chosen_logp, max = 10.)) * outputs['chosen_reward']
-            estimated_rewards += torch.exp(torch.clip(policy_rejected_logp - ref_rejected_logp, max = 10.)) * outputs['rejected_reward']
-            estimated_reward = torch.mean(estimated_rewards)
+            estimated_rewards = torch.exp(torch.clip(policy_chosen_logp - ref_chosen_logp, max = 5.)) * outputs['chosen_reward']
+            estimated_rewards += torch.exp(torch.clip(policy_rejected_logp - ref_rejected_logp, max = 5.)) * outputs['rejected_reward']
+            estimated_reward = torch.mean(estimated_rewards)/2.
 
     elif loss_type == PairwiseOfflineEnum.RCDPO:
         # Adding reward-difference based label_smoothing = 1 - reward_bt_prob
@@ -332,7 +332,7 @@ def pairwise_offline_loss(
         loss_dict['reward_diff'] = reward_diff.detach()  # type: ignore
     if loss_type == PairwiseOfflineEnum.APO:
         forward_kl = ((ref_chosen_logp - policy_chosen_logp) + (ref_rejected_logp - policy_rejected_logp)).detach()
-        loss_dict['forward_kl'] = forward_kl
+        loss_dict['forward_kl'] = forward_kl/2.
         loss_dict['estimated_reward'] = estimated_reward
 
     if sft_alpha > 0:
