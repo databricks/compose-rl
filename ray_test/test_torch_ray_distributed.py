@@ -10,8 +10,6 @@ from typing import Optional, Tuple
 
 from datetime import timedelta
 
-from compose_rl.algorithms.online.generation_utils import create_vllm_engines, init_process_group
-
 
 def ray_noset_visible_devices():
     return os.environ.get('RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES', '0') == '1'
@@ -94,11 +92,13 @@ class DistributedGPUActor:
         """Allocate master address and port for rank 0."""
         if self.master_addr is None:
             # Get the local IP address
-            self.master_addr = self.get_node_ip()
-        
+            self.master_addr = ray.util.get_node_ip_address().strip('[]')
+
         if self.master_port is None:
             # Allocate a free port
-            self.master_port = self.get_free_port()
+            with socket.socket() as sock:
+                sock.bind(("", 0))
+                self.master_port = sock.getsockname()[1]
     
     def get_master_address(self) -> Tuple[Optional[str], Optional[int]]:
         """Return the master address and port as a tuple."""
@@ -121,11 +121,6 @@ class DistributedGPUActor:
         print(f'master_addr: {self.master_addr}')
         print(f'master_port: {self.master_port}')
         print(f'is distributed initialized: {dist.is_initialized()}')
-
-    def init_vllm_process_group(self, backend: str, master_addr: str, master_port: int, world_size: int, rank: int, group_name: str):
-        """Initialize the vLLM process group."""
-        group = init_process_group(backend=backend, init_method=f'tcp://{master_addr}:{master_port}', world_size=world_size, rank=rank, group_name=group_name)
-        return dist.get_world_size(group)
 
 
     
@@ -180,44 +175,11 @@ def run():
             init_tasks = [actor.init_default_process_group.remote() for actor in train_actors]
             ray.get(init_tasks)
             
-            # # Perform tensor all_reduce on all actors
-            # reduce_tasks = [actor.tensor_all_reduce.remote() for actor in train_actors]
-            # results = ray.get(reduce_tasks)
-            # print(f"All-reduce results: {results}")
+            # Perform tensor all_reduce on all actors
+            reduce_tasks = [actor.tensor_all_reduce.remote() for actor in train_actors]
+            results = ray.get(reduce_tasks)
+            print(f"All-reduce results: {results}")
 
-            # vllm_tensor_parallel_size = 8
-            # num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
-            # vllm_engines = create_vllm_engines(
-            #     num_engines=num_vllm_engines,
-            #     tensor_parallel_size=vllm_tensor_parallel_size,
-            #     enforce_eager=True,
-            #     pretrain='meta-llama/Llama-3.2-1B-Instruct',
-            #     revision=None,
-            #     seed=1,
-            #     enable_prefix_caching=False,
-            #     max_model_len=2048,
-            # )
-
-            # new_port = ray.get(master_actor.get_free_port.remote())
-            # refs = [
-            #     engine.init_process_group.remote(
-            #         master_addr,
-            #         new_port,
-            #         i * vllm_tensor_parallel_size + 1,
-            #         dist.get_world_size() // 2 + 1,
-            #         'weight-update',
-            #         backend='nccl',
-            #     ) for i, engine in enumerate(vllm_engines)
-            # ]
-            # refs.append(master_actor.init_vllm_process_group.remote(
-            #     backend='nccl',
-            #     master_addr=master_addr,
-            #     master_port=new_port,
-            #     world_size=dist.get_world_size() // 2 + 1,
-            #     rank=0,
-            #     group_name='weight-update',
-            # ))
-            # print(ray.get(refs))
 
 
 if __name__ == '__main__':
