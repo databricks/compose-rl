@@ -63,6 +63,8 @@ def pairwise_preference_dataset_collate_fn(
         chosen_len = sample['chosen_len']
         rejected_len = sample['rejected_len']
 
+        vstars = sample['vstar']
+
         # Note: if we do any truncation, we force the last token to be EOS
         # https://github.com/mosaicml/RLHF/issues/101
 
@@ -141,6 +143,7 @@ def pairwise_preference_dataset_collate_fn(
         'input_ids': input_ids,
         'attention_mask': attention_masks,
         'sequence_id': sequence_id,
+        'vstar': vstars
     }
     if len(chosen_rewards) > 0:
         chosen_rewards = torch.stack(chosen_rewards)
@@ -263,6 +266,10 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
             rejected_reward = torch.Tensor([sample['rejected_reward']])
             return_dict['chosen_reward'] = chosen_reward
             return_dict['rejected_reward'] = rejected_reward
+        
+        if 'vstar' in sample: 
+            return_dict['vstar'] = torch.Tensor([sample['vstar']])
+            
         return return_dict
 
     def find_prompt_length(self, seq_1: torch.Tensor, seq_2: torch.Tensor):
