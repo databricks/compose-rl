@@ -158,7 +158,7 @@ def run():
             master_addr, _ = address.split(':')
             
             print(f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===")
-            num_train_actors = dist.get_world_size() // 2
+            num_train_actors = dist.get_world_size()
             # Create actors - rank 0 will allocate master address/port
             train_actors = []
 
@@ -185,39 +185,39 @@ def run():
             # results = ray.get(reduce_tasks)
             # print(f"All-reduce results: {results}")
 
-            vllm_tensor_parallel_size = 8
-            num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
-            vllm_engines = create_vllm_engines(
-                num_engines=num_vllm_engines,
-                tensor_parallel_size=vllm_tensor_parallel_size,
-                enforce_eager=True,
-                pretrain='meta-llama/Llama-3.2-1B-Instruct',
-                revision=None,
-                seed=1,
-                enable_prefix_caching=False,
-                max_model_len=2048,
-            )
+            # vllm_tensor_parallel_size = 8
+            # num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
+            # vllm_engines = create_vllm_engines(
+            #     num_engines=num_vllm_engines,
+            #     tensor_parallel_size=vllm_tensor_parallel_size,
+            #     enforce_eager=True,
+            #     pretrain='meta-llama/Llama-3.2-1B-Instruct',
+            #     revision=None,
+            #     seed=1,
+            #     enable_prefix_caching=False,
+            #     max_model_len=2048,
+            # )
 
-            new_port = ray.get(master_actor.get_free_port.remote())
-            refs = [
-                engine.init_process_group.remote(
-                    master_addr,
-                    new_port,
-                    i * vllm_tensor_parallel_size + 1,
-                    dist.get_world_size() // 2 + 1,
-                    'weight-update',
-                    backend='nccl',
-                ) for i, engine in enumerate(vllm_engines)
-            ]
-            refs.append(master_actor.init_vllm_process_group.remote(
-                backend='nccl',
-                master_addr=master_addr,
-                master_port=new_port,
-                world_size=dist.get_world_size() // 2 + 1,
-                rank=0,
-                group_name='weight-update',
-            ))
-            print(ray.get(refs))
+            # new_port = ray.get(master_actor.get_free_port.remote())
+            # refs = [
+            #     engine.init_process_group.remote(
+            #         master_addr,
+            #         new_port,
+            #         i * vllm_tensor_parallel_size + 1,
+            #         dist.get_world_size() // 2 + 1,
+            #         'weight-update',
+            #         backend='nccl',
+            #     ) for i, engine in enumerate(vllm_engines)
+            # ]
+            # refs.append(master_actor.init_vllm_process_group.remote(
+            #     backend='nccl',
+            #     master_addr=master_addr,
+            #     master_port=new_port,
+            #     world_size=dist.get_world_size() // 2 + 1,
+            #     rank=0,
+            #     group_name='weight-update',
+            # ))
+            # print(ray.get(refs))
 
 
 if __name__ == '__main__':
