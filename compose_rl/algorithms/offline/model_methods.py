@@ -154,6 +154,9 @@ def pairwise_offline_forward(
     if 'chosen_reward' in batch:
         outputs['chosen_reward'] = batch['chosen_reward']
         outputs['rejected_reward'] = batch['rejected_reward']
+    
+    if 'vstar' in batch:
+        outputs['vstar'] = batch['vstar']
 
     if policy_model_config is not None and hasattr(model, 'transformer'):
         lbl = get_mb_load_balancing_loss(
@@ -219,7 +222,7 @@ def pairwise_offline_loss(
         # The chosen and reject do not mean anything in APO
         # Similar to REBEL, we assume each response has a reward in the batch.
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
-        vstars = batch['vstar']  # (batch_size, )
+        vstars = outputs['vstar']  # (batch_size, )
         loss_1 = (
             beta * (policy_chosen_logp - ref_chosen_logp) -
             (outputs['chosen_reward'] - vstars)
