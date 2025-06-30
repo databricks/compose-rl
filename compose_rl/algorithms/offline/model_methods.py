@@ -319,7 +319,6 @@ def pairwise_offline_loss(
         PairwiseOfflineEnum.RPO,
         PairwiseOfflineEnum.RCDPO,
         PairwiseOfflineEnum.REBEL,
-        PairwiseOfflineEnum.APO,
     ]:
         # reward_diff is always defined if loss_type is RPO, RCDPO, or REBEL
         loss_dict['reward_diff'] = reward_diff.detach()  # type: ignore
