@@ -204,7 +204,7 @@ def run():
                     master_addr,
                     new_port,
                     i * vllm_tensor_parallel_size + 1,
-                    dist.get_world_size(),
+                    dist.get_world_size() // 2 + 1,
                     'weight-update',
                     backend='nccl',
                 ) for i, engine in enumerate(vllm_engines)
@@ -213,7 +213,7 @@ def run():
                 backend='nccl',
                 master_addr=master_addr,
                 master_port=new_port,
-                world_size=dist.get_world_size(),
+                world_size=dist.get_world_size() // 2 + 1,
                 rank=0,
                 group_name='weight-update',
             ))
