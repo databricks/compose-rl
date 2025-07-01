@@ -301,6 +301,12 @@ def vllm_chat(
     all_messages = [
         message for batch in all_batched_messages for message in batch
     ]
+    print("INFO")
+    print(all_messages[0])
+    print(f"All Prompts {len(all_prompts)}")
+    print(f"All Messages {len(all_messages)}")
+    print(f"All Batched Prompts: {len(all_batched_prompts)}")
+    print(f"All Batched Messages: {len(all_batched_messages)}")
     assert len(all_prompts) == len(all_messages)
 
     start_gen_time = time.time()
