@@ -139,9 +139,10 @@ def start_ray_server():
         yield address
         dist.barrier()
     finally:
-        # if dist.get_rank() == 0:
-        ray.shutdown()
-        subprocess.run(['ray', 'stop'], check=True)
+        if dist.get_rank() == 0:
+            ray.shutdown()
+            subprocess.run(['ray', 'stop'], check=True)
+        dist.barrier()
         dist.destroy_process_group()
 
 def run():
