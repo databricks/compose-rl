@@ -1,10 +1,12 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import logging
 import re
 from typing import Any
 
+from pydantic import BaseModel, ValidationError
 import sympy
 from sympy.parsing.latex import parse_latex
 
@@ -218,3 +220,64 @@ def prepare_math_prompt(sample: Any) -> str:
     _instruction = " Let's think step by step and output the final answer within \\boxed{}."
     final_prompt = f'Question: {prompt} ' + _instruction
     return final_prompt
+
+def find_last_json_object(s: str, return_as_string: bool = True) -> str | dict[str, Any] | None:
+    """
+    Finds the last complete JSON object in a string (if any exists).
+    Returns the parsed object, or None if not found.
+    """
+    # We'll find all possible complete JSON objects and return the last one
+    # This handles both separate objects and ensures we get the complete outer object for nested structures
+    
+    # Find all possible '{' positions
+    brace_positions = [m.start() for m in re.finditer(r'\{', s)]
+    
+    valid_objects = []
+    
+    for start in brace_positions:
+        substring = s[start:]
+        # Try to find the matching closing brace for this opening brace
+        # We'll use a simple stack-based approach
+        stack = []
+        for i, c in enumerate(substring):
+            if c == '{':
+                stack.append('{')
+            elif c == '}':
+                if stack:
+                    stack.pop()
+                if not stack:
+                    candidate = substring[:i+1]
+                    try:
+                        # Remove comments (e.g., "# ...") for JSON compatibility
+                        candidate_clean = re.sub(r'#.*', '', candidate)
+                        obj = json.loads(candidate_clean)
+                        # Store the object along with its end position in the original string
+                        end_pos = start + i
+                        valid_objects.append((end_pos, obj))
+                    except Exception:
+                        pass
+                    break  # Found the complete object for this opening brace
+        # If we didn't find a matching '}', continue to the next '{'
+    
+    if not valid_objects:
+        return None
+    
+    # Return the object that ends last (rightmost) in the string
+    valid_objects.sort(key=lambda x: x[0])  # Sort by end position
+    return_object = valid_objects[-1][1]  # Return the object, not the position 
+    if return_as_string:
+        return json.dumps(return_object)
+    return return_object
+
+def extract_and_build_pydantic_object(s: str, pydantic_class: BaseModel) -> BaseModel | None:
+    """
+    Extracts the last complete JSON object from a string and, if valid,
+    builds and returns the Pydantic model based on the JSON object.
+    """
+    json_obj = find_last_json_object(s)
+    if json_obj is None:
+        return None
+    try:
+        return pydantic_class.model_validate_json(json_obj)
+    except ValidationError:
+        return None

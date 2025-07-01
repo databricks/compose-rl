@@ -6,8 +6,10 @@
 import logging
 import re
 from abc import abstractmethod
+import math
 from typing import MutableMapping
 
+from pydantic import BaseModel
 import torch
 
 log = logging.getLogger(__name__)
@@ -18,6 +20,7 @@ from compose_rl.utils.rlvr_utils import (
     last_boxed_only_string,
     normalize_final_answer,
     remove_boxed,
+    extract_and_build_pydantic_object,
 )
 
 
@@ -437,3 +440,141 @@ class MATHFormatVerifierReward(BaseVerifierReward):
         """
         last_boxed_string = last_boxed_only_string(answer)
         return 0.0 if not last_boxed_string else self.reward
+
+class ThinkingFormatVerifierReward(BaseVerifierReward):
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0,
+                 thinking_tag: str = 'thinking'):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+        self.thinking_tag = thinking_tag
+
+    def needs_extraction(self) -> bool:
+        """Indicate that this verifier doesn't need extraction."""
+        return False
+    
+    def score_generations(self, answer: str, label: str) -> float:
+        """
+        Checks if the response string contains an opening and closing thinking tag.
+
+        Args:
+            answer (str): The response string to check.
+
+        Returns:
+            bool: True if the response string contains an opening and closing
+             XML tag with the thinking tag, False otherwise.
+        """
+        if f'<{self.thinking_tag}>' in answer.lower() and \
+            f'</{self.thinking_tag}>' in answer.lower():
+            return self.reward
+        return 0.0
+    
+class PydanticFormatVerifierReward(BaseVerifierReward):
+    """
+    Verifier that checks if the last complete JSON object in the response string
+    can be parsed into a valid instance of the Pydantic class.
+
+    Args:
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+        reward (float): The reward value to return if response is valid.
+        pydantic_class (BaseModel): The Pydantic class to parse the response string into.
+    """
+
+    def __init__(self, tokenizer: Tokenizer, reward: float,
+                 pydantic_class: BaseModel):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+        self.pydantic_class = pydantic_class
+
+    def needs_extraction(self) -> bool:
+        """Indicate that this verifier doesn't need extraction."""
+        return False
+    
+    def score_generations(self, answer: str, label: str) -> float:
+        """
+        Checks if the response string contains a valid JSON object that can be
+        parsed into a valid instance of the Pydantic class.
+
+        Args:
+            answer (str): The response string to check.
+
+        Returns:
+            bool: True if the response string is a valid instance of the Pydantic class, False otherwise.
+        """
+        pydantic_obj = extract_and_build_pydantic_object(answer, self.pydantic_class)
+        if pydantic_obj is None:
+            return 0.0
+        return self.reward
+    
+class Judgement(BaseModel):
+        rationale: str
+        score: float
+
+class JudgementFormatVerifierReward(PydanticFormatVerifierReward):
+    """
+    Verifier that checks if the last complete JSON object in the response string
+    can be parsed into a valid instance of the Judgement class.
+
+    Args:
+        tokenizer (Tokenizer): The tokenizer to use for the reward.
+        reward (float): The reward value to return if response is valid.
+    """
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward,
+                         pydantic_class=Judgement)
+    
+
+class JudgementScoreVerifierReward(BaseVerifierReward):
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+
+    def needs_extraction(self) -> bool:
+        """Indicate that this verifier needs extraction."""
+        return True
+    
+    def extract_solution(self, text: str) -> float | None:
+        """Extract the score from text, if possible and valid."""
+        judgement_obj = extract_and_build_pydantic_object(text, Judgement)
+        if judgement_obj is None:
+            return None
+        return judgement_obj.score
+    
+    def score_generations(self, answer: float | None, label: bool | int) -> float:
+        """
+        Rewards the model for generating a valid response with a score that is 
+        similar to the ground truth score.
+
+        Args:
+            answer (float): The logit of the generated response.
+            label (bool): The boolean class of the ground truth response. (Yes or No)
+        
+        Returns:
+            float: The reward value. A value between [0, self.reward]]
+        """
+        if answer is None:
+            # we likely could not extract a score from the response. so fail.
+            return 0.0
+        # if the target is an integer, we need to convert it to a boolean
+        if isinstance(label, int) and label in [0, 1]:
+            label = bool(label)
+        reward_scalar = self._mse_reward(answer, label)
+        return self.reward * reward_scalar
+
+    def _mse_reward(self, generated_score: float, target: bool) -> float:
+        """
+        Returns 1 minus the squared error between the generated probability and the target.
+
+        This is then used to scale the reward output. The further generated_score
+        is from the target, the more downscaled the reward will be.
+
+        Args:
+            generated_score (float): The logit of the generated response.
+            target (bool): The boolean class of the ground truth response. (Yes or No)
+
+        Returns:
+            float: [0, 1]
+        """
+        assert isinstance(target, bool), f'Target must be a boolean, got {type(target)}'
+        target = 1.0 if target else 0.0
+        generated_score = 1.0 / (1.0 + math.exp(-generated_score))
+        return 1.0 - (generated_score - target) ** 2
