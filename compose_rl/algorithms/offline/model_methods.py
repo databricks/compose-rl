@@ -65,6 +65,10 @@ def pairwise_offline_forward(
     if pad_token_id is None:
         raise ValueError('Tokenizer must have a PAD token.')
 
+    is_multimodal = "pixel_values" in batch.keys()
+    if is_multimodal and use_attention_sequence_id:
+        raise NotImplementedError("Using Sequence ID is not implemented for VLMs")
+
     # If we can use attention sequence ID, we use this logic branch.
     # This is determined by a value set in `train_dpo.py`
     if use_attention_sequence_id:
@@ -102,18 +106,36 @@ def pairwise_offline_forward(
             pad_token_id=0,
         )
 
-        batch_cat_inputs = torch.cat([chosen_inputs, rejected_inputs], dim=0)
-        batch_attn_mask = torch.cat(
-            [
-                chosen_attention_mask,
-                rejected_attention_mask,
-            ],
-            dim=0,
-        )
+        inputs = {
+            "input_ids": torch.cat([chosen_inputs, rejected_inputs], dim=0),
+            "attention_mask": torch.cat(
+                [
+                    chosen_attention_mask,
+                    rejected_attention_mask,
+                ],
+                dim=0,
+            ),
+        }
+
+        if is_multimodal:
+            chosen_token_type_ids, rejected_token_type_ids = extract_packed_chosen_rejected(
+                batch['token_type_ids'],
+                batch['chosen_len'],
+                batch['rejected_len'],
+                concat_seq_len,
+                pad_token_id=0,
+            )
+
+            # TODO: Ask if assuming same pixel inputs is ok?
+            multimodal_inputs = {
+                "token_type_ids": torch.cat([chosen_token_type_ids, rejected_token_type_ids], dim=0),
+                "pixel_values": torch.cat([batch['pixel_values'], batch['pixel_values']], dim=0),
+            }
+
+            inputs.update(multimodal_inputs)
 
         output_logits = model(
-            batch_cat_inputs,
-            attention_mask=batch_attn_mask,
+            **inputs
         ).logits
 
         # Extract out the chosen and rejected logits along the batch dimension

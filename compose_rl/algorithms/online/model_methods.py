@@ -118,6 +118,10 @@ def composer_online_rl_forward(
     model_forward_kwargs['action_mask'] = batch['action_mask']
     model_forward_kwargs['max_gen_len'] = batch['max_gen_len']
 
+    if "pixel_values" in batch.keys():
+        model_forward_kwargs['token_type_ids'] = batch['token_type_ids']
+        model_forward_kwargs['pixel_values'] = batch['pixel_values']
+
     actor_output = model(batch['obs'], **model_forward_kwargs)
 
     logits = actor_output.logits
