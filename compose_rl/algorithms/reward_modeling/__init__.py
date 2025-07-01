@@ -15,6 +15,9 @@ from compose_rl.algorithms.reward_modeling.functional import (
     MATHVerifierReward,
     OutputLengthReward,
     ShortResponseReward,
+    JudgementFormatVerifierReward,
+    JudgementScoreVerifierReward,
+    ThinkingFormatVerifierReward,
 )
 from compose_rl.algorithms.reward_modeling.hf_utils import (
     AutoModelForCausalLMWithRM,
@@ -47,6 +50,9 @@ rewards.register('gsm8k_verifier', func=GSM8KVeriferReward)
 rewards.register('gsm8k_format_verifier', func=GSM8KFormatVeriferReward)
 rewards.register('math_verifier', func=MATHVerifierReward)
 rewards.register('math_format_verifier', func=MATHFormatVerifierReward)
+rewards.register('judgement_format_verifier', func=JudgementFormatVerifierReward)
+rewards.register('judgement_score_verifier', func=JudgementScoreVerifierReward)
+rewards.register('thinking_format_verifier', func=ThinkingFormatVerifierReward)
 
 __all__ = [
     'BaseReward',
@@ -65,4 +71,7 @@ __all__ = [
     'GSM8KVeriferReward',
     'MATHVerifierReward',
     'MATHFormatVerifierReward',
+    'JudgementFormatVerifierReward',
+    'JudgementScoreVerifierReward',
+    'ThinkingFormatVerifierReward',
 ]
