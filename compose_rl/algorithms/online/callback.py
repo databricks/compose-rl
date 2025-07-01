@@ -54,6 +54,7 @@ from compose_rl.utils import (
     add_right_padding,
     compute_advantages,
     dist_compute_masked_mean_and_var,
+    filter_resolved_outputs,
     flatten,
     get_decoded_sequence,
     get_entropies,
@@ -61,6 +62,8 @@ from compose_rl.utils import (
     mask_eos,
     masked_mean,
     masked_sum,
+    partition_batch,
+    stack_resolved_outputs,
     switch_left_to_right_padding,
 )
 
@@ -428,10 +431,10 @@ class OnPolicyCallback(CallbackWithConfig):
             f'Per iteration using: {self.num_unique_prompts_per_iter} prompts.',
         )
 
-        if self.num_unique_prompts_per_iter * self.generations_per_prompt != self.global_train_batch_size * self.num_batches_per_update:
-            raise ValueError(
-                f'{self.num_unique_prompts_per_iter=} * {self.generations_per_prompt=} must equal {self.global_train_batch_size=} * {self.num_batches_per_update=}',
-            )
+        # if self.num_unique_prompts_per_iter * self.generations_per_prompt != self.global_train_batch_size * self.num_batches_per_update:
+            # raise ValueError(
+                # f'{self.num_unique_prompts_per_iter=} * {self.generations_per_prompt=} must equal {self.global_train_batch_size=} * {self.num_batches_per_update=}',
+            # )
 
         self.epochs_per_iteration = ensure_time(
             var_config.get('epoch_per_iteration', 1),
@@ -441,7 +444,9 @@ class OnPolicyCallback(CallbackWithConfig):
 
         # Programmatically setting the max buffer size instead of the yaml
         var_config['buffer']['max_buffer_size'] = self.num_batches_per_update
+
         self.buffer = MinibatchRolloutBuffer(var_config['buffer'])
+        self.global_sample_list = []
 
         # Build the KL controller through registries
         kl_ctl_name = var_config['kl_controller'].pop('kl_ctl_type')
@@ -470,6 +475,12 @@ class OnPolicyCallback(CallbackWithConfig):
                 train_config['python_log_level'].upper(),
             )
 
+        self.same_reward_filter_threshold = var_config.get(
+            'same_reward_filter_threshold',
+            None,
+        )
+
+        self.use_kl_penalty = var_config.get('use_kl_penalty', True)
         self.vllm_engines = None
         self.num_vllm_engines = 0
         self.vllm_tensor_parallel_size = var_config.get(
@@ -535,6 +546,8 @@ class OnPolicyCallback(CallbackWithConfig):
         if self.device_train_microbatch_size == 'auto':  # type: ignore
             raise ValueError('auto microbatching is not supported for PPO')
 
+        self.global_iter_batch_size = self.num_batches_per_update * self.global_train_batch_size
+
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
         kl_penalty_in_reward = True
@@ -550,6 +563,7 @@ class OnPolicyCallback(CallbackWithConfig):
             fsdp_config=self.non_train_fsdp_config,
             precision=state.precision,
             kl_penalty_in_reward=kl_penalty_in_reward,
+            use_kl_penalty=self.use_kl_penalty,
         )
 
         # This is needed to ensure PyTorch 2.4 checkpointing doesn't break
@@ -602,13 +616,69 @@ class OnPolicyCallback(CallbackWithConfig):
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
-        batch = self._get_next_iter_prompts()
-        batch = state.device.batch_to_device(batch)
-
+        batch = self._get_next_iter_prompts(state)
         if self.vllm_engines is not None:
             self._update_inference_model(batch)
 
-        self._interact_with_env(batch)
+        num_env_interactions = 0
+        while len(self.buffer) < self.num_batches_per_update:
+            if num_env_interactions > 0:
+                batch = self._get_next_iter_prompts(state)
+
+            num_env_interactions += 1
+
+            # TODO: the case where we are not filtering
+            # We do not do an all gather, so this logic is slightly wrong right now
+            self._interact_with_env(batch)
+
+            cur_global_samples = stack_resolved_outputs(
+                self.global_sample_list,
+                self.pad_token_idx,
+            )
+
+            bs = cur_global_samples['prompt_id'].shape[0]
+
+            log.info(f"Current global batch size is {bs}.")
+            log.info(
+                f"Current global iter batch size is {self.global_iter_batch_size}.",
+            )
+
+            if bs >= self.global_iter_batch_size:
+                log.info(
+                    'We have enough samples, adding samples to the buffer.',
+                )
+                rank = dist.get_global_rank()
+                world_size = dist.get_world_size()
+
+                local_samples = {}
+                for key, value in cur_global_samples.items():
+                    local_samples[key] = partition_batch(
+                        value,
+                        world_size=world_size,
+                        rank=rank,
+                        device_train_batch_size=self.device_train_batch_size,
+                    )
+
+                local_bs = local_samples['prompt_id'].shape[0]
+                # Add the local samples to the buffer
+                for idx in range(local_bs // self.device_train_batch_size):
+                    minibatch = self._extract_minibatch(
+                        batch=local_samples,
+                        idx=idx,
+                        minibatch_size=self.device_train_batch_size,
+                    )
+                    self.buffer.add(minibatch)
+
+        log.info(
+            f"For iteration {self.iter_num}, we have {len(self.buffer)} samples in the buffer. Starting training.",
+        )
+        log.info(
+            f"It took {num_env_interactions} environment interactions to fill the buffer.",
+        )
+
+        # Making sure we correctly parsed the minibatches
+        assert len(self.buffer) >= self.num_batches_per_update
+
         # Reset and initialize state train dataloader
         log.warning(
             'trainer._train_data_spec should be updated whenever the dataloader is updated',
@@ -635,16 +705,25 @@ class OnPolicyCallback(CallbackWithConfig):
         del logger  # unused
         self._log_generations_to_logger(state)
         self._increment_rl_iter()
+
         self.buffer.reset()
+
+        # A list of all samples across ranks
+        # These can be filtered or unfiltered
+        self.global_sample_list = []
+
         self.buffer.set_state_dict(
             self.train_prompt_loader.state_dict(), # pyright: ignore
             0,
         )
 
-    def _get_next_iter_prompts(self):
+    def _get_next_iter_prompts(self, state: State):
         """Gets the next iteration's batch of prompts."""
-        # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
         n_unique_batches = self.num_unique_prompts_per_iter // self.global_train_batch_size
+        log.info(
+            f"Getting {n_unique_batches} unique batches of prompts for the current iteration.",
+        )
+
         batches = [
             self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
@@ -700,7 +779,7 @@ class OnPolicyCallback(CallbackWithConfig):
                 else:
                     ret_batch[key] = curr_values
 
-        return ret_batch
+        return state.device.batch_to_device(ret_batch)
 
     def _get_single_batch_prompts(self):
         """Gets a single batch of prompts from the dataloader."""
@@ -774,6 +853,7 @@ class OnPolicyCallback(CallbackWithConfig):
                     )
                     padded_sequences.append(padded_sequence)
                 sequences = torch.cat(padded_sequences, dim=0)
+
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
@@ -799,8 +879,6 @@ class OnPolicyCallback(CallbackWithConfig):
             f'Finished reward computation for the rollout in {total_reward_time:.4f} seconds.',
         )
 
-        self.prompts_and_gens.extend(prompts_and_gens)
-
         gen_batch_partial_outputs = (env_outputs, ref_outputs, all_rewards_dict)
         # For every partial output we want to resolve them together
         # And compute the global per iteration batch advantage's mean and variance
@@ -809,17 +887,32 @@ class OnPolicyCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
-        # We need to split the resolved outputs into minibatches
-        for idx in range(bs // self.device_train_batch_size):
-            minibatch = self._extract_minibatch(
-                resolved_outputs,
-                idx,
-                self.device_train_batch_size,
+        if self.same_reward_filter_threshold is not None:
+            log.info(
+                f"in reward thresholding, trying to filter with: {self.same_reward_filter_threshold}",
             )
-            self.buffer.add(minibatch)
+            start_time = time.time()
+            all_gathered_outputs = dist.all_gather_object(resolved_outputs)
 
-        # Making sure we correctly parsed the minibatches
-        assert len(self.buffer) == self.num_batches_per_update
+            log.info(
+                f"It took {time.time() - start_time} seconds to gather all resolved outputs.",
+            )
+
+            all_resolved_outputs = stack_resolved_outputs(
+                all_gathered_outputs,
+                self.pad_token_idx,
+            )
+
+            # Filter the resolved outputs based on the generation filtering values
+            resolved_outputs = filter_resolved_outputs(
+                all_resolved_outputs,
+                self.same_reward_filter_threshold,
+            )
+
+        self.global_sample_list.append(resolved_outputs)
+
+        # TODO: bcui fix
+        self.prompts_and_gens.extend(prompts_and_gens)
 
         self.actor_critic.train()
 

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import math
 import re
 import warnings
 from collections.abc import Generator, Iterable
@@ -1222,3 +1223,241 @@ def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
                 yield subc
         else:
             yield i
+
+
+def filter_resolved_outputs(
+    outputs: dict[str, torch.Tensor],
+    filter_threshold: float,
+):
+    """Filters the outputs based on the provided filter values.
+
+    Filters out prompts where a high percentage of rewards are the same value.
+    This is done on a prompt-by-prompt basis.
+
+    Args:
+        outputs (dict[str, torch.Tensor]): The outputs to filter.
+        filter_threshold (float): The percentage threshold for filtering.
+
+    Returns:
+        dict: Filtered outputs with resolved prompts removed
+    """
+    prompt_id = outputs['prompt_id']
+
+    # We are trying to resolve only the filtered
+    rewards = outputs['env_rewards']
+
+    generated_len = outputs['generated_len']
+
+    # Get unique prompt IDs and their indices
+    unique_prompt_ids, inverse_indices = torch.unique(
+        prompt_id,
+        return_inverse=True,
+    )
+
+    log.info(f"\nTotal unique prompts: {len(unique_prompt_ids)}")
+    log.info(
+        f"Threshold: Filter if > {filter_threshold:.0%} of rewards are the same",
+    )
+
+    prompts_to_filter = []
+    prompt_stats = {}
+
+    # Check each prompt individually
+    for i, unique_id in enumerate(unique_prompt_ids):
+        mask = inverse_indices == i
+
+        cur_generated_lens = generated_len[mask]
+
+        n_samples = cur_generated_lens.size(0)
+
+        batch_tensor = torch.arange(
+            n_samples,
+            device=cur_generated_lens.device,
+        )
+
+        # For simplicity, we should always be getting the last generated reward
+        prompt_rewards = rewards[mask][batch_tensor, cur_generated_lens - 1]
+
+        # print ("masked rewards is: ", rewards[mask], rewards[mask].shape)
+        # print ("prompt rewards shape is: ", prompt_rewards.shape)
+        # print ("rewards shape is: ", rewards.shape)
+
+        # Find the most common reward value and its percentage
+        unique_values, counts = torch.unique(prompt_rewards, return_counts=True)
+        max_count = torch.max(counts).item()
+        max_percentage = max_count / n_samples
+
+        # print ("rewards are: ", prompt_rewards)
+
+        # print ("max count is: ", max_count, "n samples is: ", n_samples)
+        # print ("max percentage is: ", max_percentage)
+
+        # print ("n samples is: ", n_samples)
+        # print ("max count is: ", max_count)
+        # print ("prompt rewards size is: ", prompt_rewards.size())
+
+        # Find which value is most common
+        most_common_idx = torch.argmax(counts)
+        most_common_value = unique_values[most_common_idx].item()
+
+        # Decide whether to filter
+        if max_percentage > filter_threshold:
+            prompts_to_filter.append(i)
+            prompt_stats[unique_id.item()] = {
+                'action': 'filtered',
+                'most_common_value': most_common_value,
+                'most_common_count': max_count,
+                'percentage_same': max_percentage,
+                'n_samples': n_samples,
+                'unique_values': unique_values.tolist(),
+                'counts': counts.tolist(),
+            }
+            log.info(
+                f"  Prompt {unique_id.item()}: filtering as ({max_percentage:.0%} of the generations with the reward: {most_common_value}) as the most common value",
+            )
+        else:
+            prompt_stats[unique_id.item()] = {
+                'action': 'kept',
+                'most_common_value': most_common_value,
+                'most_common_count': max_count,
+                'percentage_same': max_percentage,
+                'n_samples': n_samples,
+                'unique_values': unique_values.tolist(),
+                'counts': counts.tolist(),
+                'mean': torch.mean(prompt_rewards).item(),
+                'std': torch.std(prompt_rewards).item(),
+            }
+
+    # Create filter mask
+    keep_mask = torch.ones(len(prompt_id), dtype=torch.bool)
+    for prompt_idx in prompts_to_filter:
+        keep_mask[inverse_indices == prompt_idx] = False
+
+    # print ("key mask shape is: ", keep_mask.shape)
+
+    # get the integer indices of entries to keep
+    keep_indices = keep_mask.nonzero(as_tuple=True)[0]
+
+    # Apply filter to all outputs
+    filtered_outputs = {}
+    for key, value in outputs.items():
+        # print ("key is: ", key)
+        if isinstance(value, torch.Tensor):
+            # print('value shape is: ', value.shape)
+            filtered_outputs[key] = value[keep_mask]
+
+        elif isinstance(value, list) and len(value) == keep_mask.shape[0]:
+            # keep only those elements whose mask is True
+            filtered_outputs[key] = [value[i] for i in keep_indices.tolist()]
+
+        else:
+            assert False
+
+    # Store statistics
+    filter_stats = {
+        'total_prompts': len(unique_prompt_ids),
+        'kept_prompts': len(unique_prompt_ids) - len(prompts_to_filter),
+        'filtered_prompts': len(prompts_to_filter),
+        'prompt_stats': prompt_stats,
+        'threshold': filter_threshold,
+    }
+
+    # filtered_outputs['filter_stats'] = filter_stats
+
+    log.info(f"  Kept: {filter_stats['kept_prompts']} prompts")
+    log.info(f"  Filtered: {len(prompts_to_filter)} prompts")
+    log.info(f"  Original samples: {len(prompt_id)}")
+    log.info(f"  Remaining samples: {len(filtered_outputs['prompt_id'])}")
+
+    return filtered_outputs
+
+
+def stack_resolved_outputs(
+    output_list: list[dict[str, Union[torch.Tensor, list]]],
+    pad_token_id: int,
+):
+    """Stacks a list of resolved outputs into a single dictionary.
+
+    This function takes a list of dictionaries, where each dictionary contains tensors or lists
+    all of the keys should be the same.
+
+    Args:
+        output_list (list[dict[str, Union[torch.Tensor, list]]]): A list of dictionaries containing tensors or lists.
+    """
+    all_resolved_outputs = {}
+    for key in output_list[0].keys():
+        # Collect all tensors under this key from each rank
+        tensors_to_cat = [d[key] for d in output_list]
+
+        if key in ['verified_answer']:
+            all_resolved_outputs[key] = list(flatten(tensors_to_cat))
+            continue
+
+        padding_key = pad_token_id
+
+        if key == 'prompt_attention_mask':
+            padding_key = False
+
+        if key in [
+            'prompt',
+            'prompt_attention_mask',
+            'sequences',
+            'obs',
+            'right_padded_attn_mask',
+        ]:
+            max_len = max(t.size(-1) for t in tensors_to_cat)
+            padded_tensors = []
+            for t in tensors_to_cat:
+                if t.size(-1) < max_len:
+                    # Pad the tensor to the max length
+                    padding = torch.full(
+                        (t.size(0), max_len - t.size(-1)),
+                        padding_key,  # type: ignore
+                        dtype=t.dtype,
+                        device=t.device,
+                    )
+                    padded_tensors.append(
+                        torch.cat([t, padding], dim=-1),
+                    )
+                else:
+                    padded_tensors.append(t)
+            tensors_to_cat = padded_tensors
+
+        all_resolved_outputs[key] = torch.cat(tensors_to_cat, dim=0)
+
+    return all_resolved_outputs
+
+
+def partition_batch(batch, world_size, rank, device_train_batch_size):
+    """
+    Pads `batch` (Tensor or list) so that:
+      - total length = per_rank * world_size
+      - per_rank is the smallest multiple of device_train_batch_size ≥ original_length/world_size
+    Then returns the slice for this `rank`.
+    """
+    # 1) figure out length and per-rank size
+    B = batch.size(0) if torch.is_tensor(batch) else len(batch)
+    per_rank = math.ceil(
+        B / world_size / device_train_batch_size,
+    ) * device_train_batch_size
+    total = per_rank * world_size
+    pad_size = total - B
+
+    # 2) pad if needed
+    if pad_size > 0:
+        if torch.is_tensor(batch):
+            idx = torch.arange(pad_size, device=batch.device) % B
+            batch = torch.cat([batch, batch[idx]], dim=0)
+        else:
+            batch = batch + [batch[i % B] for i in range(pad_size)]
+
+    # 3) split out rank’s chunk
+    if torch.is_tensor(batch):
+        # reshape into [world_size, per_rank, ...] then select
+        new_shape = [world_size, per_rank] + list(batch.shape[1:])
+        return batch.view(*new_shape)[rank]
+
+    else:
+        start = rank * per_rank
+        end = start + per_rank
+        return batch[start:end]

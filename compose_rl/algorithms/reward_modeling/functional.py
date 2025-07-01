@@ -6,6 +6,7 @@
 import logging
 import re
 from abc import abstractmethod
+from multiprocessing import Pool, cpu_count
 from typing import MutableMapping
 
 import torch
@@ -262,18 +263,57 @@ class BaseVerifierReward(Reward):
     Args:
         tokenizer (Tokenizer): The tokenizer to use for the reward.
         reward (float): The reward to apply. Default is 1.0.
+        num_workers (int): Number of worker processes. Default is None (uses cpu_count).
     """
 
     # This can be run async
     BLOCKING = False
 
-    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        reward: float = 1.0,
+        num_workers: int | None = None,
+    ):
         super().__init__(tokenizer=tokenizer)
         self.reward = reward
+        self.num_workers = num_workers or cpu_count()
 
         log.info(
             f'Using reward value of {self.reward} for {self.__class__.__name__} verifier',
         )
+        log.info(
+            f'Using {self.num_workers} worker processes for parallel computation',
+        )
+
+    def _process_single_sample(
+        self,
+        args: tuple[int, str, str, bool],
+    ) -> tuple[int, float]:
+        """Process a single sample, function is picklable for multiprocessing.
+
+        Args:
+            args: tuple of (index, generated_text, verified_answer, needs_extraction)
+
+        Returns:
+            tuple of (index, reward_value)
+        """
+        idx, generated_text, verified_answer, needs_extraction = args
+
+        try:
+            if needs_extraction:
+                answer = self.extract_solution(generated_text)
+                reward_value = self.score_generations(answer, verified_answer)
+            else:
+                reward_value = self.score_generations(
+                    generated_text,
+                    verified_answer,
+                )
+
+            return idx, reward_value
+        except Exception as e:
+            log.warning(f'Error processing sample {idx}: {e}')
+            return idx, 0.0
 
     def __call__(
         self,
@@ -294,26 +334,49 @@ class BaseVerifierReward(Reward):
         assert 'verified_answers' in batch.keys()
         assert 'generated_lens' in batch.keys()
 
-        rewards = batch['zero_rewards']
+        # Clone to avoid modifying original
+        rewards = batch['zero_rewards'].clone()
         raw_untokenized_texts = batch['raw_untokenized_texts']
         verified_answers = batch['verified_answers']
         generated_lens = batch['generated_lens']
 
         batch_size = rewards.shape[0]
         all_generated_texts = [x[1] for x in raw_untokenized_texts]
-        for i in range(batch_size):
-            # Process based on verifier type
-            if self.needs_extraction():
-                _answer = self.extract_solution(all_generated_texts[i])
-                _reward = self.score_generations(_answer, verified_answers[i])
-            else:
-                # Score directly without extraction
-                _reward = self.score_generations(
-                    all_generated_texts[i],
-                    verified_answers[i],
-                )
 
-            rewards[i, generated_lens[i] - 1] += _reward
+        # Prepare arguments for parallel processing
+        needs_extraction = self.needs_extraction()
+        process_args = [
+            (i, all_generated_texts[i], verified_answers[i], needs_extraction)
+            for i in range(batch_size)
+        ]
+
+        # Calculate optimal chunk size for better performance
+        # Aim for at least 4 chunks per worker to balance load
+        chunk_size = max(1, batch_size // (self.num_workers * 4))
+
+        # Process in parallel with chunking
+        with Pool(processes=self.num_workers) as pool:
+            async_results = [
+                pool.apply_async(self._process_single_sample, (args,))
+                for args in process_args
+            ]
+
+            for async_res in async_results:
+                try:
+                    idx, reward_value = async_res.get(
+                        timeout=self.BLOCKING_TIMEOUT,
+                    )
+                except multiprocessing.TimeoutError:
+                    log.warning(
+                        'Sample %s timed out; assigning zero reward',
+                        async_res,
+                    )
+                    idx, reward_value = args[0], 0.0
+
+                # print (f"processed result for idx {idx} with reward {reward_value}")
+
+                rewards[idx, generated_lens[idx] - 1] += reward_value
+        # print ("finished processng result")
         return rewards
 
     def needs_extraction(self) -> bool:
@@ -359,8 +422,19 @@ class BaseVerifierReward(Reward):
 
 class GSM8KVeriferReward(BaseVerifierReward):
 
-    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
-        super().__init__(tokenizer=tokenizer, reward=reward)
+    BLOCKING = True
+
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        reward: float = 1.0,
+        num_workers: int | None = None,
+    ):
+        super().__init__(
+            tokenizer=tokenizer,
+            reward=reward,
+            num_workers=num_workers,
+        )
 
     def extract_solution(self, text: str) -> str:
         """Extract numerical solution from GSM8K-style responses."""
@@ -381,8 +455,19 @@ class GSM8KVeriferReward(BaseVerifierReward):
 
 class GSM8KFormatVeriferReward(BaseVerifierReward):
 
-    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
-        super().__init__(tokenizer=tokenizer, reward=reward)
+    BLOCKING = True
+
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        reward: float = 1.0,
+        num_workers: int | None = None,
+    ):
+        super().__init__(
+            tokenizer=tokenizer,
+            reward=reward,
+            num_workers=num_workers,
+        )
 
     def needs_extraction(self) -> bool:
         """Indicate that this verifier doesn't need extraction."""
@@ -400,8 +485,19 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
 
 class MATHVerifierReward(BaseVerifierReward):
 
-    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
-        super().__init__(tokenizer=tokenizer, reward=reward)
+    BLOCKING = True
+
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        reward: float = 1.0,
+        num_workers: int | None = None,
+    ):
+        super().__init__(
+            tokenizer=tokenizer,
+            reward=reward,
+            num_workers=num_workers,
+        )
 
     def extract_solution(self, text: str) -> str:
         """Extract numerical solution from MATH-style responses."""
@@ -422,8 +518,19 @@ class MATHVerifierReward(BaseVerifierReward):
 
 class MATHFormatVerifierReward(BaseVerifierReward):
 
-    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
-        super().__init__(tokenizer=tokenizer, reward=reward)
+    BLOCKING = True
+
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        reward: float = 1.0,
+        num_workers: int | None = None,
+    ):
+        super().__init__(
+            tokenizer=tokenizer,
+            reward=reward,
+            num_workers=num_workers,
+        )
 
     def needs_extraction(self) -> bool:
         """Indicate that this verifier doesn't need extraction."""

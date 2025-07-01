@@ -289,6 +289,11 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.kl_clip_range = kl_clip_range
         self.entropy_loss_weight = entropy_loss_weight
 
+        print(
+            'length normalize policy loss: ',
+            self.length_normalize_policy_loss,
+        )
+
     def forward(self, batch: MutableMapping):
         ret_val = composer_online_rl_forward(
             batch,
