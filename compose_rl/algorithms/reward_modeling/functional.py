@@ -404,9 +404,6 @@ class MATHVerifierReward(BaseVerifierReward):
         super().__init__(tokenizer=tokenizer, reward=reward)
 
     def extract_solution(self, text: str) -> str:
-        print("+"*30)
-        print(text)
-        print("+"*30)
         """Extract numerical solution from MATH-style responses."""
         last_boxed_string = last_boxed_only_string(text)
         if not last_boxed_string:
@@ -418,6 +415,10 @@ class MATHVerifierReward(BaseVerifierReward):
 
     def score_generations(self, answer: str, label: str) -> float:
         """Score based on exact match or sympy equivalence checks."""
+        print("+"*30)
+        print(answer)
+        print(label)
+        print("+"*30)
         if answer.strip() == label.strip() or is_equiv(answer, label):
             return self.reward
         return 0.0
