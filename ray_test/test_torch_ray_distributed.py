@@ -7,9 +7,10 @@ import subprocess
 import time
 from contextlib import contextmanager
 from typing import Optional, Tuple
-
+import argparse
 from datetime import timedelta
-
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from vllm import LLM
 from compose_rl.algorithms.online.generation_utils import init_process_group, create_vllm_engines
 
 
@@ -81,6 +82,8 @@ class DistributedGPUActor:
 
         os.environ["MASTER_ADDR"] = self.master_addr
         os.environ["MASTER_PORT"] = str(self.master_port)
+
+        self.model = None
     
     def get_node_ip(self):
         return ray.util.get_node_ip_address().strip('[]')
@@ -119,6 +122,13 @@ class DistributedGPUActor:
         print(f'local_rank: {dist.get_rank() % 8}')
         print(f'master_addr: {self.master_addr}')
         print(f'master_port: {self.master_port}')
+    
+    def init_tokenizer_and_llm(self, model_name: str):
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        transformers_model = AutoModelForCausalLM.from_pretrained(model_name)
+        embedding_layer = transformers_model.get_input_embeddings()
+        llm = LLM(model=model_name, enable_prompt_embeds=True)
+        return tokenizer, embedding_layer, llm
 
     def tensor_all_reduce(self) -> float:
         """Perform a simple tensor all_reduce operation."""
@@ -148,7 +158,12 @@ def start_ray_server():
         dist.barrier()
         dist.destroy_process_group()
 
-def run():
+
+def run(tp_size: int = 8):
+    prompts = [
+        "what is RAY?",
+        "what is vLLM?",
+    ]
     with start_ray_server() as address:
         if dist.get_rank() == 0:
             master_addr, _ = address.split(':')
@@ -181,7 +196,7 @@ def run():
             results = ray.get(reduce_tasks)
             print(f"All-reduce results: {results}")
 
-            vllm_tensor_parallel_size = 8
+            vllm_tensor_parallel_size = tp_size
             num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
             print(f'num_vllm_engines: {num_vllm_engines}')
             vllm_engines = create_vllm_engines(
@@ -217,5 +232,15 @@ def run():
             ))
             print(ray.get(refs))
 
+            ref = vllm_engines[0].generate.remote(prompts)
+            gen_results = ray.get(ref)
+            for output in gen_results:
+                prompt = output.prompt
+                generated_text = output.outputs[0].text
+                print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+
 if __name__ == '__main__':
-    run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--tp_size', type=int, default=8)
+    args = parser.parse_args()
+    run(tp_size=args.tp_size)
