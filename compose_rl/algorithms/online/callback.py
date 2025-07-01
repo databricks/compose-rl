@@ -840,6 +840,7 @@ class OnPolicyCallback(CallbackWithConfig):
                     print(f"{k}: {v.size()}")
                 else:
                     print(f"{k}: {len(v)}")
+                    print(v)
             self.buffer.add(minibatch)
         #print(asdf)
 
