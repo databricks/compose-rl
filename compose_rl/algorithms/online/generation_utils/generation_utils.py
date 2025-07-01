@@ -299,7 +299,7 @@ def vllm_chat(
     )
     all_prompts = [prompt for batch in all_batched_prompts for prompt in batch]
     all_messages = [
-        message for batch in all_batched_messages for message in batch
+        message for batch in all_batched_messages for message_list in batch for message in message_list
     ]
     print("INFO")
     print(all_messages[0])
