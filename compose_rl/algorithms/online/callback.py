@@ -821,6 +821,9 @@ class OnPolicyCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
+        print(len(resolved_outputs['messages']))
+        print(len(resolved_outputs['messages'][0]))
+        print(asdf)
         # We need to split the resolved outputs into minibatches
         for idx in range(bs // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
@@ -830,12 +833,12 @@ class OnPolicyCallback(CallbackWithConfig):
             )
             print(f"CHECKING MINIBATCH: {idx}")
             for k, v in minibatch.items():
-                #if k == "messages":
-                #    print(len(v))
-                #    print(v)
-                    #if len(v) > 0:
-                    #    print(type(v[0]))
-                    #    print(v[0])
+                if k == "messages":
+                    print(len(v))
+                    print(v)
+                    if len(v) > 0:
+                        print(v[0])
+                        print(len(v[0]))
                 if isinstance(v, torch.Tensor):
                     print(f"{k}: {v.size()}")
                 else:
@@ -904,9 +907,6 @@ class OnPolicyCallback(CallbackWithConfig):
             center_reward_mean=self.center_reward_mean,
         )
         env_outs.update(rew_outs)
-
-        if "messages" in env_outs.keys():
-            env_outs['messages'] = [message for message in env_outs['messages']]
 
         # Keep track of prompt ids, rewards and verified answers for logging
         prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
