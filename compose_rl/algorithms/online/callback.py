@@ -905,6 +905,9 @@ class OnPolicyCallback(CallbackWithConfig):
         )
         env_outs.update(rew_outs)
 
+        if "messages" in env_outs.keys():
+            env_outs['messages'] = [message for message in env_outs['messages']]
+
         # Keep track of prompt ids, rewards and verified answers for logging
         prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
         rewards = env_outs['rewards'].sum(dim=-1).detach().cpu().tolist()
