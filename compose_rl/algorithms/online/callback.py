@@ -821,13 +821,10 @@ class OnPolicyCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
-        #print(len(resolved_outputs['messages']))
-        #resolved_outputs['messages'] = [batch_message for batch_message in resolved_outputs['messages']]
-        #print(len(resolved_outputs['messages'][0]))
-        #print("FLATTEN")
-        #print(len(resolved_outputs['messages']))
-        #print(asdf)
-        del resolved_outputs['messages']
+        # Delete Non-tensor keys for training batch
+        for key in ['verified_answer', 'messages']:
+            del resolved_outputs[key]
+
         # We need to split the resolved outputs into minibatches
         for idx in range(bs // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
@@ -836,7 +833,6 @@ class OnPolicyCallback(CallbackWithConfig):
                 self.device_train_batch_size,
             )
             self.buffer.add(minibatch)
-        #print(asdf)
 
         # Making sure we correctly parsed the minibatches
         assert len(self.buffer) == self.num_batches_per_update
