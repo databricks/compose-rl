@@ -822,11 +822,12 @@ class OnPolicyCallback(CallbackWithConfig):
         )
 
         #print(len(resolved_outputs['messages']))
-        resolved_outputs['messages'] = [batch_message for batch_message in resolved_outputs['messages']]
+        #resolved_outputs['messages'] = [batch_message for batch_message in resolved_outputs['messages']]
         #print(len(resolved_outputs['messages'][0]))
-        print("FLATTEN")
-        print(len(resolved_outputs['messages']))
+        #print("FLATTEN")
+        #print(len(resolved_outputs['messages']))
         #print(asdf)
+        del resolved_outputs['messages']
         # We need to split the resolved outputs into minibatches
         for idx in range(bs // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
@@ -834,19 +835,6 @@ class OnPolicyCallback(CallbackWithConfig):
                 idx,
                 self.device_train_batch_size,
             )
-            print(f"CHECKING MINIBATCH: {idx}")
-            for k, v in minibatch.items():
-                if k == "messages":
-                    print(len(v))
-                    print(v)
-                    if len(v) > 0:
-                        print(v[0])
-                        print(len(v[0]))
-                if isinstance(v, torch.Tensor):
-                    print(f"{k}: {v.size()}")
-                else:
-                    print(f"{k}: {len(v)}")
-                    print(v)
             self.buffer.add(minibatch)
         #print(asdf)
 
