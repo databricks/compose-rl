@@ -821,9 +821,12 @@ class OnPolicyCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
+        #print(len(resolved_outputs['messages']))
+        resolved_outputs['messages'] = [batch_message for batch_message in resolved_outputs['messages']]
+        #print(len(resolved_outputs['messages'][0]))
+        print("FLATTEN")
         print(len(resolved_outputs['messages']))
-        print(len(resolved_outputs['messages'][0]))
-        print(asdf)
+        #print(asdf)
         # We need to split the resolved outputs into minibatches
         for idx in range(bs // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
