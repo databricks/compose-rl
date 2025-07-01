@@ -67,7 +67,7 @@ def pairwise_preference_dataset_collate_fn(
         chosen_len = sample['chosen_len']
         rejected_len = sample['rejected_len']
 
-        is_multimodal = "pixel_values" in sample.keys()
+        is_multimodal = 'pixel_values' in sample.keys()
         if is_multimodal:
             pixel_vals = sample['pixel_values']
             chosen_token_type_ids = sample['chosen_token_type_ids']
@@ -91,7 +91,11 @@ def pairwise_preference_dataset_collate_fn(
         cat_batch = torch.cat([chosen, rejected], dim=-1)
 
         if is_multimodal:
-            cat_token_type_ids = torch.cat([chosen_token_type_ids, rejected_token_type_ids], dim=-1)
+            cat_token_type_ids = torch.cat([
+                chosen_token_type_ids,
+                rejected_token_type_ids,
+            ],
+                                           dim=-1)
 
         if pad_len < 0:
             # We should truncate chosen and rejected by the same amount
@@ -112,12 +116,17 @@ def pairwise_preference_dataset_collate_fn(
 
             if is_multimodal:
                 chosen_token_type_ids = chosen_token_type_ids[:-truncate_len]
-                rejected_token_type_ids = rejected_token_type_ids[:-truncate_len]
+                rejected_token_type_ids = rejected_token_type_ids[:-truncate_len
+                                                                 ]
 
                 # NOTE: GEMMA specific: 0 == text token
                 chosen_token_type_ids[-1] = 0
                 rejected_token_type_ids[-1] = 0
-                cat_token_type_ids = torch.cat([chosen_token_type_ids, rejected_token_type_ids], dim=-1)
+                cat_token_type_ids = torch.cat([
+                    chosen_token_type_ids,
+                    rejected_token_type_ids,
+                ],
+                                               dim=-1)
 
             cat_batch = torch.cat([chosen, rejected], dim=-1)
 
@@ -138,8 +147,12 @@ def pairwise_preference_dataset_collate_fn(
             if is_multimodal:
                 cat_token_type_ids = torch.cat([
                     cat_token_type_ids,
-                    torch.zeros(int(pad_len.item()), dtype=cat_token_type_ids.dtype),
-                ], dim=-1)
+                    torch.zeros(
+                        int(pad_len.item()),
+                        dtype=cat_token_type_ids.dtype,
+                    ),
+                ],
+                                               dim=-1)
 
         attention_mask = torch.logical_not(
             torch.eq(cat_batch, tokenizer.pad_token_id),  # type: ignore
@@ -184,7 +197,7 @@ def pairwise_preference_dataset_collate_fn(
         return_dict['chosen_reward'] = chosen_rewards
         return_dict['rejected_reward'] = rejected_rewards
 
-    if  is_multimodal:
+    if is_multimodal:
         return_dict['token_type_ids'] = token_type_ids
         return_dict['pixel_values'] = pixel_values
 
@@ -306,9 +319,18 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
             return_dict['rejected_reward'] = rejected_reward
 
         if 'pixel_values' in sample:
-            pixel_values = self._read_binary_tokenized_sample(sample['pixel_values'], 'pixel_values')
-            chosen_token_type_ids = self._read_binary_tokenized_sample(sample['chosen_token_type_ids'], 'chosen_token_type_ids')
-            rejected_token_type_ids = self._read_binary_tokenized_sample((sample['rejected_token_type_ids']), 'rejected_token_type_ids')
+            pixel_values = self._read_binary_tokenized_sample(
+                sample['pixel_values'],
+                'pixel_values',
+            )
+            chosen_token_type_ids = self._read_binary_tokenized_sample(
+                sample['chosen_token_type_ids'],
+                'chosen_token_type_ids',
+            )
+            rejected_token_type_ids = self._read_binary_tokenized_sample(
+                (sample['rejected_token_type_ids']),
+                'rejected_token_type_ids',
+            )
 
             return_dict['pixel_values'] = pixel_values
             return_dict['chosen_token_type_ids'] = chosen_token_type_ids
