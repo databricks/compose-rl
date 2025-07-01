@@ -158,9 +158,7 @@ class MessagesStreamingDataset(StreamingDataset):
             # for backwards compatibility, we also check the sample directly for the verified answer
             verified_answer = sample.get('verified_answer', None)
         if verified_answer:
-            if isinstance(verified_answer, str):
-                _answer = verified_answer
-            else:
+            if isinstance(verified_answer, bytes):
                 try:
                     _answer = verified_answer.decode('utf-8', errors='strict')
                 except UnicodeDecodeError as e:
@@ -168,7 +166,8 @@ class MessagesStreamingDataset(StreamingDataset):
                         f'Failed to decode verifed_answer with error: {e}',
                     )
                     _answer = ''
-
+            else:
+                _answer = verified_answer
             item_dict['verified_answer'] = _answer  # type: ignore
 
         return item_dict
