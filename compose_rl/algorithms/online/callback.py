@@ -34,8 +34,8 @@ from compose_rl.algorithms.online.generation_utils import (
     create_vllm_engines,
     hf_generate,
     init_process_group,
-    vllm_generate,
     vllm_chat,
+    vllm_generate,
 )
 from compose_rl.algorithms.online.model import (
     ComposerHFPolicyLM,
@@ -485,7 +485,9 @@ class OnPolicyCallback(CallbackWithConfig):
             elif vllm_function == 'generate':
                 self.vllm_generate_function = vllm_generate
             else:
-                raise ValueError("vllm_generate_function needs to be either `generate` or `chat`")
+                raise ValueError(
+                    'vllm_generate_function needs to be either `generate` or `chat`',
+                )
 
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']

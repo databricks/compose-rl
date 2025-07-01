@@ -3,8 +3,8 @@
 
 from compose_rl.algorithms.online.generation_utils.generation_utils import (
     hf_generate,
-    vllm_generate,
     vllm_chat,
+    vllm_generate,
 )
 from compose_rl.algorithms.online.generation_utils.vllm_utils import (
     broadcast_to_vllm,

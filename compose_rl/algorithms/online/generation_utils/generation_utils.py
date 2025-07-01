@@ -298,7 +298,9 @@ def vllm_chat(
         f'took : {time.time() - prompt_all_gather_start_time} to gather prompts',
     )
     all_prompts = [prompt for batch in all_batched_prompts for prompt in batch]
-    all_messages = [message for batch in all_batched_messages for message in batch]
+    all_messages = [
+        message for batch in all_batched_messages for message in batch
+    ]
     assert len(all_prompts) == len(all_messages)
 
     start_gen_time = time.time()
@@ -363,11 +365,8 @@ def vllm_chat(
 
         # Remove pad tokens from vllm prompts
         all_vllm_prompts = [[
-            token
-            for token in prompt
-            if token != pad_token_id
-        ]
-                       for prompt in all_vllm_prompts]
+            token for token in prompt if token != pad_token_id
+        ] for prompt in all_vllm_prompts]
 
         # Checking vllm prompts with all prompts
         assert all_prompts == all_vllm_prompts
