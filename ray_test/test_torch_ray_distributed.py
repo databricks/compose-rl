@@ -96,9 +96,10 @@ class DistributedGPUActor:
 
         if self.master_port is None:
             # Allocate a free port
-            with socket.socket() as sock:
-                sock.bind(("", 0))
-                self.master_port = sock.getsockname()[1]
+            # with socket.socket() as sock:
+            #     sock.bind(("", 0))
+            #     self.master_port = sock.getsockname()[1]
+            self.master_port = self.get_free_port()
     
     def get_master_address(self) -> Tuple[Optional[str], Optional[int]]:
         """Return the master address and port as a tuple."""
@@ -106,10 +107,6 @@ class DistributedGPUActor:
     
     def init_default_process_group(self) -> bool:
         """Initialize the distributed process group."""
-            
-        # Initialize process group
-        dist.init_process_group(timeout=timedelta(seconds=10))
-        
         # Print debug information
         num_visible_devices = torch.cuda.device_count()
         print(f'num_visible_devices: {num_visible_devices}')
@@ -120,10 +117,12 @@ class DistributedGPUActor:
         print(f'local_rank: {dist.get_rank() % 8}')
         print(f'master_addr: {self.master_addr}')
         print(f'master_port: {self.master_port}')
+         
+        # Initialize process group
+        dist.init_process_group(timeout=timedelta(seconds=10))
         print(f'is distributed initialized: {dist.is_initialized()}')
 
 
-    
     def tensor_all_reduce(self) -> float:
         """Perform a simple tensor all_reduce operation."""
         # Create a tensor on the GPU and perform all_reduce
