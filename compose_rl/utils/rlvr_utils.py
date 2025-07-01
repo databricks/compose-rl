@@ -74,7 +74,13 @@ def is_equiv(x1: str, x2: str) -> bool:
     """Checks mathematical equivalence between two normalized LaTeX strings."""
     try:
         try:
+            print("+1"*30)
+            print(x1)
+            print("+1"*30)
             parsed_x1 = parse_latex(x1)
+            print("+2"*30)
+            print(x2)
+            print("+2"*30)
             parsed_x2 = parse_latex(x2)
         except (
             sympy.parsing.latex.  # pyright: ignore[reportGeneralTypeIssues]
@@ -86,12 +92,18 @@ def is_equiv(x1: str, x2: str) -> bool:
             return False
 
         try:
+            print("+3"*30)
+            print(parsed_x1, parsed_x2)
+            print("+3"*30)
             diff = parsed_x1 - parsed_x2  # pyright: ignore[reportOptionalOperand]
         except TypeError:
             log.debug(f"couldn't subtract {x1} and {x2}")
             return False
 
         try:
+            print("+4"*30)
+            print(diff)
+            print("+4"*30)
             return sympy.simplify(diff) == 0
         except ValueError:
             log.debug(

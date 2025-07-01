@@ -415,10 +415,6 @@ class MATHVerifierReward(BaseVerifierReward):
 
     def score_generations(self, answer: str, label: str) -> float:
         """Score based on exact match or sympy equivalence checks."""
-        print("+"*30)
-        print(answer)
-        print(label)
-        print("+"*30)
         if answer.strip() == label.strip() or is_equiv(answer, label):
             return self.reward
         return 0.0
