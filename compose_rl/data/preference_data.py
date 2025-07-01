@@ -56,12 +56,27 @@ def pairwise_preference_dataset_collate_fn(
     chosen_rewards = []
     rejected_rewards = []
 
+    # For VLMs
+    token_type_ids = []
+    pixel_values = []
+
     for sample in data:
         chosen = sample['chosen']
         rejected = sample['rejected']
         prompt_len = sample['prompt_len']
         chosen_len = sample['chosen_len']
         rejected_len = sample['rejected_len']
+
+        is_multimodal = "pixel_values" in sample.keys()
+        if is_multimodal:
+            pixel_vals = sample['pixel_values']
+            chosen_token_type_ids = sample['chosen_token_type_ids']
+            rejected_token_type_ids = sample['rejected_token_type_ids']
+        else:
+            pixel_vals = None
+            chosen_token_type_ids = None
+            rejected_token_type_ids = None
+            cat_token_type_ids = None
 
         # Note: if we do any truncation, we force the last token to be EOS
         # https://github.com/mosaicml/RLHF/issues/101
@@ -74,6 +89,9 @@ def pairwise_preference_dataset_collate_fn(
 
         pad_len = max_seq_len - chosen_len - rejected_len
         cat_batch = torch.cat([chosen, rejected], dim=-1)
+
+        if is_multimodal:
+            cat_token_type_ids = torch.cat([chosen_token_type_ids, rejected_token_type_ids], dim=-1)
 
         if pad_len < 0:
             # We should truncate chosen and rejected by the same amount
@@ -92,6 +110,15 @@ def pairwise_preference_dataset_collate_fn(
             rejected = rejected[:-truncate_len]
             rejected[-1] = tokenizer.eos_token_id  # type: ignore
 
+            if is_multimodal:
+                chosen_token_type_ids = chosen_token_type_ids[:-truncate_len]
+                rejected_token_type_ids = rejected_token_type_ids[:-truncate_len]
+
+                # NOTE: GEMMA specific: 0 == text token
+                chosen_token_type_ids[-1] = 0
+                rejected_token_type_ids[-1] = 0
+                cat_token_type_ids = torch.cat([chosen_token_type_ids, rejected_token_type_ids], dim=-1)
+
             cat_batch = torch.cat([chosen, rejected], dim=-1)
 
             chosen_len = torch.tensor([len(chosen)])
@@ -108,6 +135,11 @@ def pairwise_preference_dataset_collate_fn(
                 ],
                 dim=-1,  # type: ignore
             )
+            if is_multimodal:
+                cat_token_type_ids = torch.cat([
+                    cat_token_type_ids,
+                    torch.zeros(int(pad_len.item()), dtype=cat_token_type_ids.dtype),
+                ], dim=-1)
 
         attention_mask = torch.logical_not(
             torch.eq(cat_batch, tokenizer.pad_token_id),  # type: ignore
@@ -126,6 +158,10 @@ def pairwise_preference_dataset_collate_fn(
         if 'chosen_reward' in sample:
             chosen_rewards.append(sample['chosen_reward'])
             rejected_rewards.append(sample['rejected_reward'])
+
+        if is_multimodal:
+            token_type_ids.append(cat_token_type_ids)
+            pixel_values.append(pixel_vals)
 
     input_ids = ref_collate_fn(input_ids)['input_ids']
     attention_masks = torch.stack(attention_masks)
@@ -147,6 +183,11 @@ def pairwise_preference_dataset_collate_fn(
         rejected_rewards = torch.stack(rejected_rewards)
         return_dict['chosen_reward'] = chosen_rewards
         return_dict['rejected_reward'] = rejected_rewards
+
+    if  is_multimodal:
+        return_dict['token_type_ids'] = token_type_ids
+        return_dict['pixel_values'] = pixel_values
+
     return return_dict
 
 
@@ -263,6 +304,16 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
             rejected_reward = torch.Tensor([sample['rejected_reward']])
             return_dict['chosen_reward'] = chosen_reward
             return_dict['rejected_reward'] = rejected_reward
+
+        if 'pixel_values' in sample:
+            pixel_values = self._read_binary_tokenized_sample(sample['pixel_values'], 'pixel_values')
+            chosen_token_type_ids = self._read_binary_tokenized_sample(sample['chosen_token_type_ids'], 'chosen_token_type_ids')
+            rejected_token_type_ids = self._read_binary_tokenized_sample((sample['rejected_token_type_ids']), 'rejected_token_type_ids')
+
+            return_dict['pixel_values'] = pixel_values
+            return_dict['chosen_token_type_ids'] = chosen_token_type_ids
+            return_dict['rejected_token_type_ids'] = rejected_token_type_ids
+
         return return_dict
 
     def find_prompt_length(self, seq_1: torch.Tensor, seq_2: torch.Tensor):
