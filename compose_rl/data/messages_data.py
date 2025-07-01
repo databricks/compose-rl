@@ -157,7 +157,7 @@ class MessagesStreamingDataset(StreamingDataset):
         if verified_answer is None:
             # for backwards compatibility, we also check the sample directly for the verified answer
             verified_answer = sample.get('verified_answer', None)
-        if verified_answer:
+        if verified_answer is not None:
             if isinstance(verified_answer, bytes):
                 try:
                     _answer = verified_answer.decode('utf-8', errors='strict')
