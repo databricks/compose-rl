@@ -107,7 +107,7 @@ class DistributedGPUActor:
     def init_default_process_group(self) -> bool:
         """Initialize the distributed process group."""         
         # Initialize process group
-        dist.init_process_group(timeout=timedelta(seconds=10))
+        dist.init_process_group(timeout=timedelta(seconds=30))
         print(f'is distributed initialized: {dist.is_initialized()}')
         # Print debug information
         num_visible_devices = torch.cuda.device_count()
