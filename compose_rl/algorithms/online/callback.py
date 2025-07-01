@@ -707,7 +707,7 @@ class OnPolicyCallback(CallbackWithConfig):
             if isinstance(curr_values[0], torch.Tensor):
                 ret_batch[key] = torch.cat(curr_values)
             else:
-                if key == 'verified_answer':
+                if key == ['verified_answer']:
                     ret_batch[key] = list(flatten(curr_values))
                 else:
                     ret_batch[key] = curr_values
@@ -830,10 +830,15 @@ class OnPolicyCallback(CallbackWithConfig):
             )
             print(f"CHECKING MINIBATCH: {idx}")
             for k, v in minibatch.items():
-                if isinstance(v, torch.Tensor):
-                    print(f"{k}: {v.size()}")
-                else:
-                    print(f"{k}: {len(v)}")
+                if k == "messages":
+                    print(len(v))
+                    if len(v) > 0:
+                        print(type(v[0]))
+                        print(v[0])
+                #if isinstance(v, torch.Tensor):
+                #    print(f"{k}: {v.size()}")
+                #else:
+                #    print(f"{k}: {len(v)}")
             self.buffer.add(minibatch)
 
         # Making sure we correctly parsed the minibatches
