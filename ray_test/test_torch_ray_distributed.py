@@ -151,7 +151,7 @@ def run():
             master_addr, _ = address.split(':')
             
             print(f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===")
-            num_train_actors = dist.get_world_size()
+            num_train_actors = dist.get_world_size() // 2
             # Create actors - rank 0 will allocate master address/port
             train_actors = []
 
