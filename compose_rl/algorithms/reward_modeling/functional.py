@@ -292,11 +292,15 @@ class BaseVerifierReward(Reward):
         Returns:
             torch.tensor: rewards of shape <batch_size, seq_len>
         """
-        assert 'zero_rewards' in batch.keys()
-        assert 'raw_untokenized_texts' in batch.keys()
-        assert 'verified_answers' in batch.keys()
-        assert 'generated_lens' in batch.keys()
-
+        try:
+            assert 'zero_rewards' in batch.keys()
+            assert 'raw_untokenized_texts' in batch.keys()
+            assert 'verified_answers' in batch.keys()
+            assert 'generated_lens' in batch.keys()
+        except AssertionError as e:
+            log.error(f'Missing key in reward batch. Batch keys: {batch.keys()}. Error: {e}')
+            raise e
+        
         rewards = batch['zero_rewards']
         raw_untokenized_texts = batch['raw_untokenized_texts']
         verified_answers = batch['verified_answers']
