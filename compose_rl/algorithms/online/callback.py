@@ -830,18 +830,18 @@ class OnPolicyCallback(CallbackWithConfig):
             )
             print(f"CHECKING MINIBATCH: {idx}")
             for k, v in minibatch.items():
-                if k == "messages":
-                    print(len(v))
-                    print(v)
+                #if k == "messages":
+                #    print(len(v))
+                #    print(v)
                     #if len(v) > 0:
                     #    print(type(v[0]))
                     #    print(v[0])
-                #if isinstance(v, torch.Tensor):
-                #    print(f"{k}: {v.size()}")
-                #else:
-                #    print(f"{k}: {len(v)}")
+                if isinstance(v, torch.Tensor):
+                    print(f"{k}: {v.size()}")
+                else:
+                    print(f"{k}: {len(v)}")
             self.buffer.add(minibatch)
-        print(asdf)
+        #print(asdf)
 
         # Making sure we correctly parsed the minibatches
         assert len(self.buffer) == self.num_batches_per_update
