@@ -106,7 +106,10 @@ class DistributedGPUActor:
         return (self.master_addr, self.master_port)
     
     def init_default_process_group(self) -> bool:
-        """Initialize the distributed process group."""
+        """Initialize the distributed process group."""         
+        # Initialize process group
+        dist.init_process_group(timeout=timedelta(seconds=10))
+        print(f'is distributed initialized: {dist.is_initialized()}')
         # Print debug information
         num_visible_devices = torch.cuda.device_count()
         print(f'num_visible_devices: {num_visible_devices}')
@@ -117,11 +120,6 @@ class DistributedGPUActor:
         print(f'local_rank: {dist.get_rank() % 8}')
         print(f'master_addr: {self.master_addr}')
         print(f'master_port: {self.master_port}')
-         
-        # Initialize process group
-        dist.init_process_group(timeout=timedelta(seconds=10))
-        print(f'is distributed initialized: {dist.is_initialized()}')
-
 
     def tensor_all_reduce(self) -> float:
         """Perform a simple tensor all_reduce operation."""
@@ -141,9 +139,9 @@ def start_ray_server():
         yield address
         dist.barrier()
     finally:
-        if dist.get_rank() == 0:
-            ray.shutdown()
-            subprocess.run(['ray', 'stop'], check=True)
+        # if dist.get_rank() == 0:
+        ray.shutdown()
+        subprocess.run(['ray', 'stop'], check=True)
         dist.destroy_process_group()
 
 def run():
