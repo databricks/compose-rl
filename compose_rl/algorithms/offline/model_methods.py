@@ -65,9 +65,11 @@ def pairwise_offline_forward(
     if pad_token_id is None:
         raise ValueError('Tokenizer must have a PAD token.')
 
-    is_multimodal = "pixel_values" in batch.keys()
+    is_multimodal = 'pixel_values' in batch.keys()
     if is_multimodal and use_attention_sequence_id:
-        raise NotImplementedError("Using Sequence ID is not implemented for VLMs")
+        raise NotImplementedError(
+            'Using Sequence ID is not implemented for VLMs',
+        )
 
     # If we can use attention sequence ID, we use this logic branch.
     # This is determined by a value set in `train_dpo.py`
@@ -107,14 +109,16 @@ def pairwise_offline_forward(
         )
 
         inputs = {
-            "input_ids": torch.cat([chosen_inputs, rejected_inputs], dim=0),
-            "attention_mask": torch.cat(
-                [
-                    chosen_attention_mask,
-                    rejected_attention_mask,
-                ],
-                dim=0,
-            ),
+            'input_ids':
+                torch.cat([chosen_inputs, rejected_inputs], dim=0),
+            'attention_mask':
+                torch.cat(
+                    [
+                        chosen_attention_mask,
+                        rejected_attention_mask,
+                    ],
+                    dim=0,
+                ),
         }
 
         if is_multimodal:
@@ -128,14 +132,18 @@ def pairwise_offline_forward(
 
             # TODO: Ask if assuming same pixel inputs is ok?
             multimodal_inputs = {
-                "token_type_ids": torch.cat([chosen_token_type_ids, rejected_token_type_ids], dim=0),
-                "pixel_values": torch.cat([batch['pixel_values'], batch['pixel_values']], dim=0),
+                'token_type_ids':
+                    torch.cat([chosen_token_type_ids, rejected_token_type_ids],
+                              dim=0),
+                'pixel_values':
+                    torch.cat([batch['pixel_values'], batch['pixel_values']],
+                              dim=0),
             }
 
             inputs.update(multimodal_inputs)
 
         output_logits = model(
-            **inputs
+            **inputs,
         ).logits
 
         # Extract out the chosen and rejected logits along the batch dimension
