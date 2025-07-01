@@ -404,6 +404,9 @@ class MATHVerifierReward(BaseVerifierReward):
         super().__init__(tokenizer=tokenizer, reward=reward)
 
     def extract_solution(self, text: str) -> str:
+        print("+"*30)
+        print(text)
+        print("+"*30)
         """Extract numerical solution from MATH-style responses."""
         last_boxed_string = last_boxed_only_string(text)
         if not last_boxed_string:
