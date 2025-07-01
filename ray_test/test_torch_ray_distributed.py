@@ -10,7 +10,7 @@ from typing import Optional, Tuple
 
 from datetime import timedelta
 
-from compose_rl.algorithms.online.generation_utils import create_vllm_engines, init_process_group
+# from compose_rl.algorithms.online.generation_utils import create_vllm_engines, init_process_group
 
 
 def ray_noset_visible_devices():
@@ -129,10 +129,10 @@ class DistributedGPUActor:
         
         return x.item()
 
-    def init_vllm_process_group(self, backend: str, master_addr: str, master_port: int, world_size: int, rank: int, group_name: str):
-        """Initialize the vLLM process group."""
-        group = init_process_group(backend=backend, init_method=f'tcp://{master_addr}:{master_port}', world_size=world_size, rank=rank, group_name=group_name)
-        return dist.get_world_size(group)
+    # def init_vllm_process_group(self, backend: str, master_addr: str, master_port: int, world_size: int, rank: int, group_name: str):
+    #     """Initialize the vLLM process group."""
+    #     group = init_process_group(backend=backend, init_method=f'tcp://{master_addr}:{master_port}', world_size=world_size, rank=rank, group_name=group_name)
+    #     return dist.get_world_size(group)
 
 @contextmanager
 def start_ray_server():
