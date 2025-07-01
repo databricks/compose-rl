@@ -181,11 +181,6 @@ def run():
             results = ray.get(reduce_tasks)
             print(f"All-reduce results: {results}")
 
-            # Perform tensor all_reduce on all actors
-            reduce_tasks = [actor.tensor_all_reduce.remote() for actor in train_actors]
-            results = ray.get(reduce_tasks)
-            print(f"All-reduce results: {results}")
-
             vllm_tensor_parallel_size = 8
             num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
             print(f'num_vllm_engines: {num_vllm_engines}')
