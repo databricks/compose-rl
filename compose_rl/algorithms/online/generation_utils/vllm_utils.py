@@ -205,7 +205,7 @@ def create_vllm_engines(
     bundles = [{
         'GPU': 1,
         'CPU': 1,
-        'worker_node': 1,
+        # 'worker_node': 1,
     }] * tensor_parallel_size * num_engines
     pg = placement_group(bundles, strategy='PACK')  # type: ignore
 
