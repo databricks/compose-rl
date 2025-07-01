@@ -618,7 +618,7 @@ class RewardManager:
         # to ensure that all processes are cleaned up and we can continue without resources leaking.
         if encountered_timeout and self.pool is not None:
             log.debug(
-                'Timeout encountered, terminating the process pool for reward computation..'
+                'Timeout encountered, terminating the process pool for reward computation..',
             )
             self.pool.terminate()
             log.debug('Pool terminated, joining...')
