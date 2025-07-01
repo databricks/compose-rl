@@ -4,6 +4,7 @@
 from compose_rl.algorithms.online.generation_utils.generation_utils import (
     hf_generate,
     vllm_generate,
+    vllm_chat,
 )
 from compose_rl.algorithms.online.generation_utils.vllm_utils import (
     broadcast_to_vllm,
@@ -17,4 +18,5 @@ __all__ = [
     'init_process_group',
     'hf_generate',
     'vllm_generate',
+    'vllm_chat',
 ]

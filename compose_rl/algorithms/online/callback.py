@@ -35,6 +35,7 @@ from compose_rl.algorithms.online.generation_utils import (
     hf_generate,
     init_process_group,
     vllm_generate,
+    vllm_chat,
 )
 from compose_rl.algorithms.online.model import (
     ComposerHFPolicyLM,
@@ -477,6 +478,15 @@ class OnPolicyCallback(CallbackWithConfig):
             None,
         )
         if self.vllm_tensor_parallel_size is not None:
+            # Whether to use `vllm_chat` or `vllm_generate`
+            vllm_function = var_config.get('vllm_generate_function', 'chat')
+            if vllm_function == 'chat':
+                self.vllm_generate_function = vllm_chat
+            elif vllm_function == 'generate':
+                self.vllm_generate_function = vllm_generate
+            else:
+                raise ValueError("vllm_generate_function needs to be either `generate` or `chat`")
+
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
 
@@ -730,7 +740,7 @@ class OnPolicyCallback(CallbackWithConfig):
         with get_precision_context(self.precision), torch.no_grad():
             # If vllm engines are available, we use them to generate sequences in one go
             if self.vllm_engines is not None:
-                sequences = vllm_generate(
+                sequences = self.vllm_generate_function(
                     vllm_engines=self.vllm_engines,
                     batch=batch,
                     max_gen_len=max_gen_len,
