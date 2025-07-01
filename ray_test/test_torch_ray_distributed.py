@@ -10,7 +10,7 @@ from typing import Optional, Tuple
 
 from datetime import timedelta
 
-# from compose_rl.algorithms.online.generation_utils import create_vllm_engines, init_process_group
+from compose_rl.algorithms.online.generation_utils import init_process_group
 
 
 def ray_noset_visible_devices():
