@@ -479,7 +479,7 @@ class OnPolicyCallback(CallbackWithConfig):
         )
         if self.vllm_tensor_parallel_size is not None:
             # Whether to use `vllm_chat` or `vllm_generate`
-            vllm_function = var_config.get('vllm_generate_function', 'chat')
+            vllm_function = var_config.get('vllm_generate_function', 'generate')
             if vllm_function == 'chat':
                 self.vllm_generate_function = vllm_chat
             elif vllm_function == 'generate':
@@ -707,7 +707,7 @@ class OnPolicyCallback(CallbackWithConfig):
             if isinstance(curr_values[0], torch.Tensor):
                 ret_batch[key] = torch.cat(curr_values)
             else:
-                if key in ['verified_answer']:
+                if key == 'verified_answer':
                     ret_batch[key] = list(flatten(curr_values))
                 else:
                     ret_batch[key] = curr_values
