@@ -94,7 +94,7 @@ class DistributedGPUActor:
         """Allocate master address and port for rank 0."""
         if self.master_addr is None:
             # Get the local IP address
-            self.master_addr = ray.util.get_node_ip_address().strip('[]')
+            self.master_addr = self.get_node_ip()
 
         if self.master_port is None:
             # Allocate a free port
@@ -181,7 +181,46 @@ def run():
             results = ray.get(reduce_tasks)
             print(f"All-reduce results: {results}")
 
+            # Perform tensor all_reduce on all actors
+            reduce_tasks = [actor.tensor_all_reduce.remote() for actor in train_actors]
+            results = ray.get(reduce_tasks)
+            print(f"All-reduce results: {results}")
 
+            vllm_tensor_parallel_size = 8
+            num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
+            print(f'num_vllm_engines: {num_vllm_engines}')
+            vllm_engines = create_vllm_engines(
+                num_engines=num_vllm_engines,
+                tensor_parallel_size=vllm_tensor_parallel_size,
+                enforce_eager=True,
+                pretrain='meta-llama/Llama-3.2-1B-Instruct',
+                revision=None,
+                seed=1,
+                enable_prefix_caching=False,
+                max_model_len=2048,
+            )
+
+            new_port = ray.get(master_actor.get_free_port.remote())
+            print(f'new_port: {new_port}')
+            refs = [
+                engine.init_process_group.remote(
+                    master_addr,
+                    new_port,
+                    i * vllm_tensor_parallel_size + 1,
+                    dist.get_world_size() // 2 + 1,
+                    'weight-update',
+                    backend='nccl',
+                ) for i, engine in enumerate(vllm_engines)
+            ]
+            refs.append(master_actor.init_vllm_process_group.remote(
+                backend='nccl',
+                master_addr=master_addr,
+                master_port=new_port,
+                world_size=dist.get_world_size() // 2 + 1,
+                rank=0,
+                group_name='weight-update',
+            ))
+            print(ray.get(refs))
 
 if __name__ == '__main__':
     run()
