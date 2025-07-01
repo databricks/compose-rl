@@ -301,12 +301,6 @@ def vllm_chat(
     all_messages = [
         message for batch in all_batched_messages for message_list in batch for message in message_list
     ]
-    print("INFO")
-    print(all_messages[0])
-    print(f"All Prompts {len(all_prompts)}")
-    print(f"All Messages {len(all_messages)}")
-    print(f"All Batched Prompts: {len(all_batched_prompts)}")
-    print(f"All Batched Messages: {len(all_batched_messages)}")
     assert len(all_prompts) == len(all_messages)
 
     start_gen_time = time.time()
@@ -388,7 +382,9 @@ def vllm_chat(
     else:
         # Remove the memory from all gather as they are only used for the first rank
         all_batched_prompts = None
+        all_batched_messages = None
         all_prompts = None
+        all_messages = None
         split_responses = None
 
     # Do another garbage collection and empty the cache

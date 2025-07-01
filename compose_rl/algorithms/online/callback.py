@@ -828,13 +828,12 @@ class OnPolicyCallback(CallbackWithConfig):
                 idx,
                 self.device_train_batch_size,
             )
-            print("CHECKING MINIBATCH")
+            print(f"CHECKING MINIBATCH: {idx}")
             for k, v in minibatch.items():
                 if isinstance(v, torch.Tensor):
                     print(f"{k}: {v.size()}")
                 else:
                     print(f"{k}: {len(v)}")
-            print(asdf)
             self.buffer.add(minibatch)
 
         # Making sure we correctly parsed the minibatches
