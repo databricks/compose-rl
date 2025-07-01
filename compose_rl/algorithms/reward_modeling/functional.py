@@ -301,6 +301,7 @@ class BaseVerifierReward(Reward):
 
         batch_size = rewards.shape[0]
         all_generated_texts = [x[1] for x in raw_untokenized_texts]
+        print("+"*30, batch_size)
         for i in range(batch_size):
             # Process based on verifier type
             if self.needs_extraction():
