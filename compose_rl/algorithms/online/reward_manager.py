@@ -617,13 +617,19 @@ class RewardManager:
         # since we know we are fully done with reward computation, we can just recreate the pool
         # to ensure that all processes are cleaned up and we can continue without resources leaking.
         if encountered_timeout and self.pool is not None:
+            log.debug(
+                'Timeout encountered, terminating the process pool for reward computation..',
+            )
             self.pool.terminate()
+            log.debug('Pool terminated, joining...')
             self.pool.join()
+            log.debug('Pool joined, recreating the pool...')
 
             self.pool = Pool(
                 processes=self._num_reward_procs,
                 context=get_context('spawn'),
             )
+            log.debug('Pool recreated.')
 
         ref_kl = ref_output[0].to(device=device)
         ref_log_probs = ref_output[1].to(device=device)
