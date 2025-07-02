@@ -65,7 +65,7 @@ def messages_dataset_collate_fn(
         torch.eq(collated_batch['prompt'],
                  tokenizer.pad_token_id),  # type: ignore
     )
-
+    log.debug(f'{collated_batch=}')
     return collated_batch
 
 
