@@ -8,6 +8,7 @@ from itertools import chain
 from multiprocessing import get_context
 from multiprocessing.pool import AsyncResult, Pool
 from typing import Any, MutableMapping, Optional, Union
+import time
 
 import spacy
 import torch
@@ -580,6 +581,9 @@ class RewardManager:
         resolved_reward_outputs: dict[str, torch.Tensor] = {}
         bad_end_generation_mask = None
         bad_end_generation_name = None
+
+        reward_gathering_start_time = time.time()
+
         for name, subreward in reward_output.items():
             if isinstance(subreward, AsyncResult):
                 resolved_reward: torch.Tensor = subreward.get()
@@ -596,6 +600,11 @@ class RewardManager:
                 bad_end_generation_mask = bad_end_generation_mask.to(
                     device=device,
                 )
+
+        reward_gathering_end_time = time.time()
+        log.info(
+            f'Reward gathering took {reward_gathering_end_time - reward_gathering_start_time:.2f} seconds.',
+        )
 
         ref_kl = ref_output[0].to(device=device)
         ref_log_probs = ref_output[1].to(device=device)
