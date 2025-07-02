@@ -93,11 +93,24 @@ class NonDaemonProcessManager:
         # Create queue for result communication
         result_queue = Queue()
         
-        # Wrapper function that puts result in queue
+        # Wrapper function that puts result in queue  
         def wrapper():
             try:
                 result = func(*args)
-                result_queue.put(result)
+                # Recursively process the result to ensure all tensors are CPU-serializable
+                def make_serializable(obj):
+                    if isinstance(obj, torch.Tensor):
+                        # Force to CPU, detach, and make contiguous for safe serialization
+                        return obj.detach().cpu().clone().contiguous()
+                    elif isinstance(obj, (list, tuple)):
+                        return type(obj)(make_serializable(item) for item in obj)
+                    elif isinstance(obj, dict):
+                        return {k: make_serializable(v) for k, v in obj.items()}
+                    else:
+                        return obj
+                
+                serializable_result = make_serializable(result)
+                result_queue.put(serializable_result)
             except Exception as e:
                 result_queue.put(e)
         
