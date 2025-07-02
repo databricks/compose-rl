@@ -130,8 +130,7 @@ def composer_online_rl_forward(
         logits,
         batch['actions'],
         batch['prompt_len'],
-        batch['max_gen_len'],
-        temperature = 0.6  
+        batch['max_gen_len'], 
     )  # Note!! temperature here is hardcoded for testing bird text2sql
 
     return_dict = {
