@@ -241,9 +241,9 @@ def run(tp_size: int = 8):
             ray.get(refs)
             print('init model done')
 
-            refs = [actor.sync_weights.remote(vllm_engines) for actor in train_actors]
-            ray.get(refs)
-            print('sync weights done')
+            # refs = [actor.sync_weights.remote(vllm_engines) for actor in train_actors]
+            # ray.get(refs)
+            # print('sync weights done')
 
             ref = vllm_engines[0].generate.remote(prompts)
             gen_results = ray.get(ref)
