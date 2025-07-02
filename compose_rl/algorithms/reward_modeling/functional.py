@@ -7,6 +7,8 @@ import logging
 import re
 from abc import abstractmethod
 from typing import MutableMapping
+import queue
+from multiprocessing import Process, Queue
 
 import torch
 
@@ -397,11 +399,19 @@ class GSM8KFormatVeriferReward(BaseVerifierReward):
         solution = re.search(r'####.*?([\d,]+(?:\.\d+)?)', answer)
         return self.reward if solution is not None else 0.0
 
+def _is_equiv_proc(queue: Queue, answer: str, label: str):
+    """A wrapper to run is_equiv and put the result in a queue."""
+    try:
+        result = is_equiv(answer, label)
+        queue.put(result)
+    except Exception as e:
+        queue.put(e)
 
 class MATHVerifierReward(BaseVerifierReward):
 
-    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0, timeout: float = 5.0):
         super().__init__(tokenizer=tokenizer, reward=reward)
+        self.timeout = timeout
 
     def extract_solution(self, text: str) -> str:
         """Extract numerical solution from MATH-style responses."""
@@ -413,10 +423,34 @@ class MATHVerifierReward(BaseVerifierReward):
         unnormalized_answer = remove_boxed(last_boxed_string)
         return normalize_final_answer(unnormalized_answer)
 
+    def _is_equiv_with_timeout(self, answer: str, label: str) -> bool:
+        """Runs is_equiv in a separate process with a timeout."""
+        q = Queue()
+        proc = Process(target=_is_equiv_proc, args=(q, answer, label))
+        proc.start()
+        proc.join(self.timeout)
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join()
+            return False
+
+        try:
+            result = q.get_nowait()
+            if isinstance(result, Exception):
+                return False
+            return result
+        except queue.Empty:
+            return False
+
     def score_generations(self, answer: str, label: str) -> float:
         """Score based on exact match or sympy equivalence checks."""
-        if answer.strip() == label.strip() or is_equiv(answer, label):
+        if answer.strip() == label.strip():
             return self.reward
+        
+        if self._is_equiv_with_timeout(answer, label):
+            return self.reward
+
         return 0.0
 
 
