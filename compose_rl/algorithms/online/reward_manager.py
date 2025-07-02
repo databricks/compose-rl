@@ -4,9 +4,10 @@
 """Contains the reward manager implementation."""
 
 import logging
+import queue
 from itertools import chain
-from multiprocessing import get_context
-from multiprocessing.pool import AsyncResult, Pool
+from multiprocessing import Process, Queue, get_context
+from multiprocessing.pool import AsyncResult
 from typing import Any, MutableMapping, Optional, Union
 import time
 
@@ -40,9 +41,91 @@ from compose_rl.utils import (
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 ReferenceOutput = tuple[torch.Tensor, torch.Tensor]
-RewardOutput = dict[str, Union[AsyncResult, torch.Tensor]]
+RewardOutput = dict[str, Union[AsyncResult, 'NonDaemonAsyncResult', torch.Tensor]]
 
 log = logging.getLogger(__name__)
+
+
+class NonDaemonAsyncResult:
+    """Custom AsyncResult-like class for non-daemon processes."""
+    
+    def __init__(self, process: Process, queue: Queue):
+        self.process = process
+        self.queue = queue
+        self._result = None
+        self._retrieved = False
+    
+    def get(self, timeout=None):
+        """Get the result, waiting for the process to complete."""
+        if self._retrieved:
+            return self._result
+        
+        self.process.join(timeout)
+        
+        if self.process.is_alive():
+            self.process.terminate()
+            self.process.join()
+            raise TimeoutError("Process timed out")
+        
+        try:
+            result = self.queue.get_nowait()
+            if isinstance(result, Exception):
+                raise result
+            self._result = result
+            self._retrieved = True
+            return result
+        except queue.Empty:
+            raise RuntimeError("Failed to get result from process - queue is empty")
+
+
+class NonDaemonProcessManager:
+    """Custom process manager that uses non-daemon processes."""
+    
+    def __init__(self, max_processes: int):
+        self.max_processes = max_processes
+        self.active_processes = []
+    
+    def apply_async(self, func, args):
+        """Apply function asynchronously using a non-daemon process."""
+        # Clean up completed processes
+        self._cleanup_completed()
+        
+        # Create queue for result communication
+        result_queue = Queue()
+        
+        # Wrapper function that puts result in queue
+        def wrapper():
+            try:
+                result = func(*args)
+                result_queue.put(result)
+            except Exception as e:
+                result_queue.put(e)
+        
+        # Create and start non-daemon process
+        process = Process(target=wrapper)
+        process.daemon = False  # Explicitly set to False to allow children
+        process.start()
+        
+        # Track the process
+        async_result = NonDaemonAsyncResult(process, result_queue)
+        self.active_processes.append((process, async_result))
+        
+        return async_result
+    
+    def _cleanup_completed(self):
+        """Remove completed processes from tracking."""
+        self.active_processes = [
+            (proc, result) for proc, result in self.active_processes 
+            if proc.is_alive()
+        ]
+    
+    def terminate_all(self):
+        """Terminate all active processes."""
+        for process, _ in self.active_processes:
+            if process.is_alive():
+                process.terminate()
+                process.join()
+        self.active_processes.clear()
 
 
 class RewardManager:
@@ -160,12 +243,10 @@ class RewardManager:
 
         self.granularity_types = list(set(self.granularities.values()))
 
-        self.pool = None
+        self.process_manager = None
         if self.inference_rewards or self.functional_rewards:
-            self.pool = Pool(
-                processes=len(self.inference_rewards) +
-                len(self.functional_rewards),
-                context=get_context('spawn'),
+            self.process_manager = NonDaemonProcessManager(
+                max_processes=len(self.inference_rewards) + len(self.functional_rewards)
             )
 
         if not self.kl_penalty_in_reward:
@@ -407,8 +488,8 @@ class RewardManager:
                         self._to_cpu(curr_batch),
                     )
 
-                assert self.pool is not None
-                computed_rewards[reward_name] = self.pool.apply_async(
+                assert self.process_manager is not None
+                computed_rewards[reward_name] = self.process_manager.apply_async(
                     func=func,
                     args=args,
                 )
@@ -585,7 +666,7 @@ class RewardManager:
         reward_gathering_start_time = time.time()
 
         for name, subreward in reward_output.items():
-            if isinstance(subreward, AsyncResult):
+            if isinstance(subreward, (AsyncResult, NonDaemonAsyncResult)):
                 resolved_reward: torch.Tensor = subreward.get()
             else:
                 resolved_reward: torch.Tensor = subreward
@@ -658,3 +739,15 @@ class RewardManager:
         outputs.update(rews_dict_out)
 
         return outputs
+    
+    def cleanup(self):
+        """Clean up processes and resources."""
+        if self.process_manager is not None:
+            self.process_manager.terminate_all()
+    
+    def __del__(self):
+        """Destructor to ensure cleanup."""
+        try:
+            self.cleanup()
+        except:
+            pass  # Ignore errors during cleanup

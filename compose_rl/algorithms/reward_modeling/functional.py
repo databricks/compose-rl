@@ -5,10 +5,10 @@
 
 import logging
 import re
-from abc import abstractmethod
-from typing import MutableMapping
 import queue
+from abc import abstractmethod
 from multiprocessing import Process, Queue
+from typing import MutableMapping
 
 import torch
 
