@@ -175,7 +175,8 @@ def pairwise_offline_loss(
     loss_type: PairwiseOfflineEnum,
     beta: float,
     label_smoothing: float,
-    sft_alpha: float = 0.0, 
+    sft_alpha: float = 0.0,  
+    bce: bool = False,
 ) -> dict[str, torch.Tensor]:
     """Computes pairwise offline RL losses.
 
@@ -209,6 +210,7 @@ def pairwise_offline_loss(
     logits = pi_logratios - ref_logratios  # Also known as h_{\pi_\theta}^{y_w,y_l}
 
     losses = torch.zeros_like(logits)
+
     if loss_type == PairwiseOfflineEnum.DPO:
         losses = (
             -F.logsigmoid(beta * logits) * (1 - label_smoothing) -
@@ -223,15 +225,25 @@ def pairwise_offline_loss(
         # Similar to REBEL, we assume each response has a reward in the batch.
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
         vstars = outputs['vstar']  # (batch_size, )
-        loss_1 = (
-            beta * (policy_chosen_logp - ref_chosen_logp) -
-            (outputs['chosen_reward'] - vstars)
-        )**2
-        loss_2 = (
-            beta * (policy_rejected_logp - ref_rejected_logp) -
-            (outputs['rejected_reward'] - vstars)
-        )**2
-        losses = (loss_1 + loss_2) / 2.
+        
+        if bce == False:
+            loss_1 = (
+                beta * (policy_chosen_logp - ref_chosen_logp) -
+                (outputs['chosen_reward'] - vstars)
+            )**2
+            loss_2 = (
+                beta * (policy_rejected_logp - ref_rejected_logp) -
+                (outputs['rejected_reward'] - vstars)
+            )**2
+            losses = (loss_1 + loss_2) / 2.
+        else:
+            normalized_adv_chosen = torch.sigmoid(outputs['chosen_reward'] - vstars) # put it into [0,1]
+            normalized_adv_reject = torch.sigmoid(outputs['rejected_reward'] - vstars) # put it into [0,1]
+            prob_chosen = torch.sigmoid(beta*(policy_chosen_logp - ref_chosen_logp))  # turn prediction into prob
+            prob_reject = torch.sigmoid(beta*(policy_rejected_logp - ref_rejected_logp))  # turn prediction into prob
+            loss_1 = torch.log(prob_chosen) * normalized_adv_chosen + (1. - normalized_adv_chosen) * torch.log(1 - prob_chosen)
+            loss_1 = torch.log(prob_reject) * normalized_adv_reject + (1. - normalized_adv_reject) * torch.log(1 - prob_reject)
+            losses = -(loss_1 + loss_2) / 2.
 
         # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
         # formula: sum_y exp( log pi(y) - log pi_ref(y) ) r(y) where y ~ pi_ref
