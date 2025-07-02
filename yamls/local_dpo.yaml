@@ -7,11 +7,11 @@ model:
   pretrained: true
   use_auth_token: true
   use_flash_attention_2: true
-  pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  pretrained_model_name_or_path: Qwen/Qwen2.5-7B #meta-llama/Llama-3.1-8B-Instruct
 
 loggers:
   mlflow:
-    experiment_name: brandon_dpo_test
+    experiment_name: wensun_dpo_test
 
 callbacks:
   offline_rl: {}
@@ -39,7 +39,7 @@ scheduler:
   t_warmup: 0.1dur
 
 tokenizer:
-  name: meta-llama/Llama-3.1-8B-Instruct
+  name: Qwen/Qwen2.5-7B #meta-llama/Llama-3.1-8B-Instruct
   kwargs:
     model_max_length: ${max_seq_len}
     trust_remote_code: true
@@ -59,7 +59,7 @@ fsdp_config:
   sharding_strategy: FULL_SHARD
   activation_cpu_offload: false
 
-max_seq_len: 2048
+max_seq_len: 4096 #2048
 save_folder: /tmp/dpo_model    # TODO: update for a proper save path
 dist_timeout: 600
 max_duration: 1ep

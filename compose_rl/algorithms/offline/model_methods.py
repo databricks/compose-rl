@@ -176,7 +176,7 @@ def pairwise_offline_loss(
     beta: float,
     label_smoothing: float,
     sft_alpha: float = 0.0,  
-    bce: bool = False,
+    bce: bool = False, 
 ) -> dict[str, torch.Tensor]:
     """Computes pairwise offline RL losses.
 
@@ -192,6 +192,8 @@ def pairwise_offline_loss(
             preferences as noisy (preferences are flipped with probability label_smoothing).
         sft_alpha (float): Regularization weight for supervised finetuning loss (SFT) to
             be added to DPO type loss.
+        bce (bool): loss type that is alternative to the squared loss. It is in APO, potentially can be 
+            used for REBEL and IPO.
     """
     policy_chosen_logp = outputs['policy_chosen_logp']  # (batch_size, )
     policy_rejected_logp = outputs['policy_rejected_logp']  # (batch_size, )
