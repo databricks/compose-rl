@@ -9,8 +9,8 @@ from contextlib import contextmanager
 from typing import Optional, Tuple
 import argparse
 from datetime import timedelta
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from vllm import LLM
+from transformers import AutoModelForCausalLM
+from compose_rl.algorithms.online.generation_utils.vllm_actor import LLMRayActor
 from compose_rl.algorithms.online.generation_utils import init_process_group, create_vllm_engines
 
 
@@ -84,6 +84,7 @@ class DistributedGPUActor:
         os.environ["MASTER_PORT"] = str(self.master_port)
 
         self.model = None
+        self.model_update_group = None
     
     def get_node_ip(self):
         return ray.util.get_node_ip_address().strip('[]')
@@ -123,12 +124,15 @@ class DistributedGPUActor:
         print(f'master_addr: {self.master_addr}')
         print(f'master_port: {self.master_port}')
     
-    def init_tokenizer_and_llm(self, model_name: str):
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        transformers_model = AutoModelForCausalLM.from_pretrained(model_name)
-        embedding_layer = transformers_model.get_input_embeddings()
-        llm = LLM(model=model_name, enable_prompt_embeds=True)
-        return tokenizer, embedding_layer, llm
+    def init_model(self, model_name: str):
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype='auto')
+        self.model.to('cuda')
+
+    def sync_weights(self, vllm_engines: list[LLMRayActor]):
+        for name, p in self.model.named_parameters():
+            refs = [engine.update_weight.remote(name, p.dtype, p.shape, empty_cache=False) for engine in vllm_engines]
+            dist.broadcast(p, src=0, group=self.model_update_group)
+            ray.get(refs)
 
     def tensor_all_reduce(self) -> float:
         """Perform a simple tensor all_reduce operation."""
@@ -141,8 +145,8 @@ class DistributedGPUActor:
 
     def init_vllm_process_group(self, backend: str, master_addr: str, master_port: int, world_size: int, rank: int, group_name: str):
         """Initialize the vLLM process group."""
-        group = init_process_group(backend=backend, init_method=f'tcp://{master_addr}:{master_port}', world_size=world_size, rank=rank, group_name=group_name)
-        return dist.get_world_size(group)
+        self.model_update_group = init_process_group(backend=backend, init_method=f'tcp://{master_addr}:{master_port}', world_size=world_size, rank=rank, group_name=group_name)
+        return dist.get_world_size(self.model_update_group)
 
 @contextmanager
 def start_ray_server():
@@ -164,6 +168,7 @@ def run(tp_size: int = 8):
         "what is RAY?",
         "what is vLLM?",
     ]
+    pretrain_model_name = 'meta-llama/Llama-3.2-1B-Instruct'
     with start_ray_server() as address:
         if dist.get_rank() == 0:
             master_addr, _ = address.split(':')
@@ -203,7 +208,7 @@ def run(tp_size: int = 8):
                 num_engines=num_vllm_engines,
                 tensor_parallel_size=vllm_tensor_parallel_size,
                 enforce_eager=True,
-                pretrain='meta-llama/Llama-3.2-1B-Instruct',
+                pretrain=pretrain_model_name,
                 revision=None,
                 seed=1,
                 enable_prefix_caching=False,
@@ -231,6 +236,14 @@ def run(tp_size: int = 8):
                 group_name='weight-update',
             ))
             print(ray.get(refs))
+
+            refs = [actor.init_model.remote(pretrain_model_name) for actor in train_actors]
+            ray.get(refs)
+            print('init model done')
+
+            refs = [actor.sync_weights.remote(vllm_engines) for actor in train_actors]
+            ray.get(refs)
+            print('sync weights done')
 
             ref = vllm_engines[0].generate.remote(prompts)
             gen_results = ray.get(ref)
