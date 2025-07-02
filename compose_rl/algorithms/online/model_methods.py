@@ -131,7 +131,8 @@ def composer_online_rl_forward(
         batch['actions'],
         batch['prompt_len'],
         batch['max_gen_len'],
-    )
+        temperature = 0.6  
+    )  # Note!! temperature here is hardcoded for testing bird text2sql
 
     return_dict = {
         'online_log_probs': log_prob_outputs,

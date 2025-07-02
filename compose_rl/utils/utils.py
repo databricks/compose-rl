@@ -117,6 +117,7 @@ def get_log_probs(
     actions: torch.Tensor,
     prompt_len: torch.Tensor,
     max_gen_len: Union[torch.Tensor, int],
+    temperature: float = 1., 
 ):
     """Gets the log probs from the generated logits.
 
@@ -125,10 +126,12 @@ def get_log_probs(
         actions (torch.Tensor): the actions taken, typically tokens generated. Size (bs, gen_len)
         prompt_len (torch.Tensor): length of the prompt.
         max_gen_len (int): maximum generation length.
+        temperature (float): divide the logits by temperature
 
     Returns:
         log_probs (torch.Tensor): the log probs of the actions. Size (bs, gen_len)
     """
+    logits = logits / temperature
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
     return get_log_probs_from_logits(gen_logits, actions)
 
