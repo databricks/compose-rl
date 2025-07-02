@@ -614,6 +614,7 @@ class OnPolicyCallback(CallbackWithConfig):
             'trainer._train_data_spec should be updated whenever the dataloader is updated',
         )
         # Train Dataloader
+        log.debug(f'{self.buffer=}' + '\n'*20)
         state.set_dataloader(self.buffer, 'ep')
         state.train_dataloader = state.dataloader
         state.device_train_microbatch_size = _get_initial_device_train_microbatch_size(
