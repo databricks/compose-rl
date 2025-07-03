@@ -141,7 +141,7 @@ def pairwise_offline_forward(
             }
 
             print("MULTIMODAL INPUTS")
-            for k, v in multimodal_inptus.itmes():
+            for k, v in multimodal_inputs.items():
                 print(f"{k}: {v.shape}")
 
             inputs.update(multimodal_inputs)
