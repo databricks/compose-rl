@@ -11,6 +11,9 @@ import torch
 from streaming import StreamingDataset
 from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
 
+from PIL import Image
+from torchvision import transforms
+
 log = logging.getLogger(__name__)
 
 
@@ -200,8 +203,6 @@ def pairwise_preference_dataset_collate_fn(
     if is_multimodal:
         token_type_ids = torch.stack(token_type_ids)
         pixel_values = torch.stack(pixel_values)
-        print('HIIIIIII')
-        print(pixel_values[0].shape)
         return_dict['token_type_ids'] = token_type_ids
         return_dict['pixel_values'] = pixel_values
 
@@ -271,10 +272,6 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
     def _read_binary_tokenized_sample(self, sample: dict[str, Any], key: str):
         self.num_read += 1
         temp_sample = torch.from_numpy(np.frombuffer(sample[key]))
-        if key == 'pixel_values':
-            print('I AM INSIDE READ BINARY')
-            print(temp_sample.shape)
-            print(len(temp_sample))
         if len(temp_sample) > self.max_seq_len:
             log.info(f'Truncating sample: {self.num_truncated} {self.num_read}')
             self.num_truncated += 1
@@ -327,10 +324,17 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
             return_dict['rejected_reward'] = rejected_reward
 
         if 'pixel_values' in sample:
-            pixel_values = self._read_binary_tokenized_sample(
-                sample,
-                'pixel_values',
-            )
+            if isinstance(sample['pixel_values'], np.ndarray):
+                pixel_values = torch.Tensor(sample['pixel_values'])
+            elif isinstance(sample['pixel_values'], Image):
+                pil_to_tensor_transform = transforms.PILToTensor()
+                pixel_values = pil_to_tensor_transform(sample['pixel_values'])
+            else:
+                pixel_values_type = type(sample['pixel_values'])
+                raise ValueError(
+                    f'Expect pixel values to be numpy.ndarray or PIL.Image type, but got {pixel_values_type}',
+                )
+
             chosen_token_type_ids = self._read_binary_tokenized_sample(
                 sample,
                 'chosen_token_type_ids',
