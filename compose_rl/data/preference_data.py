@@ -200,6 +200,8 @@ def pairwise_preference_dataset_collate_fn(
     if is_multimodal:
         token_type_ids = torch.stack(token_type_ids)
         pixel_values = torch.stack(pixel_values)
+        print('HIIIIIII')
+        print(pixel_values[0].shape)
         return_dict['token_type_ids'] = token_type_ids
         return_dict['pixel_values'] = pixel_values
 
@@ -269,6 +271,10 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
     def _read_binary_tokenized_sample(self, sample: dict[str, Any], key: str):
         self.num_read += 1
         temp_sample = torch.from_numpy(np.frombuffer(sample[key]))
+        if key == 'pixel_values':
+            print('I AM INSIDE READ BINARY')
+            print(temp_sample.shape)
+            print(len(temp_sample))
         if len(temp_sample) > self.max_seq_len:
             log.info(f'Truncating sample: {self.num_truncated} {self.num_read}')
             self.num_truncated += 1
