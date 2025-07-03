@@ -320,15 +320,15 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
 
         if 'pixel_values' in sample:
             pixel_values = self._read_binary_tokenized_sample(
-                sample['pixel_values'],
+                sample,
                 'pixel_values',
             )
             chosen_token_type_ids = self._read_binary_tokenized_sample(
-                sample['chosen_token_type_ids'],
+                sample,
                 'chosen_token_type_ids',
             )
             rejected_token_type_ids = self._read_binary_tokenized_sample(
-                (sample['rejected_token_type_ids']),
+                sample,
                 'rejected_token_type_ids',
             )
 
