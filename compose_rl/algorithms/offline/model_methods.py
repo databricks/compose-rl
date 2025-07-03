@@ -140,6 +140,10 @@ def pairwise_offline_forward(
                               dim=0),
             }
 
+            print("MULTIMODAL INPUTS")
+            for k, v in multimodal_inptus.itmes():
+                print(f"{k}: {v.shape}")
+
             inputs.update(multimodal_inputs)
 
         output_logits = model(
