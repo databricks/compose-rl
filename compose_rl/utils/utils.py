@@ -117,7 +117,7 @@ def get_log_probs(
     actions: torch.Tensor,
     prompt_len: torch.Tensor,
     max_gen_len: Union[torch.Tensor, int],
-    temperature: float = 0.6 # this is harded coded for testing bird text2sql. 
+    temperature: float = 1. 
 ):
     """Gets the log probs from the generated logits.
 
