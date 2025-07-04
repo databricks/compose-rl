@@ -14,12 +14,16 @@ import compose_rl.utils as utils
 class OnPolicyEnum(Enum):
     PPO = 'ppo'
     GRPO = 'grpo'
+    APO = 'apo'  #add A-star PO
 
 
 class ALGORITHM_TYPE(set, Enum):
-    CRITIC_FREE = {OnPolicyEnum.GRPO}
+    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.APO}
     ACTOR_CRITIC = {OnPolicyEnum.PPO}
     CLIPPED_PG = {OnPolicyEnum.PPO, OnPolicyEnum.GRPO}
+    REGRESSION = {
+        OnPolicyEnum.APO,
+    }  #regression based loss, maybe REBEL also here?
 
 
 @dataclass
@@ -126,8 +130,8 @@ def composer_online_rl_forward(
         logits,
         batch['actions'],
         batch['prompt_len'],
-        batch['max_gen_len'],
-    )
+        batch['max_gen_len'], 
+    )  # Note!! temperature here is hardcoded for testing bird text2sql
 
     return_dict = {
         'online_log_probs': log_prob_outputs,
@@ -153,7 +157,9 @@ def critic_loss(
 ) -> MutableMapping:
     if loss_type == OnPolicyEnum.PPO:
         advantages = batch['advantages']
-        v_preds = outputs['values'][:, :-1] * batch['action_mask']
+        v_preds = outputs['values'][:, :-1] * batch[
+            'action_mask'
+        ]  #TODO: why shift -1? eos token? why no shift in log_probs?
         v_preds = v_preds.to(advantages.dtype)
 
         values = batch['values'][:, :-1] * batch['action_mask']
@@ -214,10 +220,11 @@ def critic_loss(
 
 
 def policy_loss(
-    advantages: torch.Tensor,
+    advantages: torch.Tensor | None,
     outputs: MutableMapping,
     batch: MutableMapping,
     loss_type: OnPolicyEnum,
+    beta: float = 1e-3,
     policy_clip_ratio: float = 0.15,
     policy_clip_high_ratio: float | None = None,
     length_normalize_policy_loss: bool = True,
@@ -226,6 +233,7 @@ def policy_loss(
 ) -> MutableMapping:
 
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
+        assert advantages is not None
         online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
             'old_log_probs']
         old_entropies = batch['old_entropies']
@@ -294,7 +302,7 @@ def policy_loss(
                 batch['action_mask'],
             )
 
-        ratio = torch.exp(online_log_probs - old_log_probs)
+        ratio = torch.exp(online_log_probs - old_log_probs)  #pi/pi_old
         policy_loss_1 = -advantages * ratio
 
         # Use the same clip ratio for both sides if clip high ratio is not provided
@@ -381,6 +389,57 @@ def policy_loss(
             policy_dict[f'gen/token_entropy_p{p.item()}'] = percentile_values[i]
 
         return policy_dict
+
+    elif loss_type in ALGORITHM_TYPE.REGRESSION:
+        #assume batch contains (1) V-star values (key 'vstar), (2) rewards (key 'rewards'), (3) ref_log_probs
+        online_log_probs = outputs['online_log_probs']
+        ref_log_probs = batch['ift_log_probs']
+        log_probs_diff = online_log_probs - ref_log_probs
+        old_entropies = batch['old_entropies']
+
+        #compute KL to pi_ref to keep track the divergence to \pi_ref
+        policy_kl_dict = utils.approx_kl(
+            log_p= ref_log_probs,
+            log_q= online_log_probs, #log_q - log_p = log pi - log pi_ref
+            kl_clip_range=kl_clip_range,
+        )
+        with torch.no_grad():
+            policy_kl = utils.masked_mean(
+                policy_kl_dict[kl_estimator],  # pyright: ignore
+                batch['action_mask'],
+            )  #plain average over all tokens (KL to pi_ref)
+
+        #compute the policy class
+        maksed_log_probs_diff = utils.masked_sum(
+            log_probs_diff,
+            batch['action_mask'],
+            dim=-1,
+        )  #size: (batch_size,)
+        vstars = batch['vstar']
+        rewards = utils.masked_sum(
+            batch['rewards'],
+            batch['action_mask'],
+            dim=-1,
+        )
+        assert vstars.size() == rewards.size() == maksed_log_probs_diff.size(
+        )  # should have the same shape which is (batch_size, )
+
+        policy_loss = ((beta * maksed_log_probs_diff -
+                        (rewards - vstars))**2).mean()
+        policy_dict = {
+            'loss/policy_loss': policy_loss,
+            'kl/policy_kl': policy_kl,
+            'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
+            'gen/entropy': old_entropies,
+            'rewards/mean': torch.mean(
+                rewards,
+            ),  #compute the average reward of the current batch
+            'vstars/mean': torch.mean(
+                vstars,
+            ),  #compute the average of the vstar of the current batch
+        }
+        return policy_dict
+
     else:
         raise ValueError(f'Policy loss not implemented for {loss_type}')
 
@@ -392,6 +451,7 @@ def online_rl_loss(
     value_clip_range: float = 0.2,
     value_loss_weight: float = 0.2,
     policy_clip_ratio: float = 0.15,
+    beta: float = 1e-3,
     policy_clip_high_ratio: float | None = None,
     length_normalize_policy_loss: bool = True,
     add_direct_kl_loss: bool = False,
@@ -414,6 +474,7 @@ def online_rl_loss(
         entropy_loss_weight (float | None): The entropy loss weight. If ``None``, no entropy loss is added. Default: ``None``.
         kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
         kl_clip_range (float): The clip range for the KL divergence. Default: ``40.0``.
+        beta (float): pi_ref KL hyperparameter for APO. Default: ``1e-3``.
     """
     # log_probs: [bs, gen_len] log probability of each action
     # action_mask: [bs, gen_len] action mask
@@ -426,7 +487,9 @@ def online_rl_loss(
     # tensors in `outputs` are recomputed at the start of each step in the epoch.
 
     return_dict = {}
-    advantages = batch['advantages']
+    advantages = None
+    if loss_type not in ALGORITHM_TYPE.REGRESSION:
+        advantages = batch['advantages']
 
     # 1. Critic Loss
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
@@ -456,7 +519,8 @@ def online_rl_loss(
 
         return_dict.update(**value_dict)
 
-    advantages = advantages.detach()
+    if advantages is not None:
+        advantages = advantages.detach()
 
     # 2. Policy Loss
     policy_dict = policy_loss(
@@ -464,6 +528,7 @@ def online_rl_loss(
         outputs=outputs,
         batch=batch,
         loss_type=loss_type,
+        beta=beta,
         policy_clip_ratio=policy_clip_ratio,
         policy_clip_high_ratio=policy_clip_high_ratio,
         length_normalize_policy_loss=length_normalize_policy_loss,
