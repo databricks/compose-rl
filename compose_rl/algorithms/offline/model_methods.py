@@ -249,7 +249,7 @@ def pairwise_offline_loss(
             prob_chosen = torch.sigmoid(beta*(policy_chosen_logp - ref_chosen_logp))  # turn prediction into prob
             prob_reject = torch.sigmoid(beta*(policy_rejected_logp - ref_rejected_logp))  # turn prediction into prob
             loss_1 = torch.log(prob_chosen) * normalized_adv_chosen + (1. - normalized_adv_chosen) * torch.log(1 - prob_chosen)
-            loss_1 = torch.log(prob_reject) * normalized_adv_reject + (1. - normalized_adv_reject) * torch.log(1 - prob_reject)
+            loss_2 = torch.log(prob_reject) * normalized_adv_reject + (1. - normalized_adv_reject) * torch.log(1 - prob_reject)
             losses = -(loss_1 + loss_2) / 2.
 
         # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
