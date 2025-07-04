@@ -34,7 +34,7 @@ class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
         label_smoothing: float = 0,
         sft_alpha: float = 0.0,
         average_log_prob: bool = False,
-        bce: bool = False
+        bce: bool = False,
         **kwargs: Any,
     ):
         self.loss_type = PairwiseOfflineEnum(loss_type)
