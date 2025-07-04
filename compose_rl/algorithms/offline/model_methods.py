@@ -241,6 +241,9 @@ def pairwise_offline_loss(
             )**2
             losses = (loss_1 + loss_2) / 2.
         else:
+            print("#####################")
+            print("using BCE loss")
+            print("######################")
             normalized_adv_chosen = torch.sigmoid(outputs['chosen_reward'] - vstars) # put it into [0,1]
             normalized_adv_reject = torch.sigmoid(outputs['rejected_reward'] - vstars) # put it into [0,1]
             prob_chosen = torch.sigmoid(beta*(policy_chosen_logp - ref_chosen_logp))  # turn prediction into prob
