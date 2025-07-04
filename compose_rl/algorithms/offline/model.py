@@ -34,7 +34,6 @@ class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
         label_smoothing: float = 0,
         sft_alpha: float = 0.0,
         average_log_prob: bool = False,
-        bce: bool = False,
         **kwargs: Any,
     ):
         self.loss_type = PairwiseOfflineEnum(loss_type)
@@ -42,8 +41,6 @@ class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
         self.label_smoothing = label_smoothing
         self.sft_alpha = sft_alpha
         self.average_log_prob = average_log_prob
-    
-        self.bce = bce
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
@@ -76,7 +73,6 @@ class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
             self.beta,
             self.label_smoothing,
             self.sft_alpha,
-            self.bce
         )
 
 
