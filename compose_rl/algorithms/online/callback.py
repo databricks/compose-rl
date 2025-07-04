@@ -984,8 +984,6 @@ class OnPolicyCallback(CallbackWithConfig):
         bs = iter_batch['prompt_id'].shape[0]
         iter_batch.update({
             'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,
-            'adv_masked_mean': torch.ones(bs) * batch_adv_mean.cpu(),
-            'adv_masked_var': torch.ones(bs) * batch_adv_var.cpu(),
             'ift_kl_scalar': torch.ones(bs) * self.kl_ctl.value,
             'reward_std': torch.ones(bs) * env_outs['rewards'].std().to('cpu'),
         })
