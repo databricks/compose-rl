@@ -10,8 +10,9 @@ from typing import Optional, Tuple
 import argparse
 from datetime import timedelta
 from transformers import AutoModelForCausalLM
-from compose_rl.algorithms.online.generation_utils.vllm_actor import LLMRayActor
 from compose_rl.algorithms.online.generation_utils import init_process_group, create_vllm_engines
+
+from typing import Any
 
 
 def ray_noset_visible_devices():
@@ -108,7 +109,7 @@ class DistributedGPUActor:
         """Return the master address and port as a tuple."""
         return (self.master_addr, self.master_port)
     
-    def init_default_process_group(self) -> bool:
+    def init_default_process_group(self):
         """Initialize the distributed process group."""         
         # Initialize process group
         dist.init_process_group(timeout=timedelta(seconds=30))
@@ -128,7 +129,7 @@ class DistributedGPUActor:
         self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype='auto')
         self.model.to('cuda')
 
-    def sync_weights(self, vllm_engines: list[LLMRayActor]):
+    def sync_weights(self, vllm_engines: list[Any]):
         for name, p in self.model.named_parameters():
             refs = [engine.update_weight.remote(name, p.dtype, p.shape, empty_cache=False) for engine in vllm_engines]
             dist.broadcast(p, src=0, group=self.model_update_group)
