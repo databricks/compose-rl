@@ -178,7 +178,7 @@ def pairwise_offline_loss(
     beta: float,
     label_smoothing: float,
     sft_alpha: float = 0.0,  
-    bce: bool = True, 
+    bce: bool = False, 
 ) -> dict[str, torch.Tensor]:
     """Computes pairwise offline RL losses.
 
