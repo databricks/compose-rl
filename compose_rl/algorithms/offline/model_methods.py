@@ -44,7 +44,7 @@ def pairwise_offline_forward(
     batch: MutableMapping,
     average_log_prob: bool = False,
     policy_model_config: Optional[PretrainedConfig] = None,
-    use_attention_sequence_id: bool = False,
+    use_attention_sequence_id: bool = True,
 ) -> dict[str, torch.Tensor]:
     """Forwards the model for dpo and get the chosen and rejected log probs.
 
