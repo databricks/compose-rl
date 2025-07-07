@@ -39,6 +39,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
     def __init__(
         self,
         tokenizer: Tokenizer,
+        temperature: float = 1.0,
         **kwargs: dict[str, Any],
     ):
 
@@ -48,6 +49,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
         eval_metrics = []
 
         self.running_stats = collections.defaultdict(lambda: [])
+        self.temperature = temperature
 
         super().__init__(
             model=model,
@@ -80,6 +82,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
             batch,
             self.model,
             OnPolicyEnum.PPO,
+            temperature=self.temperature,
         )
 
         lbl = get_mb_load_balancing_loss(
@@ -138,6 +141,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
         tokenizer: Tokenizer,
         config_overrides: Optional[dict[str, Any]] = None,
         loss_type: str = 'ppo',
+        temperature: float = 1.0,
         **kwargs: Any,
     ):
         super().__init__(
@@ -153,6 +157,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
 
         self.compute_kl_loss = False
         self.target_kl = 0.1
+        self.temperature = temperature
 
         # TODO: This needs to be removed once the config is fixed.
         if config_overrides is not None:
@@ -170,6 +175,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             batch,
             self.model,
             loss_type=self.loss_type,  # pyright: ignore
+            temperature=self.temperature,
         )
         return ret_val
 
