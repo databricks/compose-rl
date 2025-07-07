@@ -39,6 +39,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
     def __init__(
         self,
         tokenizer: Tokenizer,
+        temperature: float = 1.0,
         **kwargs: dict[str, Any],
     ):
 
@@ -48,6 +49,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
         eval_metrics = []
 
         self.running_stats = collections.defaultdict(lambda: [])
+        self.temperature = temperature
 
         super().__init__(
             model=model,
@@ -80,6 +82,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
             batch,
             self.model,
             OnPolicyEnum.PPO,
+            temperature=self.temperature,
         )
 
         lbl = get_mb_load_balancing_loss(
@@ -139,6 +142,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
         tokenizer: Tokenizer,
         config_overrides: Optional[dict[str, Any]] = None,
         loss_type: str = 'ppo',
+        temperature: float = 1.0,
         **kwargs: Any,
     ):
         super().__init__(
@@ -154,6 +158,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
 
         self.compute_kl_loss = False
         self.target_kl = 0.1
+        self.temperature = temperature
 
         # TODO: This needs to be removed once the config is fixed.
         if config_overrides is not None:
@@ -171,6 +176,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             batch,
             self.model,
             loss_type=self.loss_type,  # pyright: ignore
+            temperature=self.temperature,
         )
         return ret_val
 
@@ -263,6 +269,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         target_kl: float = 0.1,
         kl_estimator: str = 'k3',
         kl_clip_range: float = 40.0,
+        temperature: float = 1.0,
         **kwargs: Any,
     ):
         """Initialize the ComposerHFCriticFreePolicyModel.
@@ -279,6 +286,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
             kl_clip_range (float): The KL clip range. Default: ``40.0``.
             beta (float): pi_ref KL hyperparameter for APO. Default: ``1e-3``
+            temperature (float): Sampling temperature used for generations to properly scale logits.
         """
         super().__init__(**kwargs)
         self.policy_kl = []
@@ -293,12 +301,14 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.kl_estimator = kl_estimator
         self.kl_clip_range = kl_clip_range
         self.entropy_loss_weight = entropy_loss_weight
+        self.temperature = temperature
 
     def forward(self, batch: MutableMapping):
         ret_val = composer_online_rl_forward(
             batch,
             self.model,
             loss_type=self.loss_type,
+            temperature=self.temperature,
         )
         return ret_val
 
