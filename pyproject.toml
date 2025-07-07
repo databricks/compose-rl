@@ -59,6 +59,7 @@ hf_ppo_lm = "compose_rl.algorithms.online:ComposerHFPolicyLM"
 pairwise_preference = "compose_rl.data:build_pairwise_preference_dataloader"
 finegrained_preference = "compose_rl.data:build_finegrained_preference_dataloader"
 prompt = "compose_rl.data:build_prompt_dataloader"
+messages = "compose_rl.data:build_messages_dataloader"
 
 [project.entry-points."llmfoundry_callbacks_with_config"]
 offline_rl = "compose_rl.algorithms.offline:ReferencePolicyCallback"

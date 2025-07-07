@@ -1,24 +1,95 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
+import copy
 import os
 import pathlib
 from functools import partial
 from typing import Any, Optional
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from composer import Trainer
+from composer.callbacks import LoadCheckpoint
 from composer.loggers import InMemoryLogger
 from composer.optim import DecoupledAdamW
-from composer.utils import dist
+from composer.utils import checkpoint, dist
 from torch.utils.data import DataLoader
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedModel, PreTrainedTokenizer
 
-from compose_rl.algorithms.offline import ComposerMPTPairwiseOfflinePolicyLM
+from compose_rl.algorithms.offline import (
+    ComposerHFPairwiseOfflinePolicyLM,
+    ComposerMPTPairwiseOfflinePolicyLM,
+)
 from compose_rl.algorithms.offline.callback import ReferencePolicyCallback
 from compose_rl.data import pairwise_preference_dataset_collate_fn
 from tests.common import PairwisePreference, world_size
+
+
+def test_load_checkpoint_with_offline_callback(
+    tiny_gpt2_tokenizer: PreTrainedTokenizer,
+    tiny_gpt2_model: PreTrainedModel,
+    tmp_path: pathlib.Path,
+):
+    tiny_gpt2_model.save_pretrained(tmp_path / 'hf_model')
+    tiny_gpt2_tokenizer.save_pretrained(tmp_path / 'hf_model')
+
+    composer_checkpoint_path = tmp_path / 'checkpoint.pt'
+    model = ComposerHFPairwiseOfflinePolicyLM(
+        tokenizer=tiny_gpt2_tokenizer,
+        pretrained_model_name_or_path=str(tmp_path / 'hf_model'),
+    )
+    trainer = Trainer(
+        model=model,
+    )
+
+    trainer.save_checkpoint(
+        str(composer_checkpoint_path),
+    )
+
+    load_checkpoint_callback = LoadCheckpoint(
+        load_path=str(composer_checkpoint_path),
+    )
+    load_checkpoint_callback._load = MagicMock(
+        wraps=load_checkpoint_callback._load,
+    )
+
+    assert load_checkpoint_callback.parsed_path == str(composer_checkpoint_path)
+
+    model_config = {
+        'name': 'hf_pairwise_offline_lm',
+        'pretrained_model_name_or_path': str(tmp_path / 'hf_model'),
+        'tokenizer': tiny_gpt2_tokenizer,
+    }
+    train_config = {
+        'model': model_config,
+    }
+    reference_policy_callback = ReferencePolicyCallback(
+        train_config=train_config,
+    )
+
+    with patch(
+        'composer.utils.checkpoint.load_checkpoint',
+        wraps=checkpoint.load_checkpoint,
+    ) as mock_load_checkpoint, patch(
+        'compose_rl.algorithms.offline.callback.Trainer',
+        wraps=Trainer,
+    ) as mock_trainer:
+        trainer = Trainer(
+            model=model,
+            callbacks=[load_checkpoint_callback, reference_policy_callback],
+            load_path=str(composer_checkpoint_path),
+        )
+        mock_load_checkpoint.assert_called_once()
+        mock_trainer.assert_called_once()
+        comparison_dict = copy.deepcopy(load_checkpoint_callback.__dict__)
+        # Remove the _load added by the mock
+        comparison_dict.pop('_load')
+        # The callback passed into the dummy trainer should match the original callback
+        assert mock_trainer.call_args.kwargs['callbacks'][
+            0].__dict__ == comparison_dict
+
+    load_checkpoint_callback._load.assert_called_once()
 
 
 def test_reference_policy_callback_forward(

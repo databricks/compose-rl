@@ -401,7 +401,12 @@ class OnPolicyCallback(CallbackWithConfig):
             'device_train_batch_size',
             None,
         )
+        self.global_train_batch_size: int = train_config.get(
+            'global_train_batch_size',
+            None,
+        )
         assert self.device_train_batch_size is not None
+        assert self.global_train_batch_size is not None
 
         # Number of batches to use for a single PPO epoch.
         self.num_batches_per_update = var_config.get(
@@ -414,9 +419,19 @@ class OnPolicyCallback(CallbackWithConfig):
             1,
         )
 
-        if self.num_batches_per_update % self.generations_per_prompt != 0:
+        self.num_unique_prompts_per_iter: int = var_config.get(
+            'num_unique_prompts_per_iter',
+            self.num_batches_per_update * self.global_train_batch_size //
+            self.generations_per_prompt,
+        )
+
+        log.info(
+            f'Per iteration using: {self.num_unique_prompts_per_iter} prompts.',
+        )
+
+        if self.num_unique_prompts_per_iter * self.generations_per_prompt != self.global_train_batch_size * self.num_batches_per_update:
             raise ValueError(
-                f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}',
+                f'{self.num_unique_prompts_per_iter=} * {self.generations_per_prompt=} must equal {self.global_train_batch_size=} * {self.num_batches_per_update=}',
             )
 
         self.epochs_per_iteration = ensure_time(
@@ -520,8 +535,6 @@ class OnPolicyCallback(CallbackWithConfig):
         self.device_train_microbatch_size: int = state.device_train_microbatch_size  # type: ignore
         if self.device_train_microbatch_size == 'auto':  # type: ignore
             raise ValueError('auto microbatching is not supported for PPO')
-
-        self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
 
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
@@ -633,7 +646,7 @@ class OnPolicyCallback(CallbackWithConfig):
     def _get_next_iter_prompts(self):
         """Gets the next iteration's batch of prompts."""
         # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
-        n_unique_batches = self.num_batches_per_update // self.generations_per_prompt
+        n_unique_batches = self.num_unique_prompts_per_iter // self.global_train_batch_size
         batches = [
             self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
@@ -656,6 +669,7 @@ class OnPolicyCallback(CallbackWithConfig):
                         'verified_answer',
                         'prompt_id',
                         'vstar',
+                        'messages',
                     ]:
                         curr_values.append(batch[key])
                         continue
@@ -687,7 +701,6 @@ class OnPolicyCallback(CallbackWithConfig):
                 if key in ['verified_answer', 'vstar']:
                     ret_batch[key] = list(flatten(curr_values))
                 else:
-                    # this is an edge case that we will not hit currently, but just handling it as needed
                     ret_batch[key] = curr_values
 
         return ret_batch
@@ -716,6 +729,7 @@ class OnPolicyCallback(CallbackWithConfig):
         max_gen_len = self.max_gen_len
         pad_token_id = self.pad_token_idx
         generation_kwargs = self.generation_kwargs
+        bs = batch['prompt_id'].shape[0]
         with get_precision_context(self.precision), torch.no_grad():
             # If vllm engines are available, we use them to generate sequences in one go
             if self.vllm_engines is not None:
@@ -731,7 +745,8 @@ class OnPolicyCallback(CallbackWithConfig):
                 # Need to explicitly minibatch here to avoid memory issues
                 # Determine the number of generating calls we want to make
                 # We can have the generate size be greater than the device train microbatch size
-                num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
+                # When we hit this function, we should already have all the prompts we need per iteration.
+                num_gen_calls = bs // self.device_generate_batch_size
 
                 gen_batch_partial_outputs = []
                 all_sequences = []
@@ -765,9 +780,6 @@ class OnPolicyCallback(CallbackWithConfig):
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
-        log.debug('Beginning reward computation for the rollout.')
-        start_reward_time = time.time()
-
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore
             reward_manager=self.reward_manager,
@@ -781,12 +793,6 @@ class OnPolicyCallback(CallbackWithConfig):
             kl_clip_range=self.kl_clip_range,
         )
 
-        end_reward_time = time.time()
-        total_reward_time = end_reward_time - start_reward_time
-        log.debug(
-            f'Finished reward computation for the rollout in {total_reward_time:.4f} seconds.',
-        )
-
         self.prompts_and_gens.extend(prompts_and_gens)
 
         gen_batch_partial_outputs = (env_outputs, ref_outputs, all_rewards_dict)
@@ -798,7 +804,7 @@ class OnPolicyCallback(CallbackWithConfig):
         )
 
         # We need to split the resolved outputs into minibatches
-        for idx in range(self.iter_batch_size // self.device_train_batch_size):
+        for idx in range(bs // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
                 resolved_outputs,
                 idx,
@@ -970,19 +976,16 @@ class OnPolicyCallback(CallbackWithConfig):
             env_outs['ift_kl'],
             env_outs['action_mask'],
         )
+
         self.kl_ift.append(mean_ift.cpu())
 
         iter_batch.update(env_outs)
 
+        bs = iter_batch['prompt_id'].shape[0]
         iter_batch.update({
-            'max_gen_len':
-                torch.ones(self.iter_batch_size).to(torch.int32) *
-                self.max_gen_len,
-            'ift_kl_scalar':
-                torch.ones(self.iter_batch_size) * self.kl_ctl.value,
-            'reward_std':
-                torch.ones(self.iter_batch_size) *
-                env_outs['rewards'].std().to('cpu'),
+            'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,
+            'ift_kl_scalar': torch.ones(bs) * self.kl_ctl.value,
+            'reward_std': torch.ones(bs) * env_outs['rewards'].std().to('cpu'),
         })
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
