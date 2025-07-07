@@ -402,8 +402,8 @@ def policy_loss(
 
         #compute KL to pi_ref to keep track the divergence to \pi_ref
         policy_kl_dict = utils.approx_kl(
-            log_p= ref_log_probs,
-            log_q= online_log_probs, #log_q - log_p = log pi - log pi_ref
+            log_p=ref_log_probs,
+            log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
         )
         with torch.no_grad():
