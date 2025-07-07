@@ -412,7 +412,7 @@ def policy_loss(
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
 
-        #compute the policy class
+        #compute the policy loss
         masked_log_probs_diff = utils.masked_sum(
             log_probs_diff,
             batch['action_mask'],
