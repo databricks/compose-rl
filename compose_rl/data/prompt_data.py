@@ -47,7 +47,7 @@ def prompt_dataset_collate_fn(
         if key in ['prompt_len']:
             collated_batch[key] = torch.stack(cur_values).squeeze(dim=1)
             continue
-        if key == 'prompt_id':
+        if key in ['prompt_id', 'vstar']:
             collated_batch[key] = torch.tensor(cur_values)
             continue
         if key == 'vstar':

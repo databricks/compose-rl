@@ -551,6 +551,7 @@ class OnPolicyCallback(CallbackWithConfig):
             fsdp_config=self.non_train_fsdp_config,
             precision=state.precision,
             kl_penalty_in_reward=kl_penalty_in_reward,
+            temperature=self.generation_kwargs['temperature'],
         )
 
         # This is needed to ensure PyTorch 2.4 checkpointing doesn't break
@@ -965,11 +966,10 @@ class OnPolicyCallback(CallbackWithConfig):
                 env_outs['action_mask'],
             )
 
+            bs = iter_batch['prompt_id'].shape[0]
             iter_batch.update({
-                'adv_masked_mean':
-                    torch.ones(self.iter_batch_size) * batch_adv_mean.cpu(),
-                'adv_masked_var':
-                    torch.ones(self.iter_batch_size) * batch_adv_var.cpu(),
+                'adv_masked_mean': torch.ones(bs) * batch_adv_mean.cpu(),
+                'adv_masked_var': torch.ones(bs) * batch_adv_var.cpu(),
             })
 
         mean_ift = masked_mean(

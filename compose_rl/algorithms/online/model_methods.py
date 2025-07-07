@@ -23,7 +23,7 @@ class ALGORITHM_TYPE(set, Enum):
     CLIPPED_PG = {OnPolicyEnum.PPO, OnPolicyEnum.GRPO}
     REGRESSION = {
         OnPolicyEnum.APO,
-    }  #regression based loss, maybe REBEL also here?
+    }
 
 
 @dataclass
@@ -105,6 +105,7 @@ def composer_online_rl_forward(
     batch: MutableMapping,
     model: torch.nn.Module,
     loss_type: OnPolicyEnum,
+    temperature: float = 1.0,
 ) -> MutableMapping:
     """Forward pass for the Composer PPO model.
 
@@ -112,6 +113,7 @@ def composer_online_rl_forward(
         batch (MutableMapping): The batch to run forward over.
         model (torch.nn.Module): The PPO Actor Critic model to run forwards over.
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to ``ppo``.
+        temperature (float): Sampling temperature used to scale logits.
     """
     model_forward_kwargs = {
         'attention_mask': batch['right_padded_attn_mask'],
@@ -131,6 +133,7 @@ def composer_online_rl_forward(
         batch['actions'],
         batch['prompt_len'],
         batch['max_gen_len'],
+        temperature=temperature,
     )
 
     return_dict = {
@@ -399,8 +402,8 @@ def policy_loss(
 
         #compute KL to pi_ref to keep track the divergence to \pi_ref
         policy_kl_dict = utils.approx_kl(
-            log_p= ref_log_probs,
-            log_q= online_log_probs, #log_q - log_p = log pi - log pi_ref
+            log_p=ref_log_probs,
+            log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
         )
         with torch.no_grad():
@@ -409,8 +412,8 @@ def policy_loss(
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
 
-        #compute the policy class
-        maksed_log_probs_diff = utils.masked_sum(
+        #compute the policy loss
+        masked_log_probs_diff = utils.masked_sum(
             log_probs_diff,
             batch['action_mask'],
             dim=-1,
@@ -421,10 +424,10 @@ def policy_loss(
             batch['action_mask'],
             dim=-1,
         )
-        assert vstars.size() == rewards.size() == maksed_log_probs_diff.size(
+        assert vstars.size() == rewards.size() == masked_log_probs_diff.size(
         )  # should have the same shape which is (batch_size, )
 
-        policy_loss = ((beta * maksed_log_probs_diff -
+        policy_loss = ((beta * masked_log_probs_diff -
                         (rewards - vstars))**2).mean()
         policy_dict = {
             'loss/policy_loss': policy_loss,
