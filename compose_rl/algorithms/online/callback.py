@@ -550,6 +550,7 @@ class OnPolicyCallback(CallbackWithConfig):
             fsdp_config=self.non_train_fsdp_config,
             precision=state.precision,
             kl_penalty_in_reward=kl_penalty_in_reward,
+            temperature=self.generation_kwargs['temperature'],
         )
 
         # This is needed to ensure PyTorch 2.4 checkpointing doesn't break
