@@ -15,9 +15,9 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from compose_rl.algorithms.offline.model_methods import (
     OfflineEnum,
+    PairwiseOfflineEnum,
     offline_forward,
     offline_loss,
-    PairwiseOfflineEnum,
     pairwise_offline_forward,
     pairwise_offline_loss,
 )
@@ -25,6 +25,7 @@ from compose_rl.algorithms.offline.model_methods import (
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
 log = logging.getLogger(__name__)
+
 
 class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
     """MPT model wrapper for offline rl model."""
@@ -109,6 +110,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
             self.loss_type,
             self.beta,
         )
+
 
 class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
     """MPT model wrapper for DPO model."""

@@ -14,15 +14,15 @@ from compose_rl.data.messages_data import (
     MessagesStreamingDataset,
     messages_dataset_collate_fn,
 )
+from compose_rl.data.offline_data import (
+    OfflineStreamingDataset,
+    offline_dataset_collate_fn,
+)
 from compose_rl.data.preference_data import (
     FinegrainedPreferenceStreamingDataset,
     PairwisePreferenceStreamingDataset,
     finegrained_preference_dataset_collate_fn,
     pairwise_preference_dataset_collate_fn,
-)
-from compose_rl.data.offline_data import (
-    offline_dataset_collate_fn,
-    OfflineStreamingDataset,
 )
 from compose_rl.data.prompt_data import (
     PromptStreamingDataset,

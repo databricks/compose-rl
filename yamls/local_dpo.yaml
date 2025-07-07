@@ -7,7 +7,7 @@ model:
   pretrained: true
   use_auth_token: true
   use_flash_attention_2: true
-  pretrained_model_name_or_path: Qwen/Qwen2.5-7B #meta-llama/Llama-3.1-8B-Instruct
+  pretrained_model_name_or_path: Qwen/Qwen2.5-7B
 
 loggers:
   mlflow:
@@ -20,7 +20,7 @@ callbacks:
     window_size: 10
   memory_monitor: {}
   # hf_checkpointer:
-  #   save_folder: # TODO: insert save path for huggingface checkpoints
+  #   save_folder:  # TODO: insert save path for huggingface checkpoints
   #   save_interval: 1ep
 
 optimizer:
@@ -39,7 +39,7 @@ scheduler:
   t_warmup: 0.1dur
 
 tokenizer:
-  name: Qwen/Qwen2.5-7B #meta-llama/Llama-3.1-8B-Instruct
+  name: Qwen/Qwen2.5-7B
   kwargs:
     model_max_length: ${max_seq_len}
     trust_remote_code: true
@@ -59,7 +59,7 @@ fsdp_config:
   sharding_strategy: FULL_SHARD
   activation_cpu_offload: false
 
-max_seq_len: 4096 #2048
+max_seq_len: 4096
 save_folder: /tmp/dpo_model    # TODO: update for a proper save path
 dist_timeout: 600
 max_duration: 1ep
@@ -68,8 +68,8 @@ progress_bar: false
 train_loader:
   name: pairwise_preference
   dataset:
-    # local: # TODO: insert local dataset path
-    # remote: # TODO: insert remote dataset path if applicable
+    # local:  # TODO: insert local dataset path
+    # remote:  # TODO: insert remote dataset path if applicable
     split: train
 
     shuffle: true

@@ -93,6 +93,7 @@ class PairwiseReferencePolicyCallback(ReferencePolicyCallback):
         train_config (dict): Training config passed to callback via foundry train.py as
             callback is registered under callbacks_with_config registry.
     """
+
     def before_forward(self, state: State, logger: Logger) -> Optional[int]:
         # Before every batch we need to do a forwards pass over the reference model
         with get_precision_context(state.precision):

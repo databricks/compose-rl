@@ -8,21 +8,20 @@ from compose_rl.data.buffer import (
 from compose_rl.data.dataloader import (
     build_finegrained_preference_dataloader,
     build_messages_dataloader,
+    build_offline_dataloader,
     build_pairwise_preference_dataloader,
     build_prompt_dataloader,
-    build_offline_dataloader,
 )
 from compose_rl.data.messages_data import messages_dataset_collate_fn
+from compose_rl.data.offline_data import (
+    OfflineStreamingDataset,
+    offline_dataset_collate_fn,
+)
 from compose_rl.data.preference_data import (
     finegrained_preference_dataset_collate_fn,
     pairwise_preference_dataset_collate_fn,
 )
 from compose_rl.data.prompt_data import prompt_dataset_collate_fn
-
-from compose_rl.data.offline_data import (
-    offline_dataset_collate_fn,
-    OfflineStreamingDataset,
-)
 
 __all__ = [
     'build_pairwise_preference_dataloader',
