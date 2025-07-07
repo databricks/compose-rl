@@ -424,7 +424,7 @@ def policy_loss(
             batch['action_mask'],
             dim=-1,
         )
-        assert vstars.size() == rewards.size() == maksed_log_probs_diff.size(
+        assert vstars.size() == rewards.size() == masked_log_probs_diff.size(
         )  # should have the same shape which is (batch_size, )
 
         policy_loss = ((beta * masked_log_probs_diff -
