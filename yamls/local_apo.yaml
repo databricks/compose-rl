@@ -127,7 +127,7 @@ algorithms:
     clipping_threshold: 1.0
 
 autoresume: false
-save_folder: null  # TODO: fill this in
+save_folder:  # TODO: fill this in
 save_overwrite: true
 save_interval: 25iter
 save_num_checkpoints_to_keep: 1
