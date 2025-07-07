@@ -35,8 +35,145 @@ class PairwiseOfflineEnum(Enum):
     KTO = 'kto'
     APO = 'apo'  # Not a pair-wise preference algorithm
 
+class OfflineEnum(Enum):
+    APO = 'apo'
 
 
+def offline_forward(
+    model: nn.Module,
+    tokenizer: Tokenizer,
+    batch: MutableMapping,
+    average_log_prob: bool = False,
+    policy_model_config: Optional[PretrainedConfig] = None,
+) -> dict[str, torch.Tensor]:
+    """Forwards the model for dpo and get the chosen and rejected log probs.
+
+    Args:
+        model (nn.Module): Model we are forwarding.
+        tokenizer (Tokenizer): Tokenizer for the model.
+        batch (Dict[str, torch.LongTensor]): Batch over which we should forward the model.
+            Note: this batch has chosen and rejected concated along the sequence dimension.
+        average_log_prob (bool): Whether should we average the log probabilities.
+        policy_model_config: Policy model config.
+    """
+    if policy_model_config is not None and hasattr(model, 'transformer'):
+        clear_mb_load_balancing_loss(
+            policy_model_config,
+            model.transformer,  # type: ignore
+        )
+
+    seq_len = batch['input_ids'].size(1)
+    pad_token_id = tokenizer.pad_token_id
+    if pad_token_id is None:
+        raise ValueError('Tokenizer must have a PAD token.')
+
+    # If we can't use attn_seq_id then we need to unpack each batch and
+    # Pack along the batch dimension instead.
+    output_logits = model(
+        batch["input_ids"],
+        attention_mask=batch["attention_mask"],
+    ).logits
+
+    labels = extract_packed_chosen_rejected(
+        batch['input_ids'],
+        batch['response_len'],
+        0,
+        seq_len,
+        pad_token_id=0,
+    )
+
+    logps = get_batch_logp(
+        labels,
+        output_logits,
+        batch['prompt_len'],
+        batch['response_len'],
+        average_log_prob,
+    )
+
+    outputs: dict[str, torch.Tensor] = {
+        'policy_logp': logps,
+        'response_len': batch['response_len'],
+    }
+
+    if 'reward' in batch:
+        outputs['reward'] = batch['reward']
+    
+    if 'vstar' in batch:
+        outputs['vstar'] = batch['vstar']
+
+    if policy_model_config is not None and hasattr(model, 'transformer'):
+        lbl = get_mb_load_balancing_loss(
+            policy_model_config,
+            model.transformer,  # type: ignore
+        )
+        if lbl is not None:
+            outputs['lbl'] = lbl
+
+    return outputs
+
+def offline_loss(
+    outputs: CausalLMOutputWithPast,
+    batch: Mapping,
+    loss_type: OfflineEnum,
+    beta: float,
+    bce: bool = False,
+):
+    policy_logp = outputs['policy_logp']  # (batch_size, )
+    ref_logp = batch.get(
+        'ref_logp',
+        torch.zeros_like(policy_logp),
+    )
+
+    if loss_type == OfflineEnum.APO:
+        # Reproducing the APO loss from APO paper: https://arxiv.org/pdf/2505.20686 on page 3
+        # APO is not a pair-wise loss function.
+        # We assume the dataset contains two responses per prompt.
+        # The name chosen and reject just refers response 1 and response 2. This is for design simplicity.
+        # The chosen and reject do not mean anything in APO
+        # Similar to REBEL, we assume each response has a reward in the batch.
+        # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
+        vstars = outputs['vstar']  # (batch_size, )
+        
+        if bce == False:
+            losses = (
+                beta * (policy_logp - ref_logp) -
+                (outputs['reward'] - vstars)
+            )**2
+        else:
+            normalized_adv_chosen = torch.sigmoid(outputs['reward'] - vstars) # put it into [0,1]
+            reward_prob = torch.sigmoid(beta*(policy_logp - ref_logp))  # turn prediction into prob
+            losses = torch.log(reward_prob) * normalized_adv_chosen + (1. - normalized_adv_chosen) * torch.log(1 - reward_prob)
+            losses = -1 * losses
+
+        # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
+        # formula: sum_y exp( log pi(y) - log pi_ref(y) ) r(y) where y ~ pi_ref
+        # use clip to ensure the output from exp is valid
+        with torch.no_grad():
+            estimated_rewards = torch.exp(torch.clip(policy_logp - ref_logp, max = 5.)) * outputs['reward']
+            estimated_reward = torch.mean(estimated_rewards)
+
+    losses = losses.mean()
+
+    implicit_rewards = beta * (policy_logp - ref_logp).detach()
+
+    # Logging KL margins for comparing different methods
+    reverse_kl = (policy_logp - ref_logp).detach()
+    forward_kl = (ref_logp - policy_logp).detach()
+    loss_dict = {
+        'implicit_rewards': implicit_rewards,
+        'reverse_kl': reverse_kl,
+        'forward_kl': forward_kl,
+    }
+    if loss_type == OfflineEnum.APO:
+        loss_dict['estimated_reward'] = estimated_reward
+
+    if 'lbl' in outputs:
+        losses += outputs['lbl']
+        loss_dict['lbl'] = outputs['lbl']
+
+    loss_dict['total'] = losses
+
+    return loss_dict
 
 def pairwise_offline_forward(
     model: nn.Module,

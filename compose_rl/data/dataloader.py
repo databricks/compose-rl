@@ -20,6 +20,10 @@ from compose_rl.data.preference_data import (
     finegrained_preference_dataset_collate_fn,
     pairwise_preference_dataset_collate_fn,
 )
+from compose_rl.data.offline_data import (
+    offline_dataset_collate_fn,
+    OfflineStreamingDataset,
+)
 from compose_rl.data.prompt_data import (
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
@@ -30,6 +34,7 @@ __all__ = [
     'build_pairwise_preference_dataloader',
     'build_prompt_dataloader',
     'build_messages_dataloader',
+    'build_offline_dataloader',
 ]
 
 
@@ -125,4 +130,9 @@ build_prompt_dataloader = generate_dataloader_builder(
 build_messages_dataloader = generate_dataloader_builder(
     MessagesStreamingDataset,
     messages_dataset_collate_fn,
+)
+
+build_offline_dataloader = generate_dataloader_builder(
+    OfflineStreamingDataset,
+    offline_dataset_collate_fn,
 )
