@@ -162,7 +162,7 @@ def critic_loss(
         advantages = batch['advantages']
         v_preds = outputs['values'][:, :-1] * batch[
             'action_mask'
-        ]  #TODO: why shift -1? eos token? why no shift in log_probs?
+        ] 
         v_preds = v_preds.to(advantages.dtype)
 
         values = batch['values'][:, :-1] * batch['action_mask']
