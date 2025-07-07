@@ -68,6 +68,7 @@ class RewardManager:
             precision: the default precision that will be passed to `Trainer` to initialize models.
             kl_penalty_in_reward (bool): indicates if we should add the KL penalty to the reward or directly
                 compute it in the training loss.
+            temperature (float): Sampling temperature used to scale reference logits.
         """
         self.config = config
         self.ref_config = ref_config

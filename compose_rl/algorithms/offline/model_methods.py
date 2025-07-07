@@ -54,6 +54,7 @@ def pairwise_offline_forward(
         average_log_prob (bool): Whether should we average the log probabilities.
         policy_model_config: Policy model config.
         use_attention_sequence_id (bool): Whether we should use the attention sequence id.
+        temperature (float): Sampling temperature used to scale logits.
     """
     if policy_model_config is not None and hasattr(model, 'transformer'):
         clear_mb_load_balancing_loss(

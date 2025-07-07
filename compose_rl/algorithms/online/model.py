@@ -282,6 +282,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             target_kl (float): The target KL value. Default: ``0.1``.
             kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
             kl_clip_range (float): The KL clip range. Default: ``40.0``.
+            temperature (float): Sampling temperature used for generations to properly scale logits.
         """
         super().__init__(**kwargs)
         self.policy_kl = []
@@ -302,7 +303,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             batch,
             self.model,
             loss_type=self.loss_type,
-            temperature=temperature,
+            temperature=self.temperature,
         )
         return ret_val
 

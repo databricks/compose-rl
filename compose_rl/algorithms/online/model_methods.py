@@ -109,6 +109,7 @@ def composer_online_rl_forward(
         batch (MutableMapping): The batch to run forward over.
         model (torch.nn.Module): The PPO Actor Critic model to run forwards over.
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to ``ppo``.
+        temperature (float): Sampling temperature used to scale logits.
     """
     model_forward_kwargs = {
         'attention_mask': batch['right_padded_attn_mask'],

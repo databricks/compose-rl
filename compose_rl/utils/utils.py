@@ -131,7 +131,11 @@ def get_log_probs(
         log_probs (torch.Tensor): the log probs of the actions. Size (bs, gen_len)
     """
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
-    return get_log_probs_from_logits(gen_logits, actions, temperature=temperature)
+    return get_log_probs_from_logits(
+        gen_logits,
+        actions,
+        temperature=temperature,
+    )
 
 
 def get_entropies(
@@ -1048,7 +1052,11 @@ def get_remote_name(pod_name: str):
     return f'http://{api_response.status.pod_ip}:8080/v2/completions'  # pyright: ignore
 
 
-def get_log_probs_from_logits(logits: torch.Tensor, actions: torch.Tensor, temperature: float = 1.0):
+def get_log_probs_from_logits(
+    logits: torch.Tensor,
+    actions: torch.Tensor,
+    temperature: float = 1.0,
+):
     """Gets the log probabilities from a set of logits.
 
     This code is taken from:
@@ -1152,6 +1160,7 @@ def get_batch_logp(
         prompt_len (torch.LongTensor): the length of the prompt (batch_size,)
         prompt_gen_len (torch.LongTensor): the length of the prompt and generated sequence (batch_size,)
         average_log_prob (bool): whether or not we should average the log prob
+        temperature (float): Sampling temperature used to scale logits.
     """
     batch_size, _ = labels.shape
     labels = labels[:, 1:].clone()
