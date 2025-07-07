@@ -23,7 +23,7 @@ class ALGORITHM_TYPE(set, Enum):
     CLIPPED_PG = {OnPolicyEnum.PPO, OnPolicyEnum.GRPO}
     REGRESSION = {
         OnPolicyEnum.APO,
-    }  #regression based loss, maybe REBEL also here?
+    } 
 
 
 @dataclass
