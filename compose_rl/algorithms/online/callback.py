@@ -487,6 +487,7 @@ class OnPolicyCallback(CallbackWithConfig):
             'vllm_tensor_parallel_size',
             None,
         )
+        self.vllm_enable_prefix_caching = var_config.get('vllm_enable_prefix_caching', False)
         if self.vllm_tensor_parallel_size is not None:
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
@@ -1177,7 +1178,7 @@ class OnPolicyCallback(CallbackWithConfig):
                 pretrain=self.vllm_model_name,
                 revision=None,
                 seed=1,
-                enable_prefix_caching=False,
+                enable_prefix_caching=self.vllm_enable_prefix_caching,
                 max_model_len=self.max_seq_len,
             )
             log.info('After creating vLLM engines.')
@@ -1222,6 +1223,7 @@ class OnPolicyCallback(CallbackWithConfig):
             batch,
             #loss_type=self.actor_critic.loss_type.value,  # type: ignore
             loss_type=self.actor_critic.loss_type,  # type: ignore
+            enable_prefix_caching=self.vllm_enable_prefix_caching,
         )
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')

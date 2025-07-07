@@ -377,6 +377,7 @@ def broadcast_to_vllm(
     model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
     loss_type: OnPolicyEnum = OnPolicyEnum.PPO,
+    enable_prefix_caching: bool = False,
 ):
     """Broadcast model weights to all vllm engines.
 
@@ -386,6 +387,7 @@ def broadcast_to_vllm(
         model_update_group (torch.distributed.ProcessGroup): The process group for model updates
         batch (dict[str, torch.Tensor]): The batch to use for the forward pass
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
+        enable_prefix_caching (bool): Whether to enable prefix caching. Defaults to False.
     """
     # avoid OOM
     torch.cuda.empty_cache()
@@ -404,6 +406,12 @@ def broadcast_to_vllm(
             f'Unsupported loss type: {loss_type}. Supported types are: ppo, grpo',
         )
     refss = []
+    cache_reset_refss = []
+    if enable_prefix_caching and dist.get_global_rank() == 0:
+        cache_reset_refss = [
+            engine.reset_prefix_cache.remote() for engine in vllm_engines
+        ]
+
     # This is needed to get the correct model device
     cur_device = batch['prompt'].device
 
@@ -513,6 +521,8 @@ def broadcast_to_vllm(
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
     ray.get(refss)
+    if enable_prefix_caching and dist.get_global_rank():
+        ray.get(cache_reset_refss)
     log.info(f'ray refs took: {time.time() - start_time}')
     log.info(f'update time is: {update_time}')
     log.info(f'number of parameters updated is: {count}')
