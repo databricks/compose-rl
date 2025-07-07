@@ -23,7 +23,7 @@ class ALGORITHM_TYPE(set, Enum):
     CLIPPED_PG = {OnPolicyEnum.PPO, OnPolicyEnum.GRPO}
     REGRESSION = {
         OnPolicyEnum.APO,
-    } 
+    }
 
 
 @dataclass
@@ -160,9 +160,7 @@ def critic_loss(
 ) -> MutableMapping:
     if loss_type == OnPolicyEnum.PPO:
         advantages = batch['advantages']
-        v_preds = outputs['values'][:, :-1] * batch[
-            'action_mask'
-        ] 
+        v_preds = outputs['values'][:, :-1] * batch['action_mask']
         v_preds = v_preds.to(advantages.dtype)
 
         values = batch['values'][:, :-1] * batch['action_mask']
