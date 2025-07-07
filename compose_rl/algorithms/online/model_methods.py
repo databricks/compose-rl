@@ -427,7 +427,7 @@ def policy_loss(
         assert vstars.size() == rewards.size() == maksed_log_probs_diff.size(
         )  # should have the same shape which is (batch_size, )
 
-        policy_loss = ((beta * maksed_log_probs_diff -
+        policy_loss = ((beta * masked_log_probs_diff -
                         (rewards - vstars))**2).mean()
         policy_dict = {
             'loss/policy_loss': policy_loss,
