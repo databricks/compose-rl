@@ -101,6 +101,7 @@ def composer_online_rl_forward(
     batch: MutableMapping,
     model: torch.nn.Module,
     loss_type: OnPolicyEnum,
+    temperature: float = 1.0,
 ) -> MutableMapping:
     """Forward pass for the Composer PPO model.
 
@@ -127,6 +128,7 @@ def composer_online_rl_forward(
         batch['actions'],
         batch['prompt_len'],
         batch['max_gen_len'],
+        temperature=temperature,
     )
 
     return_dict = {

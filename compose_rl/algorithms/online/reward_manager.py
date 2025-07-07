@@ -55,6 +55,7 @@ class RewardManager:
         fsdp_config: Optional[dict[str, Any]],
         precision: Precision,
         kl_penalty_in_reward: bool = True,
+        temperature: float = 1.0,
     ):
         """Manages all the rewards used during PPO training.
 
@@ -74,6 +75,7 @@ class RewardManager:
         self.fsdp_config = fsdp_config
         self.max_seq_len = max_seq_len
         self.kl_penalty_in_reward = kl_penalty_in_reward
+        self.temperature = temperature
 
         # For fine-grained rewards. Not necessarily used.
         self.parser = spacy.load('en_core_web_sm')
@@ -522,6 +524,7 @@ class RewardManager:
                 actions=curr_batch['actions'],
                 prompt_len=curr_batch['prompt_len'],
                 max_gen_len=curr_batch['max_gen_len'],
+                temperature=self.temperature,
             )
 
             kl_dict = approx_kl(

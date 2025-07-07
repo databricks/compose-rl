@@ -117,6 +117,7 @@ def get_log_probs(
     actions: torch.Tensor,
     prompt_len: torch.Tensor,
     max_gen_len: Union[torch.Tensor, int],
+    temperature: float = 1.0,
 ):
     """Gets the log probs from the generated logits.
 
@@ -130,7 +131,7 @@ def get_log_probs(
         log_probs (torch.Tensor): the log probs of the actions. Size (bs, gen_len)
     """
     gen_logits = get_batched_generated_values(logits, prompt_len, max_gen_len)
-    return get_log_probs_from_logits(gen_logits, actions)
+    return get_log_probs_from_logits(gen_logits, actions, temperature=temperature)
 
 
 def get_entropies(
@@ -1047,12 +1048,16 @@ def get_remote_name(pod_name: str):
     return f'http://{api_response.status.pod_ip}:8080/v2/completions'  # pyright: ignore
 
 
-def get_log_probs_from_logits(logits: torch.Tensor, actions: torch.Tensor):
+def get_log_probs_from_logits(logits: torch.Tensor, actions: torch.Tensor, temperature: float = 1.0):
     """Gets the log probabilities from a set of logits.
 
     This code is taken from:
     https://github.com/pytorch/pytorch/issues/563#issuecomment-330103591
     """
+    # Scale Logits
+    logits /= temperature
+
+    # Compute Log Probs
     logp = F.log_softmax(logits, dim=2)
     logpy = torch.gather(logp, 2, actions.unsqueeze(2).long()).squeeze(-1)
     return logpy
@@ -1137,6 +1142,7 @@ def get_batch_logp(
     prompt_len: torch.LongTensor,
     prompt_gen_len: torch.LongTensor,
     average_log_prob: bool,
+    temperature: float = 1.0,
 ):
     """Gets the log probability for given labels and logits.
 
@@ -1155,7 +1161,7 @@ def get_batch_logp(
     for i in range(batch_size):
         labels[i, prompt_gen_len[i]:] = 0
 
-    log_p = get_log_probs_from_logits(logits, labels)
+    log_p = get_log_probs_from_logits(logits, labels, temperature=temperature)
 
     action_mask = make_action_mask(
         prompt_len,
