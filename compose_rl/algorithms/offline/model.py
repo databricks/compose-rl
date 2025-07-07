@@ -47,7 +47,6 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
         assert self.tokenizer is not None
         return offline_forward(
             model=self.model,
-            tokenizer=self.tokenizer,
             batch=batch,
             average_log_prob=self.average_log_prob,
             policy_model_config=self.config,
@@ -91,7 +90,6 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         assert self.tokenizer is not None
         return offline_forward(
             model=self.model,
-            tokenizer=self.tokenizer,
             batch=batch,
             average_log_prob=self.average_log_prob,
         )

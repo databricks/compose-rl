@@ -41,7 +41,6 @@ class OfflineEnum(Enum):
 
 def offline_forward(
     model: nn.Module,
-    tokenizer: Tokenizer,
     batch: MutableMapping,
     average_log_prob: bool = False,
     policy_model_config: Optional[PretrainedConfig] = None,
@@ -62,11 +61,6 @@ def offline_forward(
             model.transformer,  # type: ignore
         )
 
-    seq_len = batch['input_ids'].size(1)
-    pad_token_id = tokenizer.pad_token_id
-    if pad_token_id is None:
-        raise ValueError('Tokenizer must have a PAD token.')
-
     # If we can't use attn_seq_id then we need to unpack each batch and
     # Pack along the batch dimension instead.
     output_logits = model(
@@ -74,25 +68,16 @@ def offline_forward(
         attention_mask=batch["attention_mask"],
     ).logits
 
-    labels = extract_packed_chosen_rejected(
-        batch['input_ids'],
-        batch['response_len'],
-        0,
-        seq_len,
-        pad_token_id=0,
-    )
-
     logps = get_batch_logp(
-        labels,
+        batch['input_ids'],
         output_logits,
         batch['prompt_len'],
-        batch['response_len'],
+        batch['sequence_len'],
         average_log_prob,
     )
 
     outputs: dict[str, torch.Tensor] = {
         'policy_logp': logps,
-        'response_len': batch['response_len'],
     }
 
     if 'reward' in batch:
