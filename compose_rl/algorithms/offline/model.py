@@ -34,6 +34,7 @@ class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
         label_smoothing: float = 0,
         sft_alpha: float = 0.0,
         average_log_prob: bool = False,
+        temperature: float = 1.0,
         **kwargs: Any,
     ):
         self.loss_type = PairwiseOfflineEnum(loss_type)
@@ -41,6 +42,7 @@ class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
         self.label_smoothing = label_smoothing
         self.sft_alpha = sft_alpha
         self.average_log_prob = average_log_prob
+        self.temperature = temperature
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
@@ -55,6 +57,7 @@ class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
             policy_model_config=self.config,
             use_attention_sequence_id=self.model.transformer.
             attn_uses_sequence_id,  # type: ignore
+            temperature=self.temperature,
         )
 
     def eval_forward(
@@ -86,6 +89,7 @@ class ComposerHFPairwiseOfflinePolicyLM(ComposerHFCausalLM):
         label_smoothing: float = 0,
         sft_alpha: float = 0.0,
         average_log_prob: bool = False,
+        temperature: float = 1.0,
         **kwargs: Any,
     ):
         self.loss_type = PairwiseOfflineEnum(loss_type)
@@ -93,6 +97,7 @@ class ComposerHFPairwiseOfflinePolicyLM(ComposerHFCausalLM):
         self.label_smoothing = label_smoothing
         self.sft_alpha = sft_alpha
         self.average_log_prob = average_log_prob
+        self.temperature = temperature
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
@@ -104,6 +109,7 @@ class ComposerHFPairwiseOfflinePolicyLM(ComposerHFCausalLM):
             tokenizer=self.tokenizer,
             batch=batch,
             average_log_prob=self.average_log_prob,
+            temperature=self.temperature,
         )
 
     def eval_forward(
