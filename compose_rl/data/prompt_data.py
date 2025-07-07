@@ -47,7 +47,7 @@ def prompt_dataset_collate_fn(
         if key in ['prompt_len']:
             collated_batch[key] = torch.stack(cur_values).squeeze(dim=1)
             continue
-        if key == 'prompt_id':
+        if key in ['prompt_id', 'vstar']:
             collated_batch[key] = torch.tensor(cur_values)
             continue
         if key in ['verified_answer']:
@@ -124,5 +124,10 @@ class PromptStreamingDataset(StreamingDataset):
                     _answer = ''
 
             item_dict['verified_answer'] = _answer  # type: ignore
+
+        #vstar
+        vstar = sample.get('vstar', None)
+        if vstar is not None:
+            item_dict['vstar'] = torch.Tensor([vstar])
 
         return item_dict
