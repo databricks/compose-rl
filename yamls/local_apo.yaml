@@ -6,7 +6,7 @@ model:
   pretrained: true
   use_auth_token: true
   loss_type: apo
-  beta: 1e-3  # TODO: need to
+  beta: 1e-3
   normalize_advantage: true
   length_normalize_policy_loss: true
   policy_clip_ratio: 0.2
