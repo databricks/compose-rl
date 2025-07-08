@@ -479,12 +479,8 @@ class OnPolicyCallback(CallbackWithConfig):
         )
         if self.vllm_tensor_parallel_size is not None:
             # Whether to use `vllm_chat` or `vllm_generate`
-            vllm_function = var_config.get('vllm_generate_function', 'generate')
-            if vllm_function == 'chat':
-                self.vllm_generate_function = vllm_chat
-            elif vllm_function == 'generate':
-                self.vllm_generate_function = vllm_generate
-            else:
+            self.vllm_generate_function = var_config.get('vllm_generate_function', 'generate')
+            if self.vllm_generate_function not in ['chat', 'generate']:
                 raise ValueError(
                     'vllm_generate_function needs to be either `generate` or `chat`',
                 )
@@ -742,12 +738,13 @@ class OnPolicyCallback(CallbackWithConfig):
         with get_precision_context(self.precision), torch.no_grad():
             # If vllm engines are available, we use them to generate sequences in one go
             if self.vllm_engines is not None:
-                sequences = self.vllm_generate_function(
+                sequences = self.vllm_generate(
                     vllm_engines=self.vllm_engines,
                     batch=batch,
                     max_gen_len=max_gen_len,
                     generation_kwargs=generation_kwargs,
                     tokenizer=self.tokenizer,  # type: ignore
+                    vllm_generate_function=self.vllm_generate_function,
                 )
             else:
                 # Go the HF policy generate route
