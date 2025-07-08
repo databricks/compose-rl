@@ -14,7 +14,7 @@ loggers:
     experiment_name: wensun_dpo_test
 
 callbacks:
-  offline_rl: {}
+  pairwise_offline_rl: {}
   lr_monitor: {}
   speed_monitor:
     window_size: 10
