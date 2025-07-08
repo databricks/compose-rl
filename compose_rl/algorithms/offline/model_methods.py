@@ -61,8 +61,6 @@ def offline_forward(
             model.transformer,  # type: ignore
         )
 
-    # If we can't use attn_seq_id then we need to unpack each batch and
-    # Pack along the batch dimension instead.
     output_logits = model(
         batch['input_ids'],
         attention_mask=batch['attention_mask'],
