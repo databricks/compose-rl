@@ -21,7 +21,8 @@ from compose_rl.algorithms.offline import (
     ComposerHFPairwiseOfflinePolicyLM,
     ComposerMPTPairwiseOfflinePolicyLM,
 )
-from compose_rl.algorithms.offline.callback import PairwiseReferencePolicyCallback
+from compose_rl.algorithms.offline.callback import \
+    PairwiseReferencePolicyCallback
 from compose_rl.data import pairwise_preference_dataset_collate_fn
 from tests.common import PairwisePreference, world_size
 
