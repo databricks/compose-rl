@@ -314,7 +314,7 @@ def vllm_generate(
                 vllm_engines,
                 max_gen_len,
                 generation_kwargs,
-                pad_token_id,
+                pad_token_id,  # type: ignore
                 all_prompts,
                 all_messages,  # type: ignore
                 batch_sizes,
@@ -324,7 +324,7 @@ def vllm_generate(
                 vllm_engines,
                 max_gen_len,
                 generation_kwargs,
-                pad_token_id,
+                pad_token_id,  # type: ignore
                 all_prompts,
                 batch_sizes,
             )
