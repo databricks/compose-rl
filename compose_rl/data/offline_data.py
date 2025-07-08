@@ -87,7 +87,7 @@ def offline_dataset_collate_fn(
             )
 
         attention_mask = torch.logical_not(
-            torch.eq(cat_batch, tokenizer.pad_token_id),  # type: ignore
+            torch.eq(input_ids, tokenizer.pad_token_id),  # type: ignore
         )
 
         batch_input_ids.append(input_ids)
