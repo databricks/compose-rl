@@ -348,7 +348,7 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
 
         if 'pixel_values' in sample:
             if isinstance(sample['pixel_values'], np.ndarray):
-                pixel_values = torch.Tensor(sample['pixel_values'])
+                pixel_values = torch.from_numpy(sample['pixel_values'])
             elif isinstance(sample['pixel_values'], Image.Image):
                 pil_to_tensor_transform = transforms.PILToTensor()
                 pixel_values = pil_to_tensor_transform(sample['pixel_values'])
