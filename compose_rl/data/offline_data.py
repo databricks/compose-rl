@@ -111,10 +111,10 @@ def offline_dataset_collate_fn(
         'attention_mask': attention_masks,
     }
     if len(rewards) > 0:
-        rewards = torch.stack(rewards)
+        rewards = torch.cat(rewards)
         return_dict['reward'] = rewards
     if len(vstars) > 0:
-        vstars = torch.stack(vstars)
+        vstars = torch.cat(vstars)
         return_dict['vstar'] = vstars
 
     return return_dict
@@ -170,9 +170,9 @@ class OfflineStreamingDataset(StreamingDataset):
         }
         # If rewards are given, add them to the return dict
         if 'reward' in sample:
-            return_dict['reward'] = torch.from_numpy(sample['reward']).float()
+            return_dict['reward'] = torch.Tensor([sample['reward']])
 
         if 'vstar' in sample:
-            return_dict['vstar'] = torch.from_numpy(sample['vstar']).float()
+            return_dict['vstar'] = torch.Tensor([sample['vstar']])
 
         return return_dict

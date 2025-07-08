@@ -69,18 +69,13 @@ def offline_forward(
         attention_mask=batch['attention_mask'],
     ).logits
 
-    print("LOGITS")
-    print(output_logits.shape)
-
     logps = get_batch_logp(
-        batch['input_ids'].clone(),
+        batch['input_ids'],
         output_logits,
         batch['prompt_len'],
         batch['sequence_len'],
         average_log_prob,
     )
-
-    print(logps.shape)
 
     outputs: dict[str, torch.Tensor] = {
         'policy_logp': logps,
@@ -119,14 +114,6 @@ def offline_loss(
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
         #
         #
-        print("INSIDE APO LOSS")
-        print("Batch")
-        for k, v in batch.items():
-            print(f"{k}: {v.shape}")
-        print("Outputs")
-        for k, v in outputs.items():
-            print(f"{k}: {v.shape}")
-
         vstars = batch['vstar']  # (batch_size, )
         losses = (
             beta * (policy_logp - ref_logp) - (batch['reward'] - vstars)
