@@ -135,9 +135,7 @@ def pairwise_offline_forward(
                 'token_type_ids':
                     torch.cat([chosen_token_type_ids, rejected_token_type_ids],
                               dim=0),
-                'pixel_values':
-                    torch.cat([batch['pixel_values'], batch['pixel_values']],
-                              dim=0),
+                'pixel_values': batch['pixel_values'] * 2,  # double the list
             }
 
             print("MULTIMODAL INPUTS")

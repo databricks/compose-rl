@@ -202,7 +202,6 @@ def pairwise_preference_dataset_collate_fn(
 
     if is_multimodal:
         token_type_ids = torch.stack(token_type_ids)
-        pixel_values = torch.stack(pixel_values)
         return_dict['token_type_ids'] = token_type_ids
         return_dict['pixel_values'] = pixel_values
 
