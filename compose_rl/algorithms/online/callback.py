@@ -34,7 +34,6 @@ from compose_rl.algorithms.online.generation_utils import (
     create_vllm_engines,
     hf_generate,
     init_process_group,
-    vllm_chat,
     vllm_generate,
 )
 from compose_rl.algorithms.online.model import (

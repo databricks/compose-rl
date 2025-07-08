@@ -3,7 +3,6 @@
 
 from compose_rl.algorithms.online.generation_utils.generation_utils import (
     hf_generate,
-    vllm_chat,
     vllm_generate,
 )
 from compose_rl.algorithms.online.generation_utils.vllm_utils import (
@@ -18,5 +17,4 @@ __all__ = [
     'init_process_group',
     'hf_generate',
     'vllm_generate',
-    'vllm_chat',
 ]
