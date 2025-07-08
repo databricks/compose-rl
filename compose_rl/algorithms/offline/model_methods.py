@@ -69,13 +69,18 @@ def offline_forward(
         attention_mask=batch['attention_mask'],
     ).logits
 
+    print("LOGITS")
+    print(output_logits.shape)
+
     logps = get_batch_logp(
-        batch['input_ids'],
+        batch['input_ids'].clone(),
         output_logits,
         batch['prompt_len'],
         batch['sequence_len'],
         average_log_prob,
     )
+
+    print(logps.shape)
 
     outputs: dict[str, torch.Tensor] = {
         'policy_logp': logps,
