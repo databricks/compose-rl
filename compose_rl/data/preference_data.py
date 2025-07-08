@@ -8,11 +8,10 @@ from typing import Any
 
 import numpy as np
 import torch
-from streaming import StreamingDataset
-from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
-
 from PIL import Image
+from streaming import StreamingDataset
 from torchvision import transforms
+from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
 
 log = logging.getLogger(__name__)
 
@@ -118,9 +117,11 @@ def pairwise_preference_dataset_collate_fn(
             rejected[-1] = tokenizer.eos_token_id  # type: ignore
 
             if is_multimodal:
-                chosen_token_type_ids = chosen_token_type_ids[:-truncate_len]
-                rejected_token_type_ids = rejected_token_type_ids[:-truncate_len
-                                                                 ]
+                chosen_token_type_ids = chosen_token_type_ids[:
+                                                              -truncate_len  # type: ignore
+                                                             ]
+                rejected_token_type_ids = rejected_token_type_ids[:  # type: ignore
+                                                                  -truncate_len]
 
                 # NOTE: GEMMA specific: 0 == text token
                 chosen_token_type_ids[-1] = 0
@@ -148,14 +149,16 @@ def pairwise_preference_dataset_collate_fn(
                 dim=-1,  # type: ignore
             )
             if is_multimodal:
-                cat_token_type_ids = torch.cat([
-                    cat_token_type_ids,
-                    torch.zeros(
-                        int(pad_len.item()),
-                        dtype=cat_token_type_ids.dtype,
-                    ),
-                ],
-                                               dim=-1)
+                cat_token_type_ids = torch.cat(
+                    [
+                        cat_token_type_ids,  # type: ignore
+                        torch.zeros(
+                            int(pad_len.item()),
+                            dtype=cat_token_type_ids.dtype,  # type: ignore
+                        ),
+                    ],
+                    dim=-1,
+                )
 
         attention_mask = torch.logical_not(
             torch.eq(cat_batch, tokenizer.pad_token_id),  # type: ignore
@@ -176,7 +179,7 @@ def pairwise_preference_dataset_collate_fn(
             rejected_rewards.append(sample['rejected_reward'])
 
         if is_multimodal:
-            token_type_ids.append(cat_token_type_ids)
+            token_type_ids.append(cat_token_type_ids)  # type: ignore
             pixel_values.append(pixel_vals)
 
     input_ids = ref_collate_fn(input_ids)['input_ids']
@@ -200,7 +203,7 @@ def pairwise_preference_dataset_collate_fn(
         return_dict['chosen_reward'] = chosen_rewards
         return_dict['rejected_reward'] = rejected_rewards
 
-    if is_multimodal:
+    if is_multimodal:  # type: ignore
         token_type_ids = torch.stack(token_type_ids)
         pixel_values = torch.stack(pixel_values)
         return_dict['token_type_ids'] = token_type_ids
@@ -293,7 +296,7 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
             idx (int): the index where we fetch the data in the StreamingDataset.
         """
         sample = super().__getitem__(idx)
-        
+
         # Handle prompt if available
         if isinstance(sample['chosen'], bytes):
             # Prepend the prompt to the chosen and rejected responses
@@ -313,8 +316,14 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
 
         elif isinstance(sample['chosen'], np.ndarray):
             if 'prompt' in sample:
-                sample['chosen'] = np.concatenate([sample['prompt'], sample['chosen']])
-                sample['rejected'] = np.concatenate([sample['prompt'], sample['rejected']])
+                sample['chosen'] = np.concatenate([
+                    sample['prompt'],
+                    sample['chosen'],
+                ])
+                sample['rejected'] = np.concatenate([
+                    sample['prompt'],
+                    sample['rejected'],
+                ])
 
             chosen = torch.from_numpy(sample['chosen'][:self.max_seq_len])
             rejected = torch.from_numpy(sample['rejected'][:self.max_seq_len])
@@ -368,14 +377,17 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
                     'rejected_token_type_ids',
                 )
             elif isinstance(sample['chosen_token_type_ids'], np.ndarray):
-                chosen_token_type_ids = torch.from_numpy(sample['chosen_token_type_ids'][:self.max_seq_len])
-                rejected_token_type_ids = torch.from_numpy(sample['rejected_token_type_ids'][:self.max_seq_len])
+                chosen_token_type_ids = torch.from_numpy(
+                    sample['chosen_token_type_ids'][:self.max_seq_len],
+                )
+                rejected_token_type_ids = torch.from_numpy(
+                    sample['rejected_token_type_ids'][:self.max_seq_len],
+                )
             else:
                 token_type = type(sample['chosen_token_type_ids'])
                 raise ValueError(
                     f'Expect token_type_ids to be numpy.ndarray or bytes, but got {token_type}',
                 )
-
 
             return_dict['pixel_values'] = pixel_values
             return_dict['chosen_token_type_ids'] = chosen_token_type_ids
