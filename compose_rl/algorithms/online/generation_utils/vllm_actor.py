@@ -128,3 +128,6 @@ class LLMRayActor:
             'update_weight',
             args=(name, dtype, shape, empty_cache),
         )
+
+    def reset_prefix_caching(self):
+        self.llm.llm_engine.reset_prefix_cache()
