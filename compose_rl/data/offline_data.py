@@ -105,7 +105,7 @@ def offline_dataset_collate_fn(
     sequence_lens = torch.cat(sequence_lens)
     prompt_lens = torch.cat(prompt_lens)
     return_dict = {
-        'sequence_lens': sequence_lens,
+        'sequence_len': sequence_lens,
         'prompt_len': prompt_lens,
         'input_ids': batch_input_ids,
         'attention_mask': attention_masks,
