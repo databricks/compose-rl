@@ -107,7 +107,7 @@ def _vllm_generate(
         for token in prompt.detach().cpu().tolist()
         if token != pad_token_id
     ]
-                    for prompt in all_prompts]
+                   for prompt in all_prompts]
 
     # Generate with vllm
     # Calculate the base batch size
@@ -158,6 +158,7 @@ def _vllm_generate(
         start += size
     return split_responses
 
+
 def _vllm_chat(
     vllm_engines: list,
     max_gen_len: int,
@@ -181,7 +182,7 @@ def _vllm_chat(
         for token in prompt.detach().cpu().tolist()
         if token != pad_token_id
     ]
-                    for prompt in all_prompts]
+                   for prompt in all_prompts]
 
     # Generate with vllm
     # Calculate the base batch size
@@ -226,9 +227,10 @@ def _vllm_chat(
     )
 
     # Remove pad tokens from vllm prompts
-    all_vllm_prompts = [[
-        token for token in prompt if token != pad_token_id
-    ] for prompt in all_vllm_prompts]
+    all_vllm_prompts = [[token
+                         for token in prompt
+                         if token != pad_token_id]
+                        for prompt in all_vllm_prompts]
 
     # Checking vllm prompts with all prompts
     assert all_prompts == all_vllm_prompts
@@ -282,13 +284,13 @@ def vllm_generate(
     # Pull the necessary variables from the batch and self
     cur_device = batch['prompt'].device
     prompt_tokens = batch['prompt']
-    if vllm_generate_function == "chat":
+    if vllm_generate_function == 'chat':
         messages = batch['messages']
 
     prompt_all_gather_start_time = time.time()
 
     all_batched_prompts = dist.all_gather_object(prompt_tokens)
-    if vllm_generate_function == "chat":
+    if vllm_generate_function == 'chat':
         all_batched_messages = dist.all_gather_object(messages)
 
     batch_sizes = [len(batch) for batch in all_batched_prompts]
@@ -298,7 +300,7 @@ def vllm_generate(
     )
     all_prompts = [prompt for batch in all_batched_prompts for prompt in batch]
 
-    if vllm_generate_function == "chat":
+    if vllm_generate_function == 'chat':
         all_messages = [
             message for batch in all_batched_messages for message_list in batch
             for message in message_list
@@ -307,7 +309,7 @@ def vllm_generate(
 
     start_gen_time = time.time()
     if dist.get_global_rank() == 0:
-        if vllm_generate_function == "chat":
+        if vllm_generate_function == 'chat':
             split_responses = _vllm_chat(
                 vllm_engines,
                 max_gen_len,

@@ -479,7 +479,10 @@ class OnPolicyCallback(CallbackWithConfig):
         )
         if self.vllm_tensor_parallel_size is not None:
             # Whether to use `vllm_chat` or `vllm_generate`
-            self.vllm_generate_function = var_config.get('vllm_generate_function', 'generate')
+            self.vllm_generate_function = var_config.get(
+                'vllm_generate_function',
+                'generate',
+            )
             if self.vllm_generate_function not in ['chat', 'generate']:
                 raise ValueError(
                     'vllm_generate_function needs to be either `generate` or `chat`',
