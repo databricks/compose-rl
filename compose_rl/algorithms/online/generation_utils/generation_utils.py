@@ -89,7 +89,7 @@ def _vllm_generate(
     vllm_engines: list,
     max_gen_len: int,
     generation_kwargs: dict,
-    pad_token_id: int,
+    pad_token_id: int,  # type: ignore
     all_prompts: list,
     batch_sizes: list,
 ) -> list:
@@ -163,7 +163,7 @@ def _vllm_chat(
     vllm_engines: list,
     max_gen_len: int,
     generation_kwargs: dict,
-    pad_token_id: int,
+    pad_token_id: int,  # type: ignore
     all_prompts: list,
     all_messages: list,
     batch_sizes: list,
@@ -291,7 +291,7 @@ def vllm_generate(
 
     all_batched_prompts = dist.all_gather_object(prompt_tokens)
     if vllm_generate_function == 'chat':
-        all_batched_messages = dist.all_gather_object(messages)
+        all_batched_messages = dist.all_gather_object(messages)  # type: ignore
 
     batch_sizes = [len(batch) for batch in all_batched_prompts]
 
@@ -302,7 +302,7 @@ def vllm_generate(
 
     if vllm_generate_function == 'chat':
         all_messages = [
-            message for batch in all_batched_messages for message_list in batch
+            message for batch in all_batched_messages for message_list in batch  # type: ignore
             for message in message_list
         ]
         assert len(all_prompts) == len(all_messages)
@@ -316,7 +316,7 @@ def vllm_generate(
                 generation_kwargs,
                 pad_token_id,
                 all_prompts,
-                all_messages,
+                all_messages,  # type: ignore
                 batch_sizes,
             )
         else:
