@@ -81,12 +81,6 @@ def offline_forward(
         'policy_logp': logps,
     }
 
-    if 'reward' in batch:
-        outputs['reward'] = batch['reward']
-
-    if 'vstar' in batch:
-        outputs['vstar'] = batch['vstar']
-
     if policy_model_config is not None and hasattr(model, 'transformer'):
         lbl = get_mb_load_balancing_loss(
             policy_model_config,
@@ -118,9 +112,19 @@ def offline_loss(
         # The chosen and reject do not mean anything in APO
         # Similar to REBEL, we assume each response has a reward in the batch.
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
-        vstars = outputs['vstar']  # (batch_size, )
+        #
+        #
+        print("INSIDE APO LOSS")
+        print("Batch")
+        for k, v in batch.items():
+            print(f"{k}: {v.shape}")
+        print("Outputs")
+        for k, v in outputs.items():
+            print(f"{k}: {v.shape}")
+
+        vstars = batch['vstar']  # (batch_size, )
         losses = (
-            beta * (policy_logp - ref_logp) - (outputs['reward'] - vstars)
+            beta * (policy_logp - ref_logp) - (batch['reward'] - vstars)
         )**2
 
         # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
