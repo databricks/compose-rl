@@ -302,8 +302,8 @@ def vllm_generate(
 
     if vllm_generate_function == 'chat':
         all_messages = [
-            message for batch in all_batched_messages for message_list in batch  # type: ignore
-            for message in message_list
+            message for batch in all_batched_messages  # type: ignore
+            for message_list in batch for message in message_list
         ]
         assert len(all_prompts) == len(all_messages)
 
