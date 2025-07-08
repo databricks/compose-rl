@@ -155,9 +155,20 @@ class OfflineStreamingDataset(StreamingDataset):
         sample = super().__getitem__(idx)
 
         # Read Samples
-        sample['input_ids'] = sample['prompt'] + sample['response']
-        input_ids = self._read_binary_tokenized_sample(sample, 'input_ids')
-        prompt = self._read_binary_tokenized_sample(sample, 'prompt')
+        input_ids, prompt = [], []
+        if isinstance(sample['prompt'], bytes):
+            sample['input_ids'] = sample['prompt'] + sample['response']
+            input_ids = self._read_binary_tokenized_sample(sample, 'input_ids')
+            prompt = self._read_binary_tokenized_sample(sample, 'prompt')
+        elif isinstance(sample['prompt'], np.ndarray):
+            input_ids = np.concatenate([sample['prompt'], sample['response']])
+            sample['input_ids'] = input_ids[:self.max_seq_len].tolist().copy()
+            prompt = sample['prompt'].tolist().copy()
+        else:
+            token_type = type(sample['input_ids'])
+            raise ValueError(
+                f'Expect prompt and response to be bytes or numpy.ndarray type, but got {token_type}',
+            )
 
         # Get Lenghts
         prompt_len = len(prompt)
