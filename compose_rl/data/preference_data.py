@@ -293,21 +293,44 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
             idx (int): the index where we fetch the data in the StreamingDataset.
         """
         sample = super().__getitem__(idx)
+        
         # Handle prompt if available
-        if 'prompt' in sample:
+        if isinstance(sample['chosen'], bytes):
             # Prepend the prompt to the chosen and rejected responses
-            sample['chosen'] = sample['prompt'] + sample['chosen']
-            sample['rejected'] = sample['prompt'] + sample['rejected']
-        chosen = self._read_binary_tokenized_sample(sample, 'chosen')
-        rejected = self._read_binary_tokenized_sample(sample, 'rejected')
+            if 'prompt' in sample:
+                sample['chosen'] = sample['prompt'] + sample['chosen']
+                sample['rejected'] = sample['prompt'] + sample['rejected']
+            chosen = self._read_binary_tokenized_sample(sample, 'chosen')
+            rejected = self._read_binary_tokenized_sample(sample, 'rejected')
 
-        if 'prompt' in sample:
-            prompt = self._read_binary_tokenized_sample(sample, 'prompt')
-            prompt_len = len(prompt)
+            if 'prompt' in sample:
+                prompt = self._read_binary_tokenized_sample(sample, 'prompt')
+                prompt_len = len(prompt)
+            else:
+                # Only use prefix matching version of prompt_len when
+                # 'prompt' is not directly given in the sample
+                prompt_len = self.find_prompt_length(chosen, rejected)
+
+        elif isinstance(sample['chosen'], np.ndarray):
+            if 'prompt' in sample:
+                sample['chosen'] = np.concatenate([sample['prompt'], sample['chosen']])
+                sample['rejected'] = np.concatenate([sample['prompt'], sample['rejected']])
+
+            chosen = sample['chosen'][:self.max_seq_len].tolist().copy()
+            rejected = sample['rejected'][:self.max_seq_len].tolist().copy()
+
+            if 'prompt' in sample:
+                prompt_len = len(sample['prompt'])
+            else:
+                # Only use prefix matching version of prompt_len when
+                # 'prompt' is not directly given in the sample
+                prompt_len = self.find_prompt_length(chosen, rejected)
         else:
-            # Only use prefix matching version of prompt_len when
-            # 'prompt' is not directly given in the sample
-            prompt_len = self.find_prompt_length(chosen, rejected)
+            token_type = type(sample['chosen'])
+            raise ValueError(
+                f'Expect prompt and response to be bytes or numpy.ndarray type, but got {token_type}',
+            )
+
         chosen_len, rejected_len = len(chosen), len(rejected)
         return_dict = {
             'chosen': chosen,
@@ -335,14 +358,24 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
                     f'Expect pixel values to be numpy.ndarray or PIL.Image type, but got {pixel_values_type}',
                 )
 
-            chosen_token_type_ids = self._read_binary_tokenized_sample(
-                sample,
-                'chosen_token_type_ids',
-            )
-            rejected_token_type_ids = self._read_binary_tokenized_sample(
-                sample,
-                'rejected_token_type_ids',
-            )
+            if isinstance(sample['chosen_token_type_ids'], bytes):
+                chosen_token_type_ids = self._read_binary_tokenized_sample(
+                    sample,
+                    'chosen_token_type_ids',
+                )
+                rejected_token_type_ids = self._read_binary_tokenized_sample(
+                    sample,
+                    'rejected_token_type_ids',
+                )
+            elif isinstance(sample['chosen_token_type_ids'], np.ndarray):
+                chosen_token_type_ids = sample['chosen_token_type_ids'][:self.max_seq_len].tolist().copy()
+                rejected_token_type_ids = sample['rejected_token_type_ids'][:self.max_seq_len].tolist().copy()
+            else:
+                token_type = type(sample['chosen_token_type_ids'])
+                raise ValueError(
+                    f'Expect token_type_ids to be numpy.ndarray or bytes, but got {token_type}',
+                )
+
 
             return_dict['pixel_values'] = pixel_values
             return_dict['chosen_token_type_ids'] = chosen_token_type_ids
