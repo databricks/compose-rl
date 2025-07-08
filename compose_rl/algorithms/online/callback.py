@@ -478,6 +478,16 @@ class OnPolicyCallback(CallbackWithConfig):
             None,
         )
         if self.vllm_tensor_parallel_size is not None:
+            # Whether to use `vllm_chat` or `vllm_generate`
+            self.vllm_generate_function = var_config.get(
+                'vllm_generate_function',
+                'generate',
+            )
+            if self.vllm_generate_function not in ['chat', 'generate']:
+                raise ValueError(
+                    'vllm_generate_function needs to be either `generate` or `chat`',
+                )
+
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
 
@@ -740,6 +750,7 @@ class OnPolicyCallback(CallbackWithConfig):
                     max_gen_len=max_gen_len,
                     generation_kwargs=generation_kwargs,
                     tokenizer=self.tokenizer,  # type: ignore
+                    vllm_generate_function=self.vllm_generate_function,
                 )
             else:
                 # Go the HF policy generate route
@@ -803,6 +814,10 @@ class OnPolicyCallback(CallbackWithConfig):
             batch,
             gen_batch_partial_outputs,
         )
+
+        # Delete Non-tensor keys for training batch
+        for key in ['verified_answer', 'messages']:
+            del resolved_outputs[key]
 
         # We need to split the resolved outputs into minibatches
         for idx in range(bs // self.device_train_batch_size):
