@@ -140,7 +140,10 @@ def pairwise_offline_forward(
 
             print("MULTIMODAL INPUTS")
             for k, v in multimodal_inputs.items():
-                print(f"{k}: {v.shape}")
+                if isinstance(v, torch.tensor):
+                    print(f"{k}: {v.shape}")
+                else:
+                    print(f"{k}: {len(v)}")
 
             inputs.update(multimodal_inputs)
 
