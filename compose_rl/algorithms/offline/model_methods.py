@@ -25,8 +25,10 @@ from compose_rl.utils import (
     get_mb_load_balancing_loss,
 )
 
+
 class OfflineEnum(Enum):
     APO = 'apo'
+
 
 class PairwiseOfflineEnum(Enum):
     DPO = 'dpo'
@@ -108,7 +110,8 @@ def offline_loss(
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
 
         losses = (
-            beta * (policy_logp - ref_logp) - (batch['reward'] - batch['vstar'])
+            beta * (policy_logp - ref_logp) -
+            (batch['reward'] - batch['vstar'])
         )**2
 
         # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
