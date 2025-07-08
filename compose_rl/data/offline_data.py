@@ -60,7 +60,7 @@ def offline_dataset_collate_fn(
 
         if pad_len < 0:
             # We should truncate with an additional token left for eos
-            truncate_len = pad_len + 1
+            truncate_len = abs(pad_len) + 1
 
             log.warning((
                 f'Sequence length: {sequence_len}'
