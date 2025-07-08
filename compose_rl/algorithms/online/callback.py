@@ -740,7 +740,7 @@ class OnPolicyCallback(CallbackWithConfig):
         with get_precision_context(self.precision), torch.no_grad():
             # If vllm engines are available, we use them to generate sequences in one go
             if self.vllm_engines is not None:
-                sequences = self.vllm_generate(
+                sequences = vllm_generate(
                     vllm_engines=self.vllm_engines,
                     batch=batch,
                     max_gen_len=max_gen_len,
