@@ -162,7 +162,7 @@ class OfflineStreamingDataset(StreamingDataset):
             prompt = self._read_binary_tokenized_sample(sample, 'prompt')
         elif isinstance(sample['prompt'], np.ndarray):
             input_ids = np.concatenate([sample['prompt'], sample['response']])
-            sample['input_ids'] = torch.from_numpy(input_ids[:self.max_seq_len])
+            input_ids = torch.from_numpy(input_ids[:self.max_seq_len])
             prompt = torch.from_numpy(sample['prompt'])
         else:
             token_type = type(sample['input_ids'])
