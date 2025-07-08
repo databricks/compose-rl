@@ -316,8 +316,8 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
                 sample['chosen'] = np.concatenate([sample['prompt'], sample['chosen']])
                 sample['rejected'] = np.concatenate([sample['prompt'], sample['rejected']])
 
-            chosen = sample['chosen'][:self.max_seq_len].tolist().copy()
-            rejected = sample['rejected'][:self.max_seq_len].tolist().copy()
+            chosen = torch.from_numpy(sample['chosen'][:self.max_seq_len])
+            rejected = torch.from_numpy(sample['rejected'][:self.max_seq_len])
 
             if 'prompt' in sample:
                 prompt_len = len(sample['prompt'])
@@ -368,8 +368,8 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
                     'rejected_token_type_ids',
                 )
             elif isinstance(sample['chosen_token_type_ids'], np.ndarray):
-                chosen_token_type_ids = sample['chosen_token_type_ids'][:self.max_seq_len].tolist().copy()
-                rejected_token_type_ids = sample['rejected_token_type_ids'][:self.max_seq_len].tolist().copy()
+                chosen_token_type_ids = torch.from_numpy(sample['chosen_token_type_ids'][:self.max_seq_len])
+                rejected_token_type_ids = torch.from_numpy(sample['rejected_token_type_ids'][:self.max_seq_len])
             else:
                 token_type = type(sample['chosen_token_type_ids'])
                 raise ValueError(
