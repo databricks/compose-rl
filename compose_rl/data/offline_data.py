@@ -170,9 +170,9 @@ class OfflineStreamingDataset(StreamingDataset):
         }
         # If rewards are given, add them to the return dict
         if 'reward' in sample:
-            return_dict['reward'] = torch.Tensor(sample['reward'])
+            return_dict['reward'] = torch.from_numpy(sample['reward']).float()
 
         if 'vstar' in sample:
-            return_dict['vstar'] = torch.Tensor(sample['vstar'])
+            return_dict['vstar'] = torch.from_numpy(sample['vstar']).float()
 
         return return_dict
