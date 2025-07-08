@@ -39,6 +39,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
     def __init__(
         self,
         tokenizer: Tokenizer,
+        temperature: float = 1.0,
         **kwargs: dict[str, Any],
     ):
 
@@ -48,6 +49,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
         eval_metrics = []
 
         self.running_stats = collections.defaultdict(lambda: [])
+        self.temperature = temperature
 
         super().__init__(
             model=model,
@@ -80,6 +82,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
             batch,
             self.model,
             OnPolicyEnum.PPO,
+            temperature=self.temperature,
         )
 
         lbl = get_mb_load_balancing_loss(
@@ -104,6 +107,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
+            beta=self.config.beta,
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
@@ -138,6 +142,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
         tokenizer: Tokenizer,
         config_overrides: Optional[dict[str, Any]] = None,
         loss_type: str = 'ppo',
+        temperature: float = 1.0,
         **kwargs: Any,
     ):
         super().__init__(
@@ -153,6 +158,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
 
         self.compute_kl_loss = False
         self.target_kl = 0.1
+        self.temperature = temperature
 
         # TODO: This needs to be removed once the config is fixed.
         if config_overrides is not None:
@@ -170,6 +176,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             batch,
             self.model,
             loss_type=self.loss_type,  # pyright: ignore
+            temperature=self.temperature,
         )
         return ret_val
 
@@ -217,6 +224,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
+            beta = self.config.beta,
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
@@ -255,11 +263,13 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         length_normalize_policy_loss: bool = True,
         policy_clip_ratio: float = 0.15,
         policy_clip_high_ratio: float | None = None,
+        beta: float = 1e-3,
         compute_kl_loss: bool = True,
         entropy_loss_weight: float | None = None,
         target_kl: float = 0.1,
         kl_estimator: str = 'k3',
         kl_clip_range: float = 40.0,
+        temperature: float = 1.0,
         **kwargs: Any,
     ):
         """Initialize the ComposerHFCriticFreePolicyModel.
@@ -275,6 +285,8 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             target_kl (float): The target KL value. Default: ``0.1``.
             kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
             kl_clip_range (float): The KL clip range. Default: ``40.0``.
+            beta (float): pi_ref KL hyperparameter for APO. Default: ``1e-3``
+            temperature (float): Sampling temperature used for generations to properly scale logits.
         """
         super().__init__(**kwargs)
         self.policy_kl = []
@@ -285,15 +297,18 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.policy_clip_high_ratio = policy_clip_high_ratio
         self.compute_kl_loss = compute_kl_loss
         self.target_kl = target_kl
+        self.beta = beta
         self.kl_estimator = kl_estimator
         self.kl_clip_range = kl_clip_range
         self.entropy_loss_weight = entropy_loss_weight
+        self.temperature = temperature
 
     def forward(self, batch: MutableMapping):
         ret_val = composer_online_rl_forward(
             batch,
             self.model,
             loss_type=self.loss_type,
+            temperature=self.temperature,
         )
         return ret_val
 
@@ -309,6 +324,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             loss_type=self.loss_type,
             policy_clip_ratio=self.policy_clip_ratio,
             policy_clip_high_ratio=self.policy_clip_high_ratio,
+            beta=self.beta,
             length_normalize_policy_loss=self.length_normalize_policy_loss,
             add_direct_kl_loss=self.compute_kl_loss,
             kl_estimator=self.kl_estimator,

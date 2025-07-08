@@ -5,7 +5,7 @@
 
 import logging
 from itertools import chain
-from multiprocessing import TimeoutError, get_context
+from multiprocessing import get_context
 from multiprocessing.pool import AsyncResult, Pool
 from typing import Any, MutableMapping, Optional, Union
 
@@ -55,6 +55,7 @@ class RewardManager:
         fsdp_config: Optional[dict[str, Any]],
         precision: Precision,
         kl_penalty_in_reward: bool = True,
+        temperature: float = 1.0,
     ):
         """Manages all the rewards used during PPO training.
 
@@ -67,6 +68,7 @@ class RewardManager:
             precision: the default precision that will be passed to `Trainer` to initialize models.
             kl_penalty_in_reward (bool): indicates if we should add the KL penalty to the reward or directly
                 compute it in the training loss.
+            temperature (float): Sampling temperature used to scale reference logits.
         """
         self.config = config
         self.ref_config = ref_config
@@ -74,6 +76,7 @@ class RewardManager:
         self.fsdp_config = fsdp_config
         self.max_seq_len = max_seq_len
         self.kl_penalty_in_reward = kl_penalty_in_reward
+        self.temperature = temperature
 
         # For fine-grained rewards. Not necessarily used.
         self.parser = spacy.load('en_core_web_sm')
@@ -160,13 +163,10 @@ class RewardManager:
         self.granularity_types = list(set(self.granularities.values()))
 
         self.pool = None
-        self._num_reward_procs = None
         if self.inference_rewards or self.functional_rewards:
-            self._num_reward_procs = (
-                len(self.inference_rewards) + len(self.functional_rewards)
-            )
             self.pool = Pool(
-                processes=self._num_reward_procs,
+                processes=len(self.inference_rewards) +
+                len(self.functional_rewards),
                 context=get_context('spawn'),
             )
 
@@ -525,6 +525,7 @@ class RewardManager:
                 actions=curr_batch['actions'],
                 prompt_len=curr_batch['prompt_len'],
                 max_gen_len=curr_batch['max_gen_len'],
+                temperature=self.temperature,
             )
 
             kl_dict = approx_kl(
@@ -583,22 +584,9 @@ class RewardManager:
         resolved_reward_outputs: dict[str, torch.Tensor] = {}
         bad_end_generation_mask = None
         bad_end_generation_name = None
-        encountered_timeout = False
         for name, subreward in reward_output.items():
             if isinstance(subreward, AsyncResult):
-                try:
-                    resolved_reward: torch.Tensor = subreward.get(
-                        timeout=self.all_rewards[name].BLOCKING_TIMEOUT,
-                    )
-                except TimeoutError:
-                    encountered_timeout = True
-                    log.error(
-                        f'Timeout while waiting for {name} reward to finish. ' +
-                        'This may indicate a problem with the reward. Using a default reward of 0.',
-                    )
-                    resolved_reward = self.make_zero_reward(action_mask).to(
-                        torch.float32,
-                    )
+                resolved_reward: torch.Tensor = subreward.get()
             else:
                 resolved_reward: torch.Tensor = subreward
             resolved_reward_outputs[name] = resolved_reward.to(device=device)
@@ -612,24 +600,6 @@ class RewardManager:
                 bad_end_generation_mask = bad_end_generation_mask.to(
                     device=device,
                 )
-
-        # Rather than trying to signal to the stuck process, or do anything more careful,
-        # since we know we are fully done with reward computation, we can just recreate the pool
-        # to ensure that all processes are cleaned up and we can continue without resources leaking.
-        if encountered_timeout and self.pool is not None:
-            log.debug(
-                'Timeout encountered, terminating the process pool for reward computation..',
-            )
-            self.pool.terminate()
-            log.debug('Pool terminated, joining...')
-            self.pool.join()
-            log.debug('Pool joined, recreating the pool...')
-
-            self.pool = Pool(
-                processes=self._num_reward_procs,
-                context=get_context('spawn'),
-            )
-            log.debug('Pool recreated.')
 
         ref_kl = ref_output[0].to(device=device)
         ref_log_probs = ref_output[1].to(device=device)
@@ -673,6 +643,7 @@ class RewardManager:
         # Zero rewards at padded tokens
         rewards *= action_mask
         env_rewards *= action_mask
+
         outputs = {
             'rewards': rewards.detach(),
             'env_rewards': env_rewards.detach(),
