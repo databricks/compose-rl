@@ -107,32 +107,11 @@ def offline_loss(
     if loss_type == OfflineEnum.APO:
         # Reproducing the APO loss from APO paper: https://arxiv.org/pdf/2505.20686 on page 3
         # APO is not a pair-wise loss function.
-        # We assume the dataset contains two responses per prompt.
-        # The name chosen and reject just refers response 1 and response 2. This is for design simplicity.
-        # The chosen and reject do not mean anything in APO
         # Similar to REBEL, we assume each response has a reward in the batch.
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
-        #
-        #
-        # Check data types
-        vstars = batch['vstar']  # (batch_size, )
-        print(f"policy_logp dtype: {policy_logp.dtype}")
-        print(f"ref_logp dtype: {ref_logp.dtype}")
-        print(f"batch['reward'] dtype: {batch['reward'].dtype}")
-        print(f"vstars dtype: {vstars.dtype}")
-        print(f"beta dtype: {type(beta)}")
 
-# Check for any boolean tensors
-        print(f"policy_logp is bool: {policy_logp.dtype == torch.bool}")
-        print(f"ref_logp is bool: {ref_logp.dtype == torch.bool}")
-
-# Check shapes
-        print(f"policy_logp shape: {policy_logp.shape}")
-        print(f"ref_logp shape: {ref_logp.shape}")
-        print(f"batch['reward'] shape: {batch['reward'].shape}")
-        print(f"vstars shape: {vstars.shape}")
         losses = (
-            beta * (policy_logp - ref_logp) - (batch['reward'] - vstars)
+            beta * (policy_logp - ref_logp) - (batch['reward'] - batch['vstar'])
         )**2
 
         # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
@@ -141,7 +120,7 @@ def offline_loss(
         with torch.no_grad():
             estimated_rewards = torch.exp(
                 torch.clip(policy_logp - ref_logp, max=5.),
-            ) * outputs['reward']
+            ) * batch['reward']
             estimated_reward = torch.mean(estimated_rewards)
 
     losses = losses.mean()
