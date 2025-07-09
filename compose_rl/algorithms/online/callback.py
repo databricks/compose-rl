@@ -821,7 +821,8 @@ class OnPolicyCallback(CallbackWithConfig):
 
         # Delete Non-tensor keys for training batch
         for key in ['verified_answer', 'messages']:
-            del resolved_outputs[key]
+            if key in resolved_outputs.keys():
+                del resolved_outputs[key]
 
         # We need to split the resolved outputs into minibatches
         for idx in range(bs // self.device_train_batch_size):
