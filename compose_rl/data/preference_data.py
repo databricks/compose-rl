@@ -4,14 +4,14 @@
 """Build a reward dataset and dataloader for training."""
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import torch
 from PIL import Image
 from streaming import StreamingDataset
 from torchvision import transforms
-from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
+from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer, AutoProcessor
 
 log = logging.getLogger(__name__)
 
@@ -266,11 +266,16 @@ def finegrained_preference_dataset_collate_fn(
 class PairwisePreferenceStreamingDataset(StreamingDataset):
     """Dataloader for streaming in preference data."""
 
-    def __init__(self, max_seq_len: int, **kwargs: dict[str, Any]):
+    def __init__(self, max_seq_len: int, processor_name: Optional[str] = None, **kwargs: dict[str, Any]):
         self.max_seq_len = max_seq_len
         super().__init__(**kwargs)
         self.num_truncated = 0
         self.num_read = 0
+
+        # For proper multimodal HF checkpointing
+        self.processor = None
+        if processor_name is not None:
+            self.processor = AutoProcessor.from_pretrained(processor_name)
 
     def _read_binary_tokenized_sample(self, sample: dict[str, Any], key: str):
         self.num_read += 1
