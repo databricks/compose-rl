@@ -8,7 +8,9 @@ from typing import Any
 
 import numpy as np
 import torch
+from PIL import Image
 from streaming import StreamingDataset
+from torchvision import transforms
 from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
 
 log = logging.getLogger(__name__)
@@ -44,10 +46,22 @@ def offline_dataset_collate_fn(
     rewards = []
     vstars = []
 
+    # For VLMs
+    batch_token_type_ids = []
+    pixel_values = []
+
     for sample in data:
         input_ids = sample['input_ids']
         prompt_len = sample['prompt_len']
         sequence_len = sample['sequence_len']
+
+        is_multimodal = 'pixel_values' in sample.keys()
+        if is_multimodal:
+            pixel_vals = sample['pixel_values']
+            token_type_ids = sample['token_type_ids']
+        else:
+            pixel_vals = None
+            token_type_ids = None
 
         # Note: if we do any truncation, we force the last token to be EOS
         # https://github.com/mosaicml/RLHF/issues/101
@@ -72,6 +86,11 @@ def offline_dataset_collate_fn(
             input_ids = input_ids[:-truncate_len]
             input_ids[-1] = tokenizer.eos_token_id  # type: ignore
 
+            if is_multimodal:
+                token_type_ids = token_type_ids[:-truncate_len]
+                # NOTE: GEMMA specific: 0 == text token
+                token_type_ids[-1] = 0
+
             sequence_len = torch.tensor([len(sequence_len)])
 
             pad_len = max_seq_len - sequence_len
@@ -85,6 +104,17 @@ def offline_dataset_collate_fn(
                 ],
                 dim=-1,  # type: ignore
             )
+            if is_multimodal:
+                token_type_ids = torch.cat(
+                    [
+                        token_type_ids,  # type: ignore
+                        torch.zeros(
+                            int(pad_len.item()),
+                            dtype=token_type_ids.dtype,  # type: ignore
+                        ),
+                    ],
+                    dim=-1,
+                )
 
         attention_mask = torch.logical_not(
             torch.eq(input_ids, tokenizer.pad_token_id),  # type: ignore
@@ -98,6 +128,10 @@ def offline_dataset_collate_fn(
             rewards.append(sample['reward'])
         if 'vstar' in sample:
             vstars.append(sample['vstar'])
+
+        if is_multimodal:
+            batch_token_type_ids.append(token_type_ids)  # type: ignore
+            pixel_values.append(pixel_vals)
 
     batch_input_ids = ref_collate_fn(batch_input_ids)['input_ids']
     attention_masks = torch.stack(attention_masks)
@@ -116,6 +150,12 @@ def offline_dataset_collate_fn(
     if len(vstars) > 0:
         vstars = torch.cat(vstars)
         return_dict['vstar'] = vstars
+
+    if is_multimodal:  # type: ignore
+        token_type_ids = torch.stack(batch_token_type_ids)
+        pixel_values = torch.stack(pixel_values)
+        return_dict['token_type_ids'] = token_type_ids
+        return_dict['pixel_values'] = pixel_values
 
     return return_dict
 
@@ -185,5 +225,35 @@ class OfflineStreamingDataset(StreamingDataset):
 
         if 'vstar' in sample:
             return_dict['vstar'] = torch.Tensor([sample['vstar']])
+
+        if 'pixel_values' in sample:
+            if isinstance(sample['pixel_values'], np.ndarray):
+                pixel_values = torch.from_numpy(sample['pixel_values'])
+            elif isinstance(sample['pixel_values'], Image.Image):
+                pil_to_tensor_transform = transforms.PILToTensor()
+                pixel_values = pil_to_tensor_transform(sample['pixel_values'])
+            else:
+                pixel_values_type = type(sample['pixel_values'])
+                raise ValueError(
+                    f'Expect pixel values to be numpy.ndarray or PIL.Image type, but got {pixel_values_type}',
+                )
+
+            if isinstance(sample['token_type_ids'], bytes):
+                token_type_ids = self._read_binary_tokenized_sample(
+                    sample,
+                    'token_type_ids',
+                )
+            elif isinstance(sample['token_type_ids'], np.ndarray):
+                token_type_ids = torch.from_numpy(
+                    sample['token_type_ids'][:self.max_seq_len],
+                )
+            else:
+                token_type = type(sample['token_type_ids'])
+                raise ValueError(
+                    f'Expect token_type_ids to be numpy.ndarray or bytes, but got {token_type}',
+                )
+
+            return_dict['pixel_values'] = pixel_values
+            return_dict['token_type_ids'] = token_type_ids
 
         return return_dict
