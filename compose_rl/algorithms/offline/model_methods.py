@@ -42,6 +42,7 @@ def pairwise_offline_forward(
     average_log_prob: bool = False,
     policy_model_config: Optional[PretrainedConfig] = None,
     use_attention_sequence_id: bool = False,
+    temperature: float = 1.0,
 ) -> dict[str, torch.Tensor]:
     """Forwards the model for dpo and get the chosen and rejected log probs.
 
@@ -53,6 +54,7 @@ def pairwise_offline_forward(
         average_log_prob (bool): Whether should we average the log probabilities.
         policy_model_config: Policy model config.
         use_attention_sequence_id (bool): Whether we should use the attention sequence id.
+        temperature (float): Sampling temperature used to scale logits.
     """
     if policy_model_config is not None and hasattr(model, 'transformer'):
         clear_mb_load_balancing_loss(
@@ -164,6 +166,7 @@ def pairwise_offline_forward(
         batch['prompt_len'],
         batch['chosen_len'],
         average_log_prob,
+        temperature=temperature,
     )
 
     rejected_logps = get_batch_logp(
@@ -172,6 +175,7 @@ def pairwise_offline_forward(
         batch['prompt_len'],
         batch['rejected_len'],
         average_log_prob,
+        temperature=temperature,
     )
 
     outputs: dict[str, torch.Tensor] = {
