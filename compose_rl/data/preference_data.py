@@ -54,7 +54,6 @@ def pairwise_preference_dataset_collate_fn(
     prompt_lens = []
     sequence_id = []
     chosen_rewards = []
-    vstars = []
     rejected_rewards = []
 
     for sample in data:
@@ -127,8 +126,6 @@ def pairwise_preference_dataset_collate_fn(
         if 'chosen_reward' in sample:
             chosen_rewards.append(sample['chosen_reward'])
             rejected_rewards.append(sample['rejected_reward'])
-        if 'vstar' in sample:
-            vstars.append(sample['vstar'])
 
     input_ids = ref_collate_fn(input_ids)['input_ids']
     attention_masks = torch.stack(attention_masks)
@@ -150,9 +147,6 @@ def pairwise_preference_dataset_collate_fn(
         rejected_rewards = torch.stack(rejected_rewards)
         return_dict['chosen_reward'] = chosen_rewards
         return_dict['rejected_reward'] = rejected_rewards
-    if len(vstars) > 0:
-        vstars = torch.stack(vstars)
-        return_dict['vstar'] = vstars
 
     return return_dict
 
@@ -270,9 +264,6 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
             rejected_reward = torch.Tensor([sample['rejected_reward']])
             return_dict['chosen_reward'] = chosen_reward
             return_dict['rejected_reward'] = rejected_reward
-
-        if 'vstar' in sample:
-            return_dict['vstar'] = torch.Tensor([sample['vstar']])
 
         return return_dict
 
