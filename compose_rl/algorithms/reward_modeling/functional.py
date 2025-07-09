@@ -443,53 +443,33 @@ class MCQAVerifierReward(BaseVerifierReward):
 
     def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
         super().__init__(tokenizer=tokenizer, reward=reward)
-        self._ANSWER_PATTERN = re.compile(
+        self._ANSWER_EXACT = re.compile(
             r"""
-            (?:
-                # Branch 1: Explicit answer phrases with optional formatting
-                (?:(?<=\n)|^|(?<=\s))
-                (?:
-                    (?:final|correct|best|exact|
-                        true|only|real)?\s*answer
-                    (?:\s+is)?
-                | the\s+(?:final\s+)?answer\s+is
-                | thus\s*,?\s*final\s+answer
-                | therefore\s*,?\s*the\s+answer\s+is
-                | my\s+(?:final\s+)?(?:choice|answer)\s+is
-                | i\s+(?:choose|select)
-                )
-                \s*[:=\-–—]?\s*
-                (?:\\boxed\s*\{)?
-                [\*\(\[]?
-                ([A-Z])
-                [\]\)\*]?
-                (?:\})?
-            |  # OR
-                # Branch 2: Strict formatted answers (no phrase required)
-                (?:
-                    \\boxed\{\s*([A-Z])\s*\}
-                | \*\*([A-Z])\*\*
-                | \b\(([A-Z])\)
-                | \[([A-Z])\]
-                )
-                (?=\.|,|;|:|\s|$)
+            (?:(?<=\n)|^)                       # start of string or new-line
+            (?:                                 # label / verb phrase variants
+                (?:final|correct|best|exact|
+                    true|only|real)?\s*answer   # "… answer"
+                (?:\s+is)?                      # optional "is"
+            | the\s+(?:final\s+)?answer\s+is    # "the answer is…"
+            | thus\s*,?\s*final\s+answer        # "thus, final answer…"
             )
+            \s*[:=\-–—]?\s*                     # delimiter (:, =, –, —, -)
+            (?:\\boxed\s*)?                     # optional LaTeX \boxed
+            [\*\(\{\[]?                         # optional opening wrapper
+            (?P<ans>[A-Z])                      # ← captured letter (A–Z, case-insens.)
+            [\]\}\)\*]?                         # optional closing wrapper
+            (?:\s*[)\].]*)?                     # trailing ) . ] …
             """,
             re.IGNORECASE | re.VERBOSE | re.DOTALL,
         )
-        self._ANSWER_FALLBACK = re.compile(r'(?<![A-Z])([A-Z])(?![A-Z])')
+        self._FALLBACK = re.compile(r'(?<![A-Z])([A-Z])(?![A-Z])')
 
     def extract_solution(self, text: str) -> str:
         """Extract string answer from responses."""
-        # Check unified pattern
-        if (m := self._ANSWER_PATTERN.search(text)):
-            # The pattern uses multiple groups, find which one matched
-            for group in m.groups():
-                if group:
-                    return group.upper()
+        if (m := self._ANSWER_EXACT.search(text)):
+            return m.group('ans').upper()
 
-        # Fallback (returns last match)
-        candidates = self._ANSWER_FALLBACK.findall(text.upper())
+        candidates = self._FALLBACK.findall(text.upper())
         return candidates[-1] if candidates else ''
 
     def score_generations(self, answer: str, label: str) -> float:
