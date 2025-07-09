@@ -14,7 +14,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from compose_rl.algorithms.offline.model_methods import (
-    OfflineEnum,
+    RegressionOfflineEnum,
     PairwiseOfflineEnum,
     offline_forward,
     offline_loss,
@@ -35,11 +35,13 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
         loss_type: str = 'apo',
         beta: float = 0.1,
         average_log_prob: bool = False,
+        temperature: float = 1.0,
         **kwargs: Any,
     ):
-        self.loss_type = OfflineEnum(loss_type)
+        self.loss_type = RegressionOfflineEnum(loss_type)
         self.beta = beta
         self.average_log_prob = average_log_prob
+        self.temperature = temperature
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
@@ -78,11 +80,13 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         loss_type: str = 'apo',
         beta: float = 0.1,
         average_log_prob: bool = False,
+        temperature: float = 1.0,
         **kwargs: Any,
     ):
-        self.loss_type = OfflineEnum(loss_type)
+        self.loss_type = RegressionOfflineEnum(loss_type)
         self.beta = beta
         self.average_log_prob = average_log_prob
+        self.temperature = temperature
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward

@@ -26,7 +26,7 @@ from compose_rl.utils import (
 )
 
 
-class OfflineEnum(Enum):
+class RegressionOfflineEnum(Enum):
     APO = 'apo'
 
 
@@ -44,6 +44,7 @@ def offline_forward(
     batch: MutableMapping,
     average_log_prob: bool = False,
     policy_model_config: Optional[PretrainedConfig] = None,
+    temperature: float = 1.0,
 ) -> dict[str, torch.Tensor]:
     """Forwards the model for dpo and get the chosen and rejected log probs.
 
@@ -55,16 +56,27 @@ def offline_forward(
         average_log_prob (bool): Whether should we average the log probabilities.
         policy_model_config: Policy model config.
     """
+    is_multimodal = 'pixel_values' in batch.keys()
+
     if policy_model_config is not None and hasattr(model, 'transformer'):
         clear_mb_load_balancing_loss(
             policy_model_config,
             model.transformer,  # type: ignore
         )
 
-    output_logits = model(
-        batch['input_ids'],
-        attention_mask=batch['attention_mask'],
-    ).logits
+    inputs = {
+        "input_ids": batch['input_ids'],
+        "attention_mask": batch['attention_mask'],
+    }
+
+    if is_multimodal:
+        multimodal_inputs = {
+            'token_type_ids': batch['token_type_ids'],
+            'pixel_values': batch['pixel_values'],
+        }
+        inputs.update(multimodal_inputs)
+
+    output_logits = model(**inputs).logits
 
     logps = get_batch_logp(
         batch['input_ids'],
@@ -72,6 +84,7 @@ def offline_forward(
         batch['prompt_len'],
         batch['sequence_len'],
         average_log_prob,
+        temperature=temperature,
     )
 
     outputs: dict[str, torch.Tensor] = {
@@ -92,7 +105,7 @@ def offline_forward(
 def offline_loss(
     outputs: CausalLMOutputWithPast,
     batch: Mapping,
-    loss_type: OfflineEnum,
+    loss_type: RegressionOfflineEnum,
     beta: float,
 ):
     policy_logp = outputs['policy_logp']  # (batch_size, )
@@ -101,7 +114,7 @@ def offline_loss(
         torch.zeros_like(policy_logp),
     )
 
-    if loss_type == OfflineEnum.APO:
+    if loss_type == RegressionOfflineEnum.APO:
         # Reproducing the APO loss from APO paper: https://arxiv.org/pdf/2505.20686 on page 3
         # APO is not a pair-wise loss function.
         # Similar to REBEL, we assume each response has a reward in the batch.
@@ -133,7 +146,7 @@ def offline_loss(
         'reverse_kl': reverse_kl,
         'forward_kl': forward_kl,
     }
-    if loss_type == OfflineEnum.APO:
+    if loss_type == RegressionOfflineEnum.APO:
         loss_dict['estimated_reward'] = estimated_reward
 
     if 'lbl' in outputs:
