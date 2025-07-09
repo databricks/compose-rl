@@ -97,6 +97,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
             model=self.model,
             batch=batch,
             average_log_prob=self.average_log_prob,
+            temperature=self.temperature,
         )
 
     def eval_forward(
