@@ -443,6 +443,8 @@ class MCQAVerifierReward(BaseVerifierReward):
 
     def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
         super().__init__(tokenizer=tokenizer, reward=reward)
+        # Logic borrowed from here: https://github.com/NousResearch/atropos/blob/main/environments/mcqa_thinking_env.py#L208-L300
+        # and modified to be efficient via regex patterns
         self._ANSWER_EXACT = re.compile(
             r"""
             (?:(?<=\n)|^)                       # start of string or new-line
