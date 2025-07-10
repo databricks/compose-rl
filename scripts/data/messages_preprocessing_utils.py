@@ -15,10 +15,10 @@ from typing import Any
 from compose_rl.utils.rlvr_utils import (
     extract_gsm8k_answer,
     extract_math_answer,
-    extract_stem_answer,
+    extract_verified_answer,
     prepare_gsm8k_prompt,
     prepare_math_prompt,
-    prepare_stem_prompt,
+    prepare_prompt,
 )
 
 
@@ -63,11 +63,11 @@ def prepare_ultrafeedback_summarization_messages(
     return messages, {}
 
 
-def prepare_stem_messages(
+def prepare_messages(
     sample: Any,
 ) -> tuple[list[dict[str, str]], dict[str, str | None]]:
-    user_prompt = prepare_stem_prompt(sample)
-    verified_answer = extract_stem_answer(sample)
+    user_prompt = prepare_prompt(sample)
+    verified_answer = extract_verified_answer(sample)
     messages = [
         {
             'role': 'user',

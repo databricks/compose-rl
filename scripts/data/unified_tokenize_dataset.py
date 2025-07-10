@@ -17,10 +17,10 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 from compose_rl.utils.rlvr_utils import (
     extract_gsm8k_answer,
     extract_math_answer,
-    extract_stem_answer,
+    extract_verified_answer,
     prepare_gsm8k_prompt,
     prepare_math_prompt,
-    prepare_stem_prompt,
+    prepare_prompt,
 )
 
 log = logging.getLogger(__name__)
@@ -165,8 +165,8 @@ class UnifiedTokenizedDataset(IterableDataset):
             prompt_fn = prepare_math_prompt
             answer_fn = extract_math_answer
         elif 'stem' in self.dataset_name or 'science' in self.dataset_name:
-            prompt_fn = prepare_stem_prompt
-            answer_fn = extract_stem_answer
+            prompt_fn = prepare_prompt
+            answer_fn = extract_verified_answer
         else:
             raise ValueError(
                 f'Unknown dataset name: {self.dataset_name}. Please provide a valid name.',
