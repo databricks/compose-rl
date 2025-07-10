@@ -269,8 +269,12 @@ class BaseVerifierReward(Reward):
 
     def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
         super().__init__(tokenizer=tokenizer)
-        self.reward = reward
+        if reward <= 0.0:
+            raise ValueError(
+                f'Reward for verifiers must be positive, but got {reward}',
+            )
 
+        self.reward = reward
         log.info(
             f'Using reward value of {self.reward} for {self.__class__.__name__} verifier',
         )
@@ -437,3 +441,43 @@ class MATHFormatVerifierReward(BaseVerifierReward):
         """
         last_boxed_string = last_boxed_only_string(answer)
         return 0.0 if not last_boxed_string else self.reward
+
+
+class MCQAVerifierReward(BaseVerifierReward):
+
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+        # Logic borrowed from here: https://github.com/NousResearch/atropos/blob/6386a5e18517d19546a3a77943cbc5081f197ca2/environments/mcqa_thinking_env.py#L208-L300
+        # and modified to be efficient via regex patterns
+        self._ANSWER_EXACT = re.compile(
+            r"""
+            (?:(?<=\n)|^)                       # start of string or new-line
+            (?:                                 # label / verb phrase variants
+                (?:final|correct|best|exact|
+                    true|only|real)?\s*answer   # "… answer"
+                (?:\s+is)?                      # optional "is"
+            | the\s+(?:final\s+)?answer\s+is    # "the answer is…"
+            | thus\s*,?\s*final\s+answer        # "thus, final answer…"
+            )
+            \s*[:=\-–—]?\s*                     # delimiter (:, =, –, —, -)
+            (?:\\boxed\s*)?                     # optional LaTeX \boxed
+            [\*\(\{\[]?                         # optional opening wrapper
+            (?P<ans>[A-Z])                      # ← captured letter (A–Z, case-insens.)
+            [\]\}\)\*]?                         # optional closing wrapper
+            (?:\s*[)\].]*)?                     # trailing ) . ] …
+            """,
+            re.IGNORECASE | re.VERBOSE | re.DOTALL,
+        )
+        self._FALLBACK = re.compile(r'(?<![A-Z])([A-Z])(?![A-Z])')
+
+    def extract_solution(self, text: str) -> str:
+        """Extract string answer from responses."""
+        if (m := self._ANSWER_EXACT.search(text)):
+            return m.group('ans').upper()
+
+        candidates = self._FALLBACK.findall(text.upper())
+        return candidates[-1] if candidates else ''
+
+    def score_generations(self, answer: str, label: str) -> float:
+        """Score based on exact match."""
+        return self.reward if answer == label else 0.0
