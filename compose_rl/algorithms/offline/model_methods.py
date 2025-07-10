@@ -110,11 +110,6 @@ def offline_loss(
 ):
     policy_logp = outputs['policy_logp']  # (batch_size, )
     
-    #test shape
-    print("################################################")
-    print(policy_logp.shape)
-    print("################################################")
-
     ref_logp = batch.get(
         'ref_logp',
         torch.zeros_like(policy_logp),
