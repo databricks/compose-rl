@@ -10,8 +10,6 @@ from sympy.parsing.latex import parse_latex
 
 log = logging.getLogger(__name__)
 
-## GSM8k utils
-
 
 def extract_gsm8k_answer(sample: Any) -> str:
     """Extract the ground truth from the answer column using regex."""
@@ -28,9 +26,6 @@ def prepare_gsm8k_prompt(sample: Any) -> str:
     _instruction = "Let's think step by step and output the final answer after \"####\"."
     final_prompt = f'Question: {prompt} ' + _instruction
     return final_prompt
-
-
-## Math utils
 
 
 def last_boxed_only_string(string: str) -> str | None:
@@ -223,9 +218,6 @@ def prepare_math_prompt(sample: Any) -> str:
     _instruction = " Let's think step by step and output the final answer within \\boxed{}."
     final_prompt = f'Question: {prompt} ' + _instruction
     return final_prompt
-
-
-## STEM utils
 
 
 def extract_stem_answer(sample: Any) -> str:
