@@ -59,7 +59,7 @@ def test_call_base_verifer_invalid_input(reward: MCQAVerifierReward) -> None:
                 'verified_answers': ['B', 'D'],
                 'generated_lens': torch.tensor([6, 6]),
             },
-            [(0, 5, 2.0), (1, 5, 0.0)],
+            [(0, 5, 0.0), (1, 5, 2.0)],
         ),
     ],
 )
