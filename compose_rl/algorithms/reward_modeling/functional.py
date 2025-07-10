@@ -269,8 +269,12 @@ class BaseVerifierReward(Reward):
 
     def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
         super().__init__(tokenizer=tokenizer)
-        self.reward = reward
+        if reward <= 0.0:
+            raise ValueError(
+                f'Reward for verifiers must be positive, but got {reward}',
+            )
 
+        self.reward = reward
         log.info(
             f'Using reward value of {self.reward} for {self.__class__.__name__} verifier',
         )
