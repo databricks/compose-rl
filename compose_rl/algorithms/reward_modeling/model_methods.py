@@ -326,7 +326,7 @@ def classifier_loss(
             output_scores,
             batch['labels'],
         )
-    elif loss_type = ClassifierRewardEnum.CE:  # CE for mult-class classification
+    elif loss_type == ClassifierRewardEnum.CE:  # CE for mult-class classification
         n_classes = output_scores.size(-1)
         flat_log_probs = F.log_softmax(output_scores, dim = -1).view(-1, n_clases)
         flat_labels = batch['labels'].to(torch.int).view(-1)
