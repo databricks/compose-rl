@@ -65,8 +65,8 @@ def offline_forward(
         )
 
     inputs = {
-        "input_ids": batch['input_ids'],
-        "attention_mask": batch['attention_mask'],
+        'input_ids': batch['input_ids'],
+        'attention_mask': batch['attention_mask'],
     }
 
     if is_multimodal:
@@ -109,7 +109,7 @@ def offline_loss(
     beta: float,
 ):
     policy_logp = outputs['policy_logp']  # (batch_size, )
-    
+
     ref_logp = batch.get(
         'ref_logp',
         torch.zeros_like(policy_logp),
@@ -149,7 +149,9 @@ def offline_loss(
     }
     if loss_type == RegressionOfflineEnum.APO:
         loss_dict['estimated_reward'] = estimated_reward
-        loss_dict['batch_advantage'] = torch.mean(batch['reward'] - batch['vstar'])
+        loss_dict['batch_advantage'] = torch.mean(
+            batch['reward'] - batch['vstar']
+        )
 
     if 'lbl' in outputs:
         losses += outputs['lbl']
