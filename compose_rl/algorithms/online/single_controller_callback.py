@@ -544,7 +544,7 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
             vllm_engines (list[Any]): The vllm engines to round trip to.
         """
         batch = device.batch_to_device(self._get_next_iter_prompts())
-        self._update_inference_model(batch, vllm_engines, model_update_group)
+        # self._update_inference_model(batch, vllm_engines, model_update_group)
         self.batch_rollouts = self._interact_with_env(batch, vllm_engines)
 
     def iteration_start(self, state: State, logger: Logger):
@@ -593,6 +593,7 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
         ]
 
         ret_batch = {}
+        assert 'prompt_id' in batches[0], 'prompt_id must be in the batch'
         for key in batches[0].keys():
             curr_values = []
 

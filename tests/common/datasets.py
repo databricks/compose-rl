@@ -71,6 +71,7 @@ class PromptDataset(Dataset):
         return {
             'prompt': torch.ones((self.prompt_len,)).int(),
             'prompt_len': torch.Tensor([self.prompt_len]).to(torch.int64),
+            'prompt_id': torch.Tensor([index]).int(),
         }
 
 
@@ -87,5 +88,6 @@ class VerifiablePromptDataset(Dataset):
         return {
             'prompt': torch.ones((self.prompt_len,)).int(),
             'prompt_len': torch.Tensor([self.prompt_len]).to(torch.int64),
+            'prompt_id': torch.Tensor([index]).int(),
             'verified_answer': '1',
         }

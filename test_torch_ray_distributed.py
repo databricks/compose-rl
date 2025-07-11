@@ -109,7 +109,7 @@ class DistributedGPUActor:
         self.model = None
         self.model_update_group = None
 
-        self.model_name = 'gpt2'
+        self.pretrain_model_name = None
         self.ref_path = None
         self._dataloader = None
         self._tokenizer = None
@@ -119,14 +119,13 @@ class DistributedGPUActor:
     def build_dataloader(self):
         max_seq_len = 32
         prompt_len = 10
-        tiny_gpt2_tokenizer = AutoTokenizer.from_pretrained('gpt2')
 
-        dataset = PromptDataset(prompt_len=prompt_len)
+        dataset = VerifiablePromptDataset(prompt_len=prompt_len)
         dataloader = DataLoader(
             dataset,
             collate_fn=partial(
                 prompt_dataset_collate_fn,
-                tiny_gpt2_tokenizer,
+                self.tokenizer,
                 max_seq_len,
             ),
             sampler=composer_dist.get_sampler(dataset),
@@ -144,7 +143,7 @@ class DistributedGPUActor:
         return self._dataloader
 
     def build_tokenizer(self):
-        tokenizer = assets_tokenizer_helper('gpt2')
+        tokenizer = assets_tokenizer_helper(self.pretrain_model_name)
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         return tokenizer
 
@@ -158,7 +157,7 @@ class DistributedGPUActor:
     def model_config(self):
         return {
             'tokenizer': self.tokenizer,
-            'pretrained_model_name_or_path': self.model_name,
+            'pretrained_model_name_or_path': self.pretrain_model_name,
             'pretrained': True,
             'use_flash_attention_2': True,
             'allow_embedding_resizing': True,
@@ -199,9 +198,9 @@ class DistributedGPUActor:
         # After making the reference model, we can proceed with the PPO training
         self.ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
 
-    def build_ppo_trainer(self):
+    def build_ppo_trainer(self, pretrain_model_name: str):
+        self.pretrain_model_name = pretrain_model_name
         composer_dist.initialize_dist('gpu')
-
         max_seq_len = 32
         precision = 'amp_bf16'
 
@@ -272,8 +271,8 @@ class DistributedGPUActor:
             max_duration='3iter',
             device_train_microbatch_size=1,
             load_path=self.ref_path,
-            save_folder=tmp_save_path,
-            save_interval='1iter',
+            # save_folder=tmp_save_path,
+            # save_interval='1iter',
         )
 
         # trainer.fit(duration='1iter')
@@ -289,7 +288,7 @@ class DistributedGPUActor:
     def train_1_iter(self):
         self.ppo_trainer.fit(duration='1iter')
 
-    def sync_weight_and_gen(self, vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+    def sync_weight_and_gen(self, vllm_engines: list[Any]):
         self.ppo_callback.round_trip_to_inference_engines(
             device=self.ppo_trainer.state.device,
             vllm_engines=vllm_engines,
@@ -379,7 +378,7 @@ def run(tp_size: int = 8):
         "what is RAY?",
         "what is vLLM?",
     ]
-    pretrain_model_name = 'meta-llama/Llama-3.2-1B-Instruct'
+    pretrain_model_name = 'gpt2'
     with start_ray_server() as address:
         if dist.get_rank() == 0:
             master_addr, _ = address.split(':')
@@ -416,46 +415,54 @@ def run(tp_size: int = 8):
             # ray.get(build_ref_model_tasks)
             # print('build ref model done')
 
-            build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote() for actor in train_actors]
+            build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote(pretrain_model_name) for actor in train_actors]
             ray.get(build_ppo_trainer_tasks)
             print('build ppo trainer done')
 
-            # vllm_tensor_parallel_size = tp_size
-            # num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
-            # print(f'num_vllm_engines: {num_vllm_engines}')
-            # vllm_engines = create_vllm_engines(
-            #     num_engines=num_vllm_engines,
-            #     tensor_parallel_size=vllm_tensor_parallel_size,
-            #     enforce_eager=True,
-            #     pretrain=pretrain_model_name,
-            #     revision=None,
-            #     seed=1,
-            #     enable_prefix_caching=False,
-            #     max_model_len=2048,
-            # )
+            vllm_tensor_parallel_size = min(tp_size, dist.get_world_size() - num_train_actors)
+            num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
+            print(f'num_vllm_engines: {num_vllm_engines}')
+            vllm_engines = create_vllm_engines(
+                num_engines=num_vllm_engines,
+                tensor_parallel_size=vllm_tensor_parallel_size,
+                enforce_eager=True,
+                pretrain=pretrain_model_name,
+                revision=None,
+                seed=1,
+                enable_prefix_caching=False,
+                max_model_len=512,
+            )
 
-            # new_port = ray.get(master_actor.get_free_port.remote())
-            # print(f'new_port: {new_port}')
-            # refs = [
-            #     engine.init_process_group.remote(
-            #         master_addr,
-            #         new_port,
-            #         i * vllm_tensor_parallel_size + 1,
-            #         dist.get_world_size() // 2 + 1,
-            #         'weight-update',
-            #         backend='nccl',
-            #     ) for i, engine in enumerate(vllm_engines)
-            # ]
-            # refs.append(master_actor.init_vllm_process_group.remote(
-            #     backend='nccl',
-            #     master_addr=master_addr,
-            #     master_port=new_port,
-            #     world_size=dist.get_world_size() // 2 + 1,
-            #     rank=0,
-            #     group_name='weight-update',
-            # ))
-            # print(ray.get(refs))
+            new_port = ray.get(master_actor.get_free_port.remote())
+            print(f'new_port: {new_port}')
+            refs = [
+                engine.init_process_group.remote(
+                    master_addr,
+                    new_port,
+                    i * vllm_tensor_parallel_size + 1,
+                    dist.get_world_size() // 2 + 1,
+                    'weight-update',
+                    backend='nccl',
+                ) for i, engine in enumerate(vllm_engines)
+            ]
+            refs.append(master_actor.init_vllm_process_group.remote(
+                backend='nccl',
+                master_addr=master_addr,
+                master_port=new_port,
+                world_size=dist.get_world_size() // 2 + 1,
+                rank=0,
+                group_name='weight-update',
+            ))
+            # should only get refs of both master and vllm_engines together, otherwise it will hang
+            print(ray.get(refs))
 
+            refs = [actor.sync_weight_and_gen.remote(vllm_engines) for actor in train_actors]
+            ray.get(refs)
+            print('sync weight and gen done')
+
+            refs = [actor.train_1_iter.remote() for actor in train_actors]
+            ray.get(refs)
+            print('train 1 iter done')
             # refs = [actor.init_model.remote(pretrain_model_name) for actor in train_actors]
             # ray.get(refs)
             # print('init model done')
