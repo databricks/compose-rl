@@ -150,7 +150,7 @@ def offline_loss(
     if loss_type == RegressionOfflineEnum.APO:
         loss_dict['estimated_reward'] = estimated_reward
         loss_dict['batch_advantage'] = torch.mean(
-            batch['reward'] - batch['vstar']
+            batch['reward'] - batch['vstar'],
         )
 
     if 'lbl' in outputs:
