@@ -326,9 +326,18 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
         label = label.to(torch.float32)
 
         text_len = len(text)
+        if "mask" in sample:
+            mask = torch.from_numpy(np.frombuffer(sample['mask'], dtype = np.uint8))
+            return {
+                'text': text,
+                'labels': label,
+                'text_len': torch.Tensor([text_len]).to(torch.int64),
+                'mask': torch.tensor(mask).to(torch.int64)
+            }
 
-        return {
-            'text': text,
-            'labels': label,
-            'text_len': torch.Tensor([text_len]).to(torch.int64),
-        }
+        else:
+            return {
+                'text': text,
+                'labels': label,
+                'text_len': torch.Tensor([text_len]).to(torch.int64),
+            }
