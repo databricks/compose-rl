@@ -42,6 +42,7 @@ from torch.distributed.distributed_c10d import (
     default_pg_timeout,
     rendezvous,
 )
+from torch.distributed.fsdp import FSDPModule
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from compose_rl.algorithms.online.generation_utils.vllm_actor import LLMRayActor
@@ -49,6 +50,7 @@ from compose_rl.algorithms.online.model_methods import (
     ALGORITHM_TYPE,
     OnPolicyEnum,
 )
+from compose_rl.utils.utils import summon_full_params
 
 log = logging.getLogger(__name__)
 
@@ -330,15 +332,15 @@ def simplify_param_path(path: str) -> str:
 
 
 def is_fsdp_leaf(module: nn.Module) -> bool:
-    """Check if the module is a leaf in the FSDP hierarchy.
+    """Check if the module is a leaf in the FSDP(1/2) hierarchy.
 
     Args:
         module (nn.Module): The torch module to check
     """
-    if not isinstance(module, FSDP):
+    if not isinstance(module, (FSDP, FSDPModule)):
         return False
     for subm in module.modules():
-        if subm is not module and isinstance(subm, FSDP):
+        if subm is not module and isinstance(subm, (FSDP, FSDPModule)):
             return False
     return True
 
@@ -452,7 +454,7 @@ def broadcast_to_vllm(
     update_time = 0
 
     for module_name, module in model.named_modules():
-        if isinstance(module, FSDP):
+        if isinstance(module, (FSDP, FSDPModule)):
             # This is needed otherwise FSDP will materialize parameters of size 0.
             # So just for the joint actor critic models we have to actually skip this module.
             if module_name == 'model' and loss_type == OnPolicyEnum.PPO:
@@ -463,7 +465,7 @@ def broadcast_to_vllm(
                 seen_fsdp_modules.add(module)
 
                 # Materializes parameters for this specific FSDP module
-                with FSDP.summon_full_params(
+                with summon_full_params(
                     module,
                     writeback=False,
                     rank0_only=True,
