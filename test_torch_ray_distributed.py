@@ -24,12 +24,13 @@ from transformers.models.gpt2 import GPT2LMHeadModel
 from compose_rl.algorithms.online import (
     ComposerHFPolicyLM,
     ComposerMPTPolicyLM,
-    OnPolicyCallback,
+    SingleControllerOnPolicyCallback,
 )
 from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
 from compose_rl.data import prompt_dataset_collate_fn
 from tests.common import PromptDataset, VerifiablePromptDataset, world_size
+from tests.fixtures.fixtures import assets_tokenizer_helper
 
 from compose_rl.algorithms.online.generation_utils import init_process_group, create_vllm_engines
 
@@ -108,12 +109,16 @@ class DistributedGPUActor:
         self.model = None
         self.model_update_group = None
 
-    def build_ref_model(self):
-        composer_dist.initialize_dist('gpu')
+        self.model_name = 'gpt2'
+        self.ref_path = None
+        self._dataloader = None
+        self._tokenizer = None
+        self.ppo_callback = None
+        self.ppo_trainer: Trainer = None
+
+    def build_dataloader(self):
         max_seq_len = 32
         prompt_len = 10
-
-        model_name = 'gpt2'
         tiny_gpt2_tokenizer = AutoTokenizer.from_pretrained('gpt2')
 
         dataset = PromptDataset(prompt_len=prompt_len)
@@ -127,19 +132,46 @@ class DistributedGPUActor:
             sampler=composer_dist.get_sampler(dataset),
             batch_size=4,
         )
-
         # We need to mock this method, since our dataset isn't a StreamingDataset
         dataloader.state_dict = lambda: {}
         dataloader.load_state_dict = lambda x: None
+        return dataloader
 
-        model_config = {
-            'tokenizer': tiny_gpt2_tokenizer,
-            'pretrained_model_name_or_path': model_name,
+    @property
+    def dataloader(self):
+        if self._dataloader is None:
+            self._dataloader = self.build_dataloader()
+        return self._dataloader
+
+    def build_tokenizer(self):
+        tokenizer = assets_tokenizer_helper('gpt2')
+        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+        return tokenizer
+
+    @property
+    def tokenizer(self):
+        if self._tokenizer is None:
+            self._tokenizer = self.build_tokenizer()
+        return self._tokenizer
+
+    @property
+    def model_config(self):
+        return {
+            'tokenizer': self.tokenizer,
+            'pretrained_model_name_or_path': self.model_name,
             'pretrained': True,
             'use_flash_attention_2': True,
             'allow_embedding_resizing': True,
         }
-        tmp_model = ComposerHFCausalLM(**model_config)
+
+    @property
+    def fsdp_config(self):
+        return dict()
+
+    def build_ref_model(self):
+        composer_dist.initialize_dist('gpu')
+
+        tmp_model = ComposerHFCausalLM(**self.model_config)
 
         tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
 
@@ -156,7 +188,7 @@ class DistributedGPUActor:
             train_dataloader=temp_dataloader,
             optimizers=tmp_optimizer,
             max_duration='1ba',
-            parallelism_config={'fsdp': {}},
+            parallelism_config={'fsdp': self.fsdp_config},
             save_folder=tmp_ref_path,
             save_weights_only=True,
             device_train_microbatch_size=2,
@@ -165,7 +197,105 @@ class DistributedGPUActor:
         temp_trainer.fit()
 
         # After making the reference model, we can proceed with the PPO training
-        tmp_ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
+        self.ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
+
+    def build_ppo_trainer(self):
+        composer_dist.initialize_dist('gpu')
+
+        max_seq_len = 32
+        precision = 'amp_bf16'
+
+        model = ComposerHFPolicyLM(**self.model_config)
+
+        optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
+
+        num_batches_per_update = 2
+
+        # ref_model_config = copy.deepcopy(self.model_config)
+        ref_model_config = {**self.model_config, 'name': 'hf_causal_lm'}
+
+        variables = {
+            'buffer': {
+                'name': 'MinibatchRolloutBuffer',
+                'max_buffer_size': num_batches_per_update,
+            },
+            'max_gen_len': 8,
+            'gamma': 0.99,
+            'lambda_gae': 0.95,
+            'generation_kwargs': {
+                'use_cache': True,
+                'do_sample': False,
+            },
+            'kl_controller': {
+                'init_kl_coef': 0.2,
+                'target': 0.01,
+                'horizon': 12800,
+                'kl_ctl_type': 'adaptive',
+            },
+            'reference_model': {
+                'model_config': ref_model_config,
+                'precision': precision,
+                'load_path': self.ref_path,
+                'non_train_fsdp_config': self.fsdp_config,
+            },
+            'device_generate_batch_size': 2,
+            'epoch_per_iteration': 1,
+            'num_batches_per_update': num_batches_per_update,
+            'rewards': {
+                'output_length': {
+                    'reward_type': 'output_length',
+                    'max_gen_len': 10,
+                },
+            },
+        }
+        train_config = {
+            'model': {**self.model_config, 'kl_estimator': 'k1', 'kl_clip_range': 40.0},
+            'fsdp_config': self.fsdp_config,
+            'seed': 17,
+            'precision': precision,
+            'variables': variables,
+            'max_seq_len': max_seq_len,
+            'global_train_batch_size': 2,
+            'device_train_batch_size': 2,
+            'device_train_microbatch_size': 1,
+        }
+
+        tmp_save_path = str('./checkpoints')
+        self.ppo_callback = SingleControllerOnPolicyCallback(train_config=train_config)
+        self.ppo_trainer = Trainer(
+            model=model,
+            optimizers=optimizer,
+            callbacks=self.ppo_callback,
+            train_dataloader=self.dataloader,
+            precision=precision,
+            parallelism_config={'fsdp': self.fsdp_config},
+            max_duration='3iter',
+            device_train_microbatch_size=1,
+            load_path=self.ref_path,
+            save_folder=tmp_save_path,
+            save_interval='1iter',
+        )
+
+        # trainer.fit(duration='1iter')
+
+        # This is the KL assert that must be true if we are truly loading from the same model.
+        # This is only true on the first iteration
+        # assert torch.allclose(
+        #     trainer.state.loss['kl/ift_kl'], # pyright: ignore
+        #     torch.tensor(0.0),
+        #     atol=5e-5,
+        # )
+
+    def train_1_iter(self):
+        self.ppo_trainer.fit(duration='1iter')
+
+    def sync_weight_and_gen(self, vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+        self.ppo_callback.round_trip_to_inference_engines(
+            device=self.ppo_trainer.state.device,
+            vllm_engines=vllm_engines,
+            model_update_group=self.model_update_group,
+        )
+
 
     def get_node_ip(self):
         return ray.util.get_node_ip_address().strip('[]')
@@ -282,9 +412,13 @@ def run(tp_size: int = 8):
             # results = ray.get(reduce_tasks)
             # print(f"All-reduce results: {results}")
 
-            build_ref_model_tasks = [actor.build_ref_model.remote() for actor in train_actors]
-            ray.get(build_ref_model_tasks)
-            print('build ref model done')
+            # build_ref_model_tasks = [actor.build_ref_model.remote() for actor in train_actors]
+            # ray.get(build_ref_model_tasks)
+            # print('build ref model done')
+
+            build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote() for actor in train_actors]
+            ray.get(build_ppo_trainer_tasks)
+            print('build ppo trainer done')
 
             # vllm_tensor_parallel_size = tp_size
             # num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size

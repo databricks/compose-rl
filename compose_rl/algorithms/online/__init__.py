@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from compose_rl.algorithms.online.callback import OnPolicyCallback
+from compose_rl.algorithms.online.single_controller_callback import SingleControllerOnPolicyCallback
 from compose_rl.algorithms.online.kl_controller import (
     AdaptiveKLController,
     BallKLController,
@@ -28,6 +29,7 @@ kl_controllers.register('ball', func=BallKLController)
 
 __all__ = [
     'OnPolicyCallback',
+    'SingleControllerOnPolicyCallback',
     'ComposerMPTPolicyLM',
     'ComposerHFPolicyLM',
     'ComposerHFCriticFreePolicyLM',

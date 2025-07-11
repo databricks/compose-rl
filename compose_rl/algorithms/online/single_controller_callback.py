@@ -60,7 +60,7 @@ from compose_rl.utils import (
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 Policy = Union[ComposerHFPolicyLM, ComposerMPTPolicyLM]
 
-__all__ = ['OnPolicyCallback', 'env_reward']
+__all__ = ['SingleControllerOnPolicyCallback', 'env_reward']
 
 log = logging.getLogger(__name__)
 
@@ -307,7 +307,7 @@ def env_reward(
     )
 
 
-class OnPolicyCallback(CallbackWithConfig):
+class SingleControllerOnPolicyCallback(CallbackWithConfig):
     """Callback for managing on-policy training in an RLHF loop.
 
     Args:
