@@ -173,6 +173,72 @@ class ComposerHFClassifierRewardModel(
         )
 
 
+class ComposerHFClassifierValueModel(
+    ComposerHFSequenceClassification,
+    RewardModel,
+):
+
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        use_train_metrics: bool = True,
+        additional_train_metrics: Optional[list] = None,
+        additional_eval_metrics: Optional[list] = None,
+        loss_type: str = 'ce',
+        return_lm_logits: bool = False,
+        return_last: bool = False,
+        **kwargs: Any,
+    ):
+        self.loss_type = ClassifierRewardEnum(loss_type)
+        self.return_lm_logits = return_lm_logits
+        self.return_last = return_last
+
+        config_overrides = {
+            'return_logits': return_lm_logits,
+        }
+
+        if 'config_overrides' in kwargs:
+            config_overrides.update(kwargs.pop('config_overrides'))
+
+        self.min_threshold = kwargs.pop('min_threshold', None)
+        self.max_threshold = kwargs.pop('max_threshold', None)
+
+        super().__init__(
+            tokenizer=tokenizer,
+            use_train_metrics=use_train_metrics,
+            additional_train_metrics=additional_train_metrics,
+            additional_eval_metrics=additional_eval_metrics,
+            config_overrides=config_overrides,
+            **kwargs,
+        )
+
+    def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
+        ret_val = classifier_forward(
+            model=self.model,
+            tokenizer=self.tokenizer,
+            batch=batch,
+            return_last=self.return_last, #default false: return sequence
+            return_lm_logits=self.return_lm_logits,
+        )
+
+        return ret_val
+
+    def eval_forward(
+        self,
+        batch: MutableMapping,
+        outputs: Optional[SequenceClassifierOutput] = None,
+    ) -> dict[str, torch.Tensor]:
+        return outputs if outputs is not None else self.forward(batch)
+
+    def loss(self, outputs: SequenceClassifierOutput,
+             batch: Mapping) -> dict[str, torch.Tensor]:
+        return classifier_loss(
+            outputs,
+            batch,
+            self.loss_type,
+        )
+
+
 class ComposerMPTPairwiseRewardModel(ComposerMPTCausalLM, RewardModel):
     """MPT model wrapper for Pairwise/BT reward model."""
 

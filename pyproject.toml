@@ -41,7 +41,8 @@ cpu_released = [
 # Registry entry points
 [project.entry-points."llmfoundry_models"]
 mpt_pairwise_rm = "compose_rl.algorithms.reward_modeling:ComposerMPTPairwiseRewardModel"
-hf_pairwise_rm = "compose_rl.algorithms.reward_modeling:ComposerHFPairwiseRewardModel"
+hf_pairwise_rm = "compose_rl.algorithms.reward_modeling:ComposerHFPairwiseRewardModel" 
+hf_classifier_vm = "compose_rl.algorithms.reward_modeling:ComposerHFClassifierValueModel"
 hf_classifier_rm = "compose_rl.algorithms.reward_modeling:ComposerHFClassifierRewardModel"
 hf_causal_classifier_rm = "compose_rl.algorithms.reward_modeling:ComposerHFCausalClassifierRewardModel"
 mpt_pairwise_offline_lm = "compose_rl.algorithms.offline:ComposerMPTPairwiseOfflinePolicyLM"

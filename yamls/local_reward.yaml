@@ -10,19 +10,20 @@ seed: 17
 
 model:
   # name: hf_classifier_rm # for finegrained rewards
-  name: hf_pairwise_rm
+  #name: hf_pairwise_rm
+  name: hf_classifier_vm
   pretrained_model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
   pretrained: true
-  loss_type: bt
+  loss_type: ce
   use_flash_attention_2: true
-  return_last: true
+  return_last: false
   return_lm_logits: false
   use_auth_token: true
   init_device: mixed
-  additional_train_metrics:
-  - pairwise_rm_accuracy
-  additional_eval_metrics:
-  - pairwise_rm_accuracy
+  #additional_train_metrics:
+  #- pairwise_rm_accuracy
+  #additional_eval_metrics:
+  #- pairwise_rm_accuracy
   # For regression based rewards
   # additional_train_metrics:
   # - classifier_accuracy

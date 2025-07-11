@@ -25,6 +25,7 @@ from compose_rl.algorithms.reward_modeling.inference_model import \
 from compose_rl.algorithms.reward_modeling.model import (
     ComposerHFCausalClassifierRewardModel,
     ComposerHFClassifierRewardModel,
+    ComposerHFClassifierValueModel,
     ComposerHFPairwiseRewardModel,
     ComposerMPTPairwiseRewardModel,
 )
@@ -55,6 +56,7 @@ __all__ = [
     'ComposerMPTPairwiseRewardModel',
     'ComposerHFPairwiseRewardModel',
     'ComposerHFClassifierRewardModel',
+    'ComposerHFClassifierValueModel',
     'ComposerHFCausalClassifierRewardModel',
     'InferenceRewardModel',
     'BadGenerationEndReward',
