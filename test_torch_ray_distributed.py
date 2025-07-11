@@ -9,7 +9,28 @@ from contextlib import contextmanager
 from typing import Optional, Tuple
 import argparse
 from datetime import timedelta
-from transformers import AutoModelForCausalLM
+
+from functools import partial
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from composer.utils import dist as composer_dist
+from composer import Trainer
+from composer.optim import DecoupledAdamW
+from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
+from torch.utils.data import DataLoader
+from transformers import PreTrainedModel, PreTrainedTokenizerBase
+from transformers.models.gpt2 import GPT2LMHeadModel
+
+from compose_rl.algorithms.online import (
+    ComposerHFPolicyLM,
+    ComposerMPTPolicyLM,
+    OnPolicyCallback,
+)
+from compose_rl.algorithms.online.model_methods import OnPolicyEnum
+from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
+from compose_rl.data import prompt_dataset_collate_fn
+from tests.common import PromptDataset, VerifiablePromptDataset, world_size
+
 from compose_rl.algorithms.online.generation_utils import init_process_group, create_vllm_engines
 
 from typing import Any
@@ -86,7 +107,65 @@ class DistributedGPUActor:
 
         self.model = None
         self.model_update_group = None
-    
+
+    def build_ref_model(self):
+        max_seq_len = 32
+        prompt_len = 10
+
+        model_name = 'gpt2'
+        tiny_gpt2_tokenizer = AutoTokenizer.from_pretrained('gpt2')
+
+        dataset = PromptDataset(prompt_len=prompt_len)
+        dataloader = DataLoader(
+            dataset,
+            collate_fn=partial(
+                prompt_dataset_collate_fn,
+                tiny_gpt2_tokenizer,
+                max_seq_len,
+            ),
+            sampler=composer_dist.get_sampler(dataset),
+            batch_size=4,
+        )
+
+        # We need to mock this method, since our dataset isn't a StreamingDataset
+        dataloader.state_dict = lambda: {}
+        dataloader.load_state_dict = lambda x: None
+
+        model_config = {
+            'tokenizer': tiny_gpt2_tokenizer,
+            'pretrained_model_name_or_path': model_name,
+            'pretrained': True,
+            'use_flash_attention_2': True,
+            'allow_embedding_resizing': True,
+        }
+        tmp_model = ComposerHFCausalLM(**model_config)
+
+        tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
+
+        tmp_ref_path = str('./ref_checkpoints')
+
+        temp_dataloader = [{
+            'input_ids': torch.ones((2, 15)).to(dtype=torch.int64),
+            'attention_mask': torch.ones((2, 15)),
+            'labels': torch.ones((2, 15)).to(dtype=torch.int64),
+        }]
+
+        temp_trainer = Trainer(
+            model=tmp_model,
+            train_dataloader=temp_dataloader,
+            optimizers=tmp_optimizer,
+            max_duration='1ba',
+            parallelism_config={'fsdp': {}},
+            save_folder=tmp_ref_path,
+            save_weights_only=True,
+            device_train_microbatch_size=2,
+        )
+
+        temp_trainer.fit()
+
+        # After making the reference model, we can proceed with the PPO training
+        tmp_ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
+
     def get_node_ip(self):
         return ray.util.get_node_ip_address().strip('[]')
     
@@ -202,55 +281,59 @@ def run(tp_size: int = 8):
             results = ray.get(reduce_tasks)
             print(f"All-reduce results: {results}")
 
-            vllm_tensor_parallel_size = tp_size
-            num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
-            print(f'num_vllm_engines: {num_vllm_engines}')
-            vllm_engines = create_vllm_engines(
-                num_engines=num_vllm_engines,
-                tensor_parallel_size=vllm_tensor_parallel_size,
-                enforce_eager=True,
-                pretrain=pretrain_model_name,
-                revision=None,
-                seed=1,
-                enable_prefix_caching=False,
-                max_model_len=2048,
-            )
+            build_ref_model_tasks = [actor.build_ref_model.remote() for actor in train_actors]
+            ray.get(build_ref_model_tasks)
+            print('build ref model done')
 
-            new_port = ray.get(master_actor.get_free_port.remote())
-            print(f'new_port: {new_port}')
-            refs = [
-                engine.init_process_group.remote(
-                    master_addr,
-                    new_port,
-                    i * vllm_tensor_parallel_size + 1,
-                    dist.get_world_size() // 2 + 1,
-                    'weight-update',
-                    backend='nccl',
-                ) for i, engine in enumerate(vllm_engines)
-            ]
-            refs.append(master_actor.init_vllm_process_group.remote(
-                backend='nccl',
-                master_addr=master_addr,
-                master_port=new_port,
-                world_size=dist.get_world_size() // 2 + 1,
-                rank=0,
-                group_name='weight-update',
-            ))
-            print(ray.get(refs))
+            # vllm_tensor_parallel_size = tp_size
+            # num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
+            # print(f'num_vllm_engines: {num_vllm_engines}')
+            # vllm_engines = create_vllm_engines(
+            #     num_engines=num_vllm_engines,
+            #     tensor_parallel_size=vllm_tensor_parallel_size,
+            #     enforce_eager=True,
+            #     pretrain=pretrain_model_name,
+            #     revision=None,
+            #     seed=1,
+            #     enable_prefix_caching=False,
+            #     max_model_len=2048,
+            # )
 
-            refs = [actor.init_model.remote(pretrain_model_name) for actor in train_actors]
-            ray.get(refs)
-            print('init model done')
+            # new_port = ray.get(master_actor.get_free_port.remote())
+            # print(f'new_port: {new_port}')
+            # refs = [
+            #     engine.init_process_group.remote(
+            #         master_addr,
+            #         new_port,
+            #         i * vllm_tensor_parallel_size + 1,
+            #         dist.get_world_size() // 2 + 1,
+            #         'weight-update',
+            #         backend='nccl',
+            #     ) for i, engine in enumerate(vllm_engines)
+            # ]
+            # refs.append(master_actor.init_vllm_process_group.remote(
+            #     backend='nccl',
+            #     master_addr=master_addr,
+            #     master_port=new_port,
+            #     world_size=dist.get_world_size() // 2 + 1,
+            #     rank=0,
+            #     group_name='weight-update',
+            # ))
+            # print(ray.get(refs))
 
-            ray.get(master_actor.sync_weights.remote(vllm_engines))
-            print('sync weights done')
+            # refs = [actor.init_model.remote(pretrain_model_name) for actor in train_actors]
+            # ray.get(refs)
+            # print('init model done')
 
-            ref = vllm_engines[0].generate.remote(prompts)
-            gen_results = ray.get(ref)
-            for output in gen_results:
-                prompt = output.prompt
-                generated_text = output.outputs[0].text
-                print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+            # ray.get(master_actor.sync_weights.remote(vllm_engines))
+            # print('sync weights done')
+
+            # ref = vllm_engines[0].generate.remote(prompts)
+            # gen_results = ray.get(ref)
+            # for output in gen_results:
+            #     prompt = output.prompt
+            #     generated_text = output.outputs[0].text
+            #     print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
