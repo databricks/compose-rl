@@ -1328,6 +1328,9 @@ def summon_full_params(
 ):
     """Context manager to summon full parameters for an FSDP model (for both FSDP1 and FSDP2).
 
+    We use the existing FSDP.summon_full_params context manager for FSDP1 models and
+    our own variant for FSDP2 models.
+
     Args:
         model (torch.nn.Module): The FSDP model to summon full parameters for.
         writeback (bool): Whether to write back parameter changes. Defaults to False.
