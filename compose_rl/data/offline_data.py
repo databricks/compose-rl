@@ -231,6 +231,9 @@ class OfflineStreamingDataset(StreamingDataset):
         if 'vstar' in sample:
             return_dict['vstar'] = torch.Tensor([sample['vstar']])
 
+        if 'v-star' in sample:
+            return_dict['vstar'] = torch.Tensor([sample['v-star']])
+
         if 'pixel_values' in sample:
             if isinstance(sample['pixel_values'], np.ndarray):
                 pixel_values = torch.from_numpy(sample['pixel_values'])
