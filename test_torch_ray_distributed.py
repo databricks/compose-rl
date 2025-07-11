@@ -109,6 +109,7 @@ class DistributedGPUActor:
         self.model_update_group = None
 
     def build_ref_model(self):
+        composer_dist.initialize_dist('gpu')
         max_seq_len = 32
         prompt_len = 10
 
@@ -272,14 +273,14 @@ def run(tp_size: int = 8):
                 actor = DistributedGPUActor.remote(i, num_train_actors, master_addr, master_port)
                 train_actors.append(actor)
             
-            # Initialize process groups for all actors
-            init_tasks = [actor.init_default_process_group.remote() for actor in train_actors]
-            ray.get(init_tasks)
+            # # Initialize process groups for all actors
+            # init_tasks = [actor.init_default_process_group.remote() for actor in train_actors]
+            # ray.get(init_tasks)
             
-            # Perform tensor all_reduce on all actors
-            reduce_tasks = [actor.tensor_all_reduce.remote() for actor in train_actors]
-            results = ray.get(reduce_tasks)
-            print(f"All-reduce results: {results}")
+            # # Perform tensor all_reduce on all actors
+            # reduce_tasks = [actor.tensor_all_reduce.remote() for actor in train_actors]
+            # results = ray.get(reduce_tasks)
+            # print(f"All-reduce results: {results}")
 
             build_ref_model_tasks = [actor.build_ref_model.remote() for actor in train_actors]
             ray.get(build_ref_model_tasks)
