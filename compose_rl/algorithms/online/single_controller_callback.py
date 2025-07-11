@@ -448,6 +448,8 @@ class OnPolicyCallback(CallbackWithConfig):
                 train_config['python_log_level'].upper(),
             )
 
+        self.batch_rollouts = None
+
 
     def init(self, state: State, logger: Logger):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
@@ -535,17 +537,20 @@ class OnPolicyCallback(CallbackWithConfig):
                 self.train_prompt_loader_state_dict,
             )
 
+    def round_trip_to_inference_engines(self, device: Any, vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+        """Round trip to inference engines.
+        
+        Args:
+            vllm_engines (list[Any]): The vllm engines to round trip to.
+        """
+        batch = device.batch_to_device(self._get_next_iter_prompts())
+        self._update_inference_model(batch, vllm_engines, model_update_group)
+        self.batch_rollouts = self._interact_with_env(batch, vllm_engines)
+
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
-        # batch = self._get_next_iter_prompts()
-        # batch = state.device.batch_to_device(batch)
-
-        # self._update_inference_model(batch)
-
-        # batch = self._interact_with_env(batch)
-
-        # self._get_reward(batch)
+        self._get_reward(self.batch_rollouts)
 
         # Reset and initialize state train dataloader
         log.warning(
@@ -967,13 +972,13 @@ class OnPolicyCallback(CallbackWithConfig):
     def _increment_rl_iter(self):
         self.iter_num += 1
 
-    def _update_inference_model(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any]):
+    def _update_inference_model(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
         start_time = time.time()
         log.info('Before broadcast to vLLM')
         broadcast_to_vllm(
             self.actor_critic,
             vllm_engines,
-            self.model_update_group,
+            model_update_group,
             batch,
             #loss_type=self.actor_critic.loss_type.value,  # type: ignore
             loss_type=self.actor_critic.loss_type,  # type: ignore
