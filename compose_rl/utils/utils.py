@@ -5,13 +5,16 @@ import logging
 import re
 import warnings
 from collections.abc import Generator, Iterable
+from contextlib import contextmanager
 from typing import Any, Optional, Union
 
 import spacy
 import spacy_alignments as tokenizations
 import torch
 import torch.nn.functional as F
+from composer.utils import dist
 from kubernetes import client, config
+from torch.distributed.fsdp import FSDPModule
 from torch.utils.data import DataLoader
 from transformers import PretrainedConfig
 
@@ -998,14 +1001,18 @@ def flip_pad_token_usage_for_generate(model: torch.nn.Module):
     assert len(model.transformer.blocks) > 0  # type: ignore
     block = model.transformer.blocks[0]  # type: ignore
     # Logic takes care of the activation checkpointing case w/ FSDP
-    if hasattr(
-        block._fsdp_wrapped_module,  # type: ignore
-        '_checkpoint_wrapped_module',
-    ):
-        needs_flipping = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
+    if hasattr(block, '_fsdp_wrapped_module'):
+        fsdp_wrapped_module = block._fsdp_wrapped_module  # type: ignore
+    elif isinstance(block, FSDPModule):
+        fsdp_wrapped_module = block
+    else:
+        return needs_flipping
+
+    if hasattr(fsdp_wrapped_module, '_checkpoint_wrapped_module'):
+        needs_flipping = not fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
     else:
         # Otherwise we avoid the activation checkpointing and toggle the flag here
-        needs_flipping = not block._fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
+        needs_flipping = not fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
 
     if needs_flipping:
         flip_pad_token_usage_in_ffn(model)
@@ -1024,11 +1031,17 @@ def flip_pad_token_usage_in_ffn(model: torch.nn.Module):
     for block in model.transformer.blocks:  # type: ignore
 
         # Logic takes care of the activation checkpointing case w/ FSDP
-        if hasattr(block._fsdp_wrapped_module, '_checkpoint_wrapped_module'):
-            block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn
+        if hasattr(block, '_fsdp_wrapped_module'):
+            fsdp_wrapped_module = block._fsdp_wrapped_module
+        elif isinstance(block, FSDPModule):
+            fsdp_wrapped_module = block
+        else:
+            continue
+        if hasattr(fsdp_wrapped_module, '_checkpoint_wrapped_module'):
+            fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn = not fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
         else:
             # Otherwise we avoid the activation checkpointing and toggle the flag here
-            block._fsdp_wrapped_module.use_pad_tok_in_ffn = not block._fsdp_wrapped_module.use_pad_tok_in_ffn
+            fsdp_wrapped_module.use_pad_tok_in_ffn = not fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
 
 
 def get_remote_name(pod_name: str):
@@ -1237,3 +1250,120 @@ def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
                 yield subc
         else:
             yield i
+
+
+@contextmanager
+def _summon_full_params_fsdp2(
+    model: torch.nn.Module,
+    writeback: bool = True,
+    recurse: bool = True,
+    rank0_only: bool = False,
+):
+    """Context manager to summon full parameters for FSDP2 models.
+
+    Args:
+        model (torch.nn.Module): The FSDP2 model to summon full parameters for.
+        writeback (bool): Whether to write back parameter changes. Defaults to False.
+        recurse (bool): Whether to recurse into submodules. Defaults to True.
+        rank0_only (bool, Optional): if ``True``, full parameters are
+            materialized on only global rank 0. This means that within the
+            context, only rank 0 will have full parameters and the other
+            ranks will have sharded parameters. Note that setting
+            ``rank0_only=True`` with ``writeback=True`` is not supported,
+            as model parameter shapes will be different across ranks
+            within the context, and writing to them can lead to
+            inconsistency across ranks when the context is exited.
+    """
+    if rank0_only and writeback:
+        raise ValueError(
+            'rank0_only=True with writeback=True is not supported,',
+            'as model parameter shapes will be different across ranks',
+            'within the context, and writing to them can lead to',
+            'inconsistency across ranks when the context is exited.',
+        )
+
+    def get_fsdp2_modules(model: torch.nn.Module):
+        from torch.distributed.fsdp import FSDPModule
+        return [
+            module for module in model.modules()
+            if isinstance(module, FSDPModule)
+        ]
+
+    modules = get_fsdp2_modules(model)
+    if not recurse:
+        modules = [modules[0]]
+
+    is_rank0 = dist.get_global_rank() == 0
+    should_unshard = not rank0_only or is_rank0
+
+    if should_unshard:
+        for module in modules:
+            module.unshard()
+
+    original_params = {}
+    if not writeback and should_unshard:
+        for module in modules:
+            original_params[module] = {}
+            for name, param in module.named_parameters(recurse=False):
+                if param.data is not None:  # type: ignore
+                    original_params[module][name] = param.data.clone()
+    try:
+        yield
+    finally:
+        if should_unshard:
+            for module in modules:
+                if not writeback:
+                    for name, param in module.named_parameters(recurse=False):
+                        if name in original_params[module]:
+                            param.data.copy_(original_params[module][name])
+                module.reshard()
+
+
+@contextmanager
+def summon_full_params(
+    model: torch.nn.Module,
+    writeback: bool = True,
+    recurse: bool = True,
+    rank0_only: bool = False,
+):
+    """Context manager to summon full parameters for an FSDP model (for both FSDP1 and FSDP2).
+
+    We use the existing FSDP.summon_full_params context manager for FSDP1 models and
+    our own variant for FSDP2 models.
+
+    Args:
+        model (torch.nn.Module): The FSDP model to summon full parameters for.
+        writeback (bool): Whether to write back parameter changes. Defaults to False.
+        recurse (bool): Whether to recurse into submodules. Defaults to True.
+        rank0_only (bool): Whether to summon full parameters on only rank 0. Defaults to False.
+    """
+
+    def is_fsdp2(model: torch.nn.Module) -> bool:
+        try:
+            from torch.distributed.fsdp import FSDPModule
+            if isinstance(model, FSDPModule):
+                return True
+            for module in model.modules():
+                if isinstance(module, FSDPModule):
+                    return True
+        except ImportError:
+            pass
+        return False
+
+    if is_fsdp2(model):
+        with _summon_full_params_fsdp2(
+            model,
+            writeback=writeback,
+            recurse=recurse,
+            rank0_only=rank0_only,
+        ):
+            yield
+    else:
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+        with FSDP.summon_full_params(
+            model,
+            writeback=writeback,
+            recurse=recurse,
+            rank0_only=rank0_only,
+        ):
+            yield

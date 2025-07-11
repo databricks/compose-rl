@@ -19,7 +19,6 @@ from llmfoundry.utils.config_utils import (
 )
 from omegaconf import DictConfig, ListConfig
 from omegaconf import OmegaConf as om
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 from transformers.models.llama.modeling_llama import LlamaAttention
@@ -30,6 +29,7 @@ from compose_rl.data import (
     finegrained_preference_dataset_collate_fn,
     pairwise_preference_dataset_collate_fn,
 )
+from compose_rl.utils.utils import summon_full_params
 from tests.common import FineGrainedPreference, PairwisePreference, world_size
 
 
@@ -307,7 +307,7 @@ def test_hf_train(
         max_duration='1ep',
     )
     print(trainer.state.model)
-    with FSDP.summon_full_params(
+    with summon_full_params(
         trainer.state.model,
         writeback=False,
         recurse=False,
@@ -316,7 +316,7 @@ def test_hf_train(
 
     trainer.fit()
 
-    with FSDP.summon_full_params(
+    with summon_full_params(
         trainer.state.model,
         writeback=False,
         recurse=False,
