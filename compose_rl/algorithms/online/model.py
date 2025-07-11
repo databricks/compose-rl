@@ -28,6 +28,7 @@ from compose_rl.utils import (
     clear_mb_load_balancing_loss,
     get_mb_load_balancing_loss,
 )
+from compose_rl.utils.utils import summon_full_params
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
@@ -35,7 +36,6 @@ log = logging.getLogger(__name__)
 
 
 class ComposerMPTPolicyLM(HuggingFaceModel):
-
     def __init__(
         self,
         tokenizer: Tokenizer,
@@ -135,7 +135,6 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
 
 
 class ComposerHFPolicyLM(ComposerHFPolicy):
-
     def __init__(
         self,
         *,
@@ -186,14 +185,12 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
         # Note: it seems as if we need to summon FSDP parameters here to ensure that we don't break
         # the standard actor critic forward pass.
         if is_model_fsdp(self.model):
-            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-
-            # Note: We need to use the FSDP.summon_full_params context manager here because the generate function
+            # Note: We need to use the summon_full_params context manager here because the generate function
             # does not seem to gather the weights for the LM head. This solution works because the tied weights of the LM head
             # are in the root FSDP module, and are summoned by the below context manager. See https://github.com/pytorch/pytorch/issues/100069
             # for more info.
             # Note: We use recurse=False here so that we only summon full params for the LM head, not the entire model.
-            with FSDP.summon_full_params(
+            with summon_full_params(
                 self.model,
                 writeback=False,
                 recurse=False,

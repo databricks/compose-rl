@@ -5,13 +5,16 @@ import logging
 import re
 import warnings
 from collections.abc import Generator, Iterable
+from contextlib import contextmanager
 from typing import Any, Optional, Union
 
 import spacy
 import spacy_alignments as tokenizations
 import torch
 import torch.nn.functional as F
+from composer.utils import dist
 from kubernetes import client, config
+from torch.distributed.fsdp import FSDPModule
 from torch.utils.data import DataLoader
 from transformers import PretrainedConfig
 
@@ -998,14 +1001,18 @@ def flip_pad_token_usage_for_generate(model: torch.nn.Module):
     assert len(model.transformer.blocks) > 0  # type: ignore
     block = model.transformer.blocks[0]  # type: ignore
     # Logic takes care of the activation checkpointing case w/ FSDP
-    if hasattr(
-        block._fsdp_wrapped_module,  # type: ignore
-        '_checkpoint_wrapped_module',
-    ):
-        needs_flipping = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
+    if hasattr(block, '_fsdp_wrapped_module'):
+        fsdp_wrapped_module = block._fsdp_wrapped_module  # type: ignore
+    elif isinstance(block, FSDPModule):
+        fsdp_wrapped_module = block
+    else:
+        return needs_flipping
+
+    if hasattr(fsdp_wrapped_module, '_checkpoint_wrapped_module'):
+        needs_flipping = not fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
     else:
         # Otherwise we avoid the activation checkpointing and toggle the flag here
-        needs_flipping = not block._fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
+        needs_flipping = not fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
 
     if needs_flipping:
         flip_pad_token_usage_in_ffn(model)
@@ -1024,11 +1031,17 @@ def flip_pad_token_usage_in_ffn(model: torch.nn.Module):
     for block in model.transformer.blocks:  # type: ignore
 
         # Logic takes care of the activation checkpointing case w/ FSDP
-        if hasattr(block._fsdp_wrapped_module, '_checkpoint_wrapped_module'):
-            block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn
+        if hasattr(block, '_fsdp_wrapped_module'):
+            fsdp_wrapped_module = block._fsdp_wrapped_module
+        elif isinstance(block, FSDPModule):
+            fsdp_wrapped_module = block
+        else:
+            continue
+        if hasattr(fsdp_wrapped_module, '_checkpoint_wrapped_module'):
+            fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn = not fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
         else:
             # Otherwise we avoid the activation checkpointing and toggle the flag here
-            block._fsdp_wrapped_module.use_pad_tok_in_ffn = not block._fsdp_wrapped_module.use_pad_tok_in_ffn
+            fsdp_wrapped_module.use_pad_tok_in_ffn = not fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
 
 
 def get_remote_name(pod_name: str):
@@ -1237,3 +1250,163 @@ def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
                 yield subc
         else:
             yield i
+
+
+@contextmanager
+def _summon_full_params_fsdp2(
+    model: torch.nn.Module,
+    writeback: bool = True,
+    recurse: bool = True,
+):
+    """Context manager to get full params for FSDP2 models with DTensor APIs.
+
+    Note: We use DTensor APIs to materialize the full parameters instead of using `unshard`
+    and `reshard` as writeback doesn't seem to work correctly with DTensors
+    that uses DTensor APIs to materialize the full parameters. We currently don't support
+    rank0_only
+    """
+    from torch.distributed.tensor import DTensor, Replicate, distribute_tensor
+
+    dtensor_params = {
+        name: param
+        for name, param in
+        model.named_parameters(recurse=recurse, remove_duplicate=False)
+        if isinstance(param, DTensor)
+    }
+
+    if not dtensor_params:
+        yield
+        return
+
+    model_dtensors = {}
+    metadata = {}
+    tied_params = {}
+
+    # We want to get the module and attr of the param, so we can assign
+    # module.attr = param.full_tensor() before we yield and
+    # module.attr = distributed (maybe updated) tensor after we yield.
+    def _get_module_and_attr(model: torch.nn.Module, param_name: str):
+        parts = param_name.split('.')
+        module = model
+        for part in parts[:-1]:
+            module = getattr(module, part)
+        return module, parts[-1]
+
+    # Group parameters by their underlying tensor to handle tied parameters
+    tensor_to_names = {}
+    for name, dtensor_param in dtensor_params.items():
+        tensor_id = id(dtensor_param)
+        if tensor_id not in tensor_to_names:
+            tensor_to_names[tensor_id] = []
+        tensor_to_names[tensor_id].append(name)
+
+    # Process parameters, handling tied parameters correctly
+    processed_tensors = set()
+    for name, dtensor_param in dtensor_params.items():
+        tensor_id = id(dtensor_param)
+
+        metadata[name] = {
+            'device_mesh': dtensor_param.device_mesh,
+            'placements': dtensor_param.placements,
+            'requires_grad': dtensor_param.requires_grad,
+        }
+        model_dtensors[name] = dtensor_param
+
+        # Only materialize the full tensor once per unique tensor
+        if tensor_id not in processed_tensors:
+            full_tensor = dtensor_param.full_tensor()
+            new_param = torch.nn.Parameter(full_tensor.detach().clone())
+
+            # Set the same parameter instance for all tied parameters
+            for tied_name in tensor_to_names[tensor_id]:
+                module, attr_name = _get_module_and_attr(model, tied_name)
+                setattr(module, attr_name, new_param)
+                tied_params[tied_name] = new_param
+
+            processed_tensors.add(tensor_id)
+
+    try:
+        yield
+    finally:
+        # Process tied parameters to ensure writeback works correctly
+        processed_tensors = set()
+        tensor_to_updated_dtensor = {}
+
+        for name in dtensor_params.keys():
+            module, attr_name = _get_module_and_attr(model, name)
+            tensor_id = id(model_dtensors[name])
+
+            if writeback and tensor_id not in processed_tensors:
+                # We update model_dtensors[name] to use the updated param
+                # after the model changes. For tied parameters, we only need
+                # to do this once per unique tensor.
+                current_param = getattr(module, attr_name)
+                if hasattr(
+                    current_param,
+                    'data',
+                ) and current_param.data is not None:
+                    meta = metadata[name]
+                    replicated = distribute_tensor(
+                        current_param.data,
+                        meta['device_mesh'],
+                        [Replicate()],
+                    )
+                    sharded = replicated.redistribute(
+                        meta['device_mesh'],
+                        meta['placements'],
+                    )
+                    new_param = torch.nn.Parameter(sharded)
+                    new_param.requires_grad = meta['requires_grad']
+                    tensor_to_updated_dtensor[tensor_id] = new_param
+                    processed_tensors.add(tensor_id)
+
+            # Restore the appropriate DTensor for this parameter
+            if writeback and tensor_id in tensor_to_updated_dtensor:
+                setattr(module, attr_name, tensor_to_updated_dtensor[tensor_id])
+            else:
+                setattr(module, attr_name, model_dtensors[name])
+
+
+@contextmanager
+def summon_full_params(
+    model: torch.nn.Module,
+    writeback: bool = True,
+    recurse: bool = True,
+    rank0_only: bool = False,
+):
+    """Context manager to summon full parameters for an FSDP(1/2) model.
+
+    Args:
+        model (torch.nn.Module): The FSDP model to summon full parameters for.
+        writeback (bool): Whether to write back parameter changes. Defaults to False.
+        recurse (bool): Whether to recurse into submodules. Defaults to True.
+        rank0_only (bool): Whether to summon full parameters on only rank 0. Defaults to False.
+            Only supported for FSDP1. FSDP2 by default materializes all parameters on all ranks.
+    """
+
+    def is_fsdp2(model: torch.nn.Module) -> bool:
+        try:
+            from torch.distributed.fsdp import FSDPModule
+            for module in model.modules():
+                if isinstance(module, FSDPModule):
+                    return True
+        except ImportError:
+            pass
+        return False
+
+    if is_fsdp2(model):
+        with _summon_full_params_fsdp2(
+            model,
+            writeback=writeback,
+            recurse=recurse,
+        ):
+            yield
+    else:
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+        with FSDP.summon_full_params(
+            model,
+            writeback=writeback,
+            recurse=recurse,
+            rank0_only=rank0_only,
+        ):
+            yield
