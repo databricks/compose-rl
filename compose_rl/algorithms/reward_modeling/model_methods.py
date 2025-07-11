@@ -327,13 +327,13 @@ def classifier_loss(
             batch['labels'],
         )
     elif loss_type = ClassifierRewardEnum.CE:  # CE for mult-class classification
-        n_classes = output_scores.size(-1) 
+        n_classes = output_scores.size(-1)
         flat_log_probs = F.log_softmax(output_scores, dim = -1).view(-1, n_clases)
         flat_labels = batch['labels'].to(torch.int).view(-1)
-        if "mask" in batch:
+        if 'mask' in batch:
             flat_mask = batch['mask'].view(-1) # maks is provided by user to mask out certain token positions in calculating the loss function
         else:
-            flat_mask = torch.ones_like(flat_labels)    
+            flat_mask = torch.ones_like(flat_labels)
         loss = -torch.mean(flat_log_probs[torch.arange(flat_log_probs.size(0)), flat_labels] * flat_mask)
     else:
         raise NotImplementedError(f'Loss type: {loss_type} is not supported.')
