@@ -1,9 +1,13 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+from typing import Optional
+
 import pytest
 import torch
 import torch.nn.functional as F
+from transformers import PreTrainedTokenizer
 
 from compose_rl.utils import mask_eos
 from compose_rl.utils.utils import (
@@ -12,7 +16,10 @@ from compose_rl.utils.utils import (
     get_token_entropies,
     masked_mean,
     sample_wise_masked_mean,
+    summon_full_params,
 )
+from tests.common.markers import world_size
+from tests.common.models import PartialWeightTiedModel
 
 
 def test_mask_eos_basic_functionality():
@@ -734,3 +741,245 @@ def test_get_entropies_integration():
     peaky_probs = F.softmax(peaky_logits, dim=0)
     expected_entropy = -torch.sum(peaky_probs * torch.log(peaky_probs))
     assert torch.isclose(entropies[1], expected_entropy, atol=1e-5)
+
+
+def _setup_fsdp_test_environment(
+    tiny_gpt2_tokenizer: PreTrainedTokenizer,
+    fsdp_version: int,
+    model: Optional[torch.nn.Module] = None,
+):
+    """Helper function to set up FSDP test environment."""
+    import os
+    from functools import partial
+
+    from composer import Trainer
+    from composer.utils import dist
+    from torch.utils.data import DataLoader
+
+    from compose_rl.algorithms.offline import ComposerMPTPairwiseOfflinePolicyLM
+    from compose_rl.data import pairwise_preference_dataset_collate_fn
+    from tests.common import PairwisePreference
+
+    # Set FSDP version
+    os.environ['FSDP_VERSION'] = str(fsdp_version)
+
+    # Create a dataset and dataloader
+    max_seq_len = 10
+    dataset = PairwisePreference(max_seq_len=max_seq_len)
+    dataloader = DataLoader(
+        dataset,
+        collate_fn=partial(
+            pairwise_preference_dataset_collate_fn,
+            tiny_gpt2_tokenizer,
+            max_seq_len,
+        ),
+        sampler=dist.get_sampler(dataset),
+        batch_size=2,
+    )
+
+    # Create model config
+    model_config = {
+        'n_layers': 1,
+        'attn_config': {
+            'attn_impl': 'torch',
+        },
+        'tokenizer': tiny_gpt2_tokenizer,
+    }
+
+    # Create model
+    if model is None:
+        model = ComposerMPTPairwiseOfflinePolicyLM(**model_config)
+
+    # Enable FSDP
+    fsdp_config = {}
+    trainer = Trainer(
+        model=model,  # type: ignore
+        train_dataloader=dataloader,
+        parallelism_config={'fsdp': fsdp_config},
+        max_duration='1ba',
+    )
+
+    return trainer, trainer.state.model
+
+
+@pytest.mark.gpu
+@world_size(2)
+@pytest.mark.parametrize('fsdp_version', [1, 2])
+def test_summon_full_params(
+    tiny_gpt2_tokenizer: PreTrainedTokenizer,
+    world_size: int,
+    fsdp_version: int,
+):
+    """Test summon_full_params actually works with FSDP(1/2) models."""
+    del world_size
+    trainer, fsdp_model = _setup_fsdp_test_environment(
+        tiny_gpt2_tokenizer,
+        fsdp_version,
+    )
+
+    def get_total_param_size(model: torch.nn.Module):
+        total_size = 0
+        for param in model.parameters():
+            if hasattr(param, 'to_local'):
+                param = param.to_local()
+            if param.data is not None:
+                total_size += param.data.numel()
+        return total_size
+
+    distributed_param_size = get_total_param_size(fsdp_model)
+
+    # Test with writeback=True
+    with summon_full_params(fsdp_model):
+        local_param_size = get_total_param_size(fsdp_model)
+
+    assert local_param_size > distributed_param_size * 1.5, \
+        f'Local param size {local_param_size} should be > 1.5x distributed param size {distributed_param_size}'
+
+    trainer.close()
+    os.environ['FSDP_VERSION'] = '1'
+
+
+@pytest.mark.gpu
+@world_size(2)
+@pytest.mark.parametrize('fsdp_version', [1, 2])
+def test_summon_full_params_with_fsdp_writeback(
+    tiny_gpt2_tokenizer: PreTrainedTokenizer,
+    world_size: int,
+    fsdp_version: int,
+):
+    """Test summon_full_params with actual FSDP models."""
+    del world_size
+    trainer, fsdp_model = _setup_fsdp_test_environment(
+        tiny_gpt2_tokenizer,
+        fsdp_version,
+    )
+
+    original_local_tensors = {
+        name: param.data.clone() for name, param in fsdp_model.named_parameters()
+    }
+
+    # Test out writeback=False
+    with summon_full_params(fsdp_model, writeback=False):
+        # Modify parameters inside the context
+        for name, param in fsdp_model.named_parameters():
+            if param.data is not None:  # type: ignore
+                param.data.fill_(777.0)
+
+    for name, param in fsdp_model.named_parameters():
+        if param.data is not None:  # type: ignore
+            assert torch.all(
+                param.data == original_local_tensors[name],
+            ), f'Parameter {name} should not be modified with writeback=False'
+
+    # Test with writeback=True
+    with summon_full_params(fsdp_model, writeback=True):
+        for name, param in fsdp_model.named_parameters():
+            if param.data is not None:  # type: ignore
+                param.data.fill_(888.0)
+
+    for name, param in fsdp_model.named_parameters():
+        if param.data is not None:  # type: ignore
+            assert torch.all(
+                param.data == 888.0,
+            ), f'Parameter {name} should be modified with writeback=True'
+
+    trainer.close()
+    os.environ['FSDP_VERSION'] = '1'
+
+
+@pytest.mark.gpu
+@world_size(2)
+@pytest.mark.parametrize('fsdp_version', [1, 2])
+def test_summon_full_params_recurse(
+    tiny_gpt2_tokenizer: PreTrainedTokenizer,
+    world_size: int,
+    fsdp_version: int,
+):
+    """Test summon_full_params with recurse=False parameter."""
+    del world_size
+    trainer, fsdp_model = _setup_fsdp_test_environment(
+        tiny_gpt2_tokenizer,
+        fsdp_version,
+    )
+
+    with summon_full_params(fsdp_model, recurse=False):
+        for name, param in fsdp_model.named_parameters(recurse=False):
+            assert param.data is not None  # type: ignore
+            assert '.' not in name
+
+    with summon_full_params(fsdp_model, recurse=True):
+        param_names = [
+            name for name, _ in fsdp_model.named_parameters(recurse=True)
+        ]
+        assert any('.' in name for name in param_names)
+
+    trainer.close()
+    os.environ['FSDP_VERSION'] = '1'
+
+
+@pytest.mark.gpu
+@world_size(2)
+@pytest.mark.parametrize('fsdp_version', [1, 2])
+def test_summon_full_params_tied_weights_behavior(
+    world_size: int,
+    fsdp_version: int,
+    tiny_gpt2_tokenizer: PreTrainedTokenizer,
+):
+    """Test summon_full_params with tied weights behavior verification."""
+    del world_size
+    model = PartialWeightTiedModel(num_features=2)
+
+    trainer, fsdp_model = _setup_fsdp_test_environment(
+        tiny_gpt2_tokenizer,
+        fsdp_version,
+        model,
+    )
+
+    # fill the tied weights with 999.0
+    fsdp_model.module[0].net[0].weight.data.fill_(999.0)  # type: ignore
+
+    # Test writeback=False
+    with summon_full_params(fsdp_model, writeback=False):
+        error_msg = 'Tied weights should be the same tensor object inside context'
+        first_weight = fsdp_model.module[0].net[0].weight  # type: ignore
+        last_weight = fsdp_model.module[0].net[-1].weight  # type: ignore
+        assert first_weight is last_weight, error_msg
+
+        first_weight.data.fill_(777.0)
+        error_msg = 'Tied weights should be consistent inside context'
+        assert torch.all(last_weight.data == 777.0), error_msg
+
+    first_weight_same = torch.all(
+        fsdp_model.module[0].net[0].weight.data == 999.0,  # type: ignore
+    )
+    last_weight_same = torch.all(
+        fsdp_model.module[0].net[-1].weight.data == 999.0,  # type: ignore
+    )
+
+    assert first_weight_same, 'First tied weight should be the same with writeback=False'
+    assert last_weight_same, 'Second tied weight should be the same with writeback=False'
+
+    # Test writeback=True
+    with summon_full_params(fsdp_model, writeback=True):
+        first_weight = fsdp_model.module[0].net[0].weight  # type: ignore
+        last_weight = fsdp_model.module[0].net[-1].weight  # type: ignore
+        error_msg = 'Tied weights should be the same tensor object inside context'
+        assert first_weight is last_weight, error_msg
+
+        first_weight.data.fill_(888.0)
+
+        error_msg = 'Tied weights should be consistent inside context'
+        assert torch.all(last_weight.data == 888.0), error_msg
+
+    first_weight_changed = torch.all(
+        fsdp_model.module[0].net[0].weight.data == 888.0,  # type: ignore
+    )
+    last_weight_changed = torch.all(
+        fsdp_model.module[0].net[-1].weight.data == 888.0,  # type: ignore
+    )
+
+    assert first_weight_changed, 'First tied weight should keep modified value with writeback=True'
+    assert last_weight_changed, 'Second tied weight should keep modified value with writeback=True'
+
+    trainer.close()
+    os.environ['FSDP_VERSION'] = '1'
