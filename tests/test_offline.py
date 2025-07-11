@@ -174,11 +174,14 @@ def test_model_forward(tiny_gpt2_tokenizer: PreTrainedTokenizer):
 @pytest.mark.gpu
 @world_size(2)
 @pytest.mark.parametrize('fsdp_config', [None, {}])  # type: ignore
+@pytest.mark.parametrize('fsdp_version', [1, 2])
 def test_train(
     tiny_gpt2_tokenizer: PreTrainedTokenizer,
     world_size: int,
     fsdp_config: dict[str, Any],
+    fsdp_version: int,
 ):
+    os.environ['FSDP_VERSION'] = str(fsdp_version)
     max_seq_len = 10
     dataset = PairwisePreference(max_seq_len=max_seq_len)
     dataloader = DataLoader(
@@ -214,6 +217,7 @@ def test_train(
         max_duration='1ep',
     )
     trainer.fit()
+    os.environ['FSDP_VERSION'] = '1'
 
 
 @pytest.mark.skip(
