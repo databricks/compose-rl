@@ -169,14 +169,18 @@ class DistributedGPUActor:
         return dict()
 
     def build_ref_model(self, pretrain_model_name: str):
+        tmp_ref_path = str('./ref_checkpoints')
+        ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
+        if os.path.exists(ref_path):
+            self.ref_path = ref_path
+            return
+
         self.pretrain_model_name = pretrain_model_name
         composer_dist.initialize_dist('gpu')
 
         tmp_model = ComposerHFCausalLM(**self.model_config)
 
         tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
-
-        tmp_ref_path = str('./ref_checkpoints')
 
         temp_dataloader = [{
             'input_ids': torch.ones((2, 15)).to(dtype=torch.int64),
@@ -198,7 +202,7 @@ class DistributedGPUActor:
         temp_trainer.fit()
 
         # After making the reference model, we can proceed with the PPO training
-        self.ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
+        self.ref_path = ref_path
 
     def build_ppo_trainer(self, pretrain_model_name: str):
         self.pretrain_model_name = pretrain_model_name
