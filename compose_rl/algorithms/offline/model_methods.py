@@ -107,6 +107,7 @@ def offline_loss(
     batch: Mapping,
     loss_type: RegressionOfflineEnum,
     beta: float,
+    bce: bool = False, 
 ):
     policy_logp = outputs['policy_logp']  # (batch_size, )
 
@@ -121,10 +122,17 @@ def offline_loss(
         # Similar to REBEL, we assume each response has a reward in the batch.
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
 
-        losses = (
-            beta * (policy_logp - ref_logp) -
-            (batch['reward'] - batch['vstar'])
-        )**2
+        if bce == False:
+            losses = (
+                beta * (policy_logp - ref_logp) -
+                (batch['reward'] - batch['vstar'])
+            )**2
+        elif bce == True:
+            predicted_prob = F.sigmoid(beta * (policy_logp - ref_logp))
+            actual_prob = F.sigmoid(batch['reward'] - batch['vstar'])
+            losses = -(actual_prob * torch.log(predicted_prob) 
+                        +   (1.-actual_prob)*torch.log(1.-predicted_prob)
+                    )
 
         # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
         # formula: sum_y exp( log pi(y) - log pi_ref(y) ) r(y) where y ~ pi_ref
