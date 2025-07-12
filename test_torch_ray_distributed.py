@@ -143,7 +143,8 @@ class DistributedGPUActor:
         return self._dataloader
 
     def build_tokenizer(self):
-        tokenizer = assets_tokenizer_helper(self.pretrain_model_name)
+        # tokenizer = assets_tokenizer_helper(self.pretrain_model_name)
+        tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name)
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         return tokenizer
 
@@ -167,7 +168,8 @@ class DistributedGPUActor:
     def fsdp_config(self):
         return dict()
 
-    def build_ref_model(self):
+    def build_ref_model(self, pretrain_model_name: str):
+        self.pretrain_model_name = pretrain_model_name
         composer_dist.initialize_dist('gpu')
 
         tmp_model = ComposerHFCausalLM(**self.model_config)
@@ -259,7 +261,7 @@ class DistributedGPUActor:
             'device_train_microbatch_size': 1,
         }
 
-        tmp_save_path = str('./checkpoints')
+        # tmp_save_path = str('./checkpoints')
         self.ppo_callback = SingleControllerOnPolicyCallback(train_config=train_config)
         self.ppo_trainer = Trainer(
             model=model,
@@ -378,7 +380,8 @@ def run(tp_size: int = 8):
         "what is RAY?",
         "what is vLLM?",
     ]
-    pretrain_model_name = 'gpt2'
+    # pretrain_model_name = 'gpt2'
+    pretrain_model_name = 'meta-llama/Llama-3.2-1B-Instruct'
     with start_ray_server() as address:
         if dist.get_rank() == 0:
             master_addr, _ = address.split(':')
@@ -411,9 +414,11 @@ def run(tp_size: int = 8):
             # results = ray.get(reduce_tasks)
             # print(f"All-reduce results: {results}")
 
-            # build_ref_model_tasks = [actor.build_ref_model.remote() for actor in train_actors]
-            # ray.get(build_ref_model_tasks)
-            # print('build ref model done')
+
+
+            build_ref_model_tasks = [actor.build_ref_model.remote(pretrain_model_name) for actor in train_actors]
+            ray.get(build_ref_model_tasks)
+            print('build ref model done')
 
             build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote(pretrain_model_name) for actor in train_actors]
             ray.get(build_ppo_trainer_tasks)
@@ -463,6 +468,9 @@ def run(tp_size: int = 8):
             refs = [actor.train_1_iter.remote() for actor in train_actors]
             ray.get(refs)
             print('train 1 iter done')
+
+
+
             # refs = [actor.init_model.remote(pretrain_model_name) for actor in train_actors]
             # ray.get(refs)
             # print('init model done')
