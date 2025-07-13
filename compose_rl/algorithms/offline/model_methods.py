@@ -106,7 +106,8 @@ def offline_loss(
     outputs: CausalLMOutputWithPast,
     batch: Mapping,
     loss_type: RegressionOfflineEnum,
-    beta: float,
+    beta1: float,
+    beta2: float,
     bce: bool = False, 
 ):
     policy_logp = outputs['policy_logp']  # (batch_size, )
@@ -121,15 +122,24 @@ def offline_loss(
         # APO is not a pair-wise loss function.
         # Similar to REBEL, we assume each response has a reward in the batch.
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
+        #
+        vstar = batch.get('vstar', None)
+        if vstar is None:
+            vstar_rewards = batch.get('vstar_rewards', None)
+            assert vstar_rewards is not None
+            exponentiated_mean = torch.mean(torch.exp(vstar_rewards / beta1), dim=-1)
+            vstar = beta1 * torch.log(exponentiated_mean)
+
+            assert vstar.shape == batch['reward'].shape
 
         if bce == False:
             losses = (
-                beta * (policy_logp - ref_logp) -
-                (batch['reward'] - batch['vstar'])
+                beta2 * (policy_logp - ref_logp) -
+                (batch['reward'] - vstar)
             )**2
         elif bce == True:
-            predicted_prob = F.sigmoid(beta * (policy_logp - ref_logp))
-            actual_prob = F.sigmoid(batch['reward'] - batch['vstar'])
+            predicted_prob = F.sigmoid(beta2 * (policy_logp - ref_logp))
+            actual_prob = F.sigmoid(batch['reward'] - vstar)
             losses = -(actual_prob * torch.log(predicted_prob) 
                         +   (1.-actual_prob)*torch.log(1.-predicted_prob)
                     )
@@ -145,7 +155,7 @@ def offline_loss(
 
     losses = losses.mean()
 
-    implicit_rewards = beta * (policy_logp - ref_logp).detach()
+    implicit_rewards = beta2 * (policy_logp - ref_logp).detach()
 
     # Logging KL margins for comparing different methods
     reverse_kl = (policy_logp - ref_logp).detach()

@@ -45,6 +45,7 @@ def offline_dataset_collate_fn(
     prompt_lens = []
     rewards = []
     vstars = []
+    vstar_rewards = []
 
     # For VLMs
     batch_token_type_ids = []
@@ -128,6 +129,8 @@ def offline_dataset_collate_fn(
             rewards.append(sample['reward'])
         if 'vstar' in sample:
             vstars.append(sample['vstar'])
+        if 'vstar_rewards' in sample:
+            vstar_rewards.append(sample['vstar_rewards'])
 
         if is_multimodal:
             batch_token_type_ids.append(token_type_ids)  # type: ignore
@@ -150,6 +153,9 @@ def offline_dataset_collate_fn(
     if len(vstars) > 0:
         vstars = torch.cat(vstars)
         return_dict['vstar'] = vstars
+    if len(vstar_rewards) > 0:
+        vstar_rewards = torch.stack(vstar_rewards)
+        return_dict['vstar_rewards'] = vstar_rewards
 
     if is_multimodal:  # type: ignore
         token_type_ids = torch.stack(batch_token_type_ids)
@@ -229,10 +235,24 @@ class OfflineStreamingDataset(StreamingDataset):
             return_dict['reward'] = torch.Tensor([sample['reward']])
 
         if 'vstar' in sample:
+            assert 'vstar-rewards' not in sample
             return_dict['vstar'] = torch.Tensor([sample['vstar']])
 
         if 'v-star' in sample:
+            assert 'vstar-rewards' not in sample
             return_dict['vstar'] = torch.Tensor([sample['v-star']])
+
+        if 'vstar-rewards' in sample:
+            assert 'vstar' not in sample
+            assert 'v-star' not in sample
+            if isinstance(sample['vstar_rewards'], np.ndarray):
+                return_dict['vstar_rewards'] = torch.from_numpy(sample['vstar-rewards'])
+            else:
+                rewards_type = type(sample['vstar_rewards'])
+                raise ValueError(
+                    f'Expect vstar_rewards to be numpy.ndarray type, but got {rewards_type}',
+                )
+
 
         if 'pixel_values' in sample:
             if isinstance(sample['pixel_values'], np.ndarray):
