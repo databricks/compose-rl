@@ -107,7 +107,7 @@ def offline_loss(
     batch: Mapping,
     loss_type: RegressionOfflineEnum,
     beta: float,
-    bce: bool = False, 
+    bce: bool = True, 
 ):
     policy_logp = outputs['policy_logp']  # (batch_size, )
 
