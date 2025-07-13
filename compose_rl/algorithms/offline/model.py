@@ -35,6 +35,7 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
         loss_type: str = 'apo',
         beta1: float = 0.5,
         beta2: float = 0.1,
+        multistep: bool = False,
         average_log_prob: bool = False,
         temperature: float = 1.0,
         **kwargs: Any,
@@ -42,6 +43,7 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
         self.loss_type = RegressionOfflineEnum(loss_type)
         self.beta1 = beta1
         self.beta2 = beta2
+        self.multistep = multistep
         self.average_log_prob = average_log_prob
         self.temperature = temperature
 
@@ -72,6 +74,7 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
             self.loss_type,
             self.beta1,
             self.beta2,
+            self.multistep,
         )
 
 
@@ -83,6 +86,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         loss_type: str = 'apo',
         beta1: float = 0.5,
         beta2: float = 0.1,
+        multistep: bool = False,
         average_log_prob: bool = False,
         temperature: float = 1.0,
         **kwargs: Any,
@@ -90,6 +94,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         self.loss_type = RegressionOfflineEnum(loss_type)
         self.beta1 = beta1
         self.beta2 = beta2
+        self.multistep = multistep
         self.average_log_prob = average_log_prob
         self.temperature = temperature
 
@@ -120,6 +125,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
             self.loss_type,
             self.beta1,
             self.beta2,
+            self.multistep,
         )
 
 

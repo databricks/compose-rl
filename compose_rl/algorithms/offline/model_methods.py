@@ -108,6 +108,7 @@ def offline_loss(
     loss_type: RegressionOfflineEnum,
     beta1: float,
     beta2: float,
+    multistep: bool = False,
     bce: bool = False, 
 ):
     policy_logp = outputs['policy_logp']  # (batch_size, )
@@ -127,7 +128,13 @@ def offline_loss(
         if vstar is None:
             vstar_rewards = batch.get('vstar_rewards', None)
             assert vstar_rewards is not None
-            exponentiated_mean = torch.mean(torch.exp(vstar_rewards / beta1), dim=-1)
+            if not multistep:
+                exponentiated_mean = torch.mean(torch.exp(vstar_rewards / beta1), dim=-1)
+            else:
+                exponentiated_mean = torch.mean(
+                    vstar_rewards * torch.exp(batch['reward'] / beta1).view(-1, 1) + (1 - vstar_rewards),
+                    dim=-1,
+                )
             vstar = beta1 * torch.log(exponentiated_mean)
 
             assert vstar.shape == batch['reward'].shape
