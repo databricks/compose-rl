@@ -235,14 +235,14 @@ class OfflineStreamingDataset(StreamingDataset):
             return_dict['reward'] = torch.Tensor([sample['reward']])
 
         if 'vstar' in sample:
-            assert 'vstar-rewards' not in sample
+            assert 'vstar_rewards' not in sample
             return_dict['vstar'] = torch.Tensor([sample['vstar']])
 
         if 'v-star' in sample:
-            assert 'vstar-rewards' not in sample
+            assert 'vstar_rewards' not in sample
             return_dict['vstar'] = torch.Tensor([sample['v-star']])
 
-        if 'vstar-rewards' in sample:
+        if 'vstar_rewards' in sample:
             assert 'vstar' not in sample
             assert 'v-star' not in sample
             if isinstance(sample['vstar_rewards'], np.ndarray):
