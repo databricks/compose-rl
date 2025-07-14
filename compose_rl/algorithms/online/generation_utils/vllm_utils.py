@@ -45,7 +45,10 @@ from torch.distributed.distributed_c10d import (
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from compose_rl.algorithms.online.generation_utils.vllm_actor import LLMRayActor
-from compose_rl.algorithms.online.model_methods import OnPolicyEnum
+from compose_rl.algorithms.online.model_methods import (
+    ALGORITHM_TYPE,
+    OnPolicyEnum,
+)
 
 log = logging.getLogger(__name__)
 
@@ -362,7 +365,7 @@ def should_update_torch_module(
     if parsed_module_name not in valid_non_leaf_module_names:
         return False
 
-    if loss_type == OnPolicyEnum.GRPO:
+    if loss_type in ALGORITHM_TYPE.CRITIC_FREE:
         return True
 
     if loss_type == OnPolicyEnum.PPO and 'lm_backbone' in full_param_name:
@@ -377,6 +380,7 @@ def broadcast_to_vllm(
     model_update_group: Optional[torch.distributed.ProcessGroup],
     batch: dict[str, torch.Tensor],
     loss_type: OnPolicyEnum = OnPolicyEnum.PPO,
+    enable_prefix_caching: bool = False,
 ):
     """Broadcast model weights to all vllm engines.
 
@@ -385,7 +389,8 @@ def broadcast_to_vllm(
         vllm_engines (list): List of vllm engines
         model_update_group (torch.distributed.ProcessGroup): The process group for model updates
         batch (dict[str, torch.Tensor]): The batch to use for the forward pass
-        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to "ppo".
+        loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to `ppo`.
+        enable_prefix_caching (bool): Whether to enable prefix caching. Defaults to `False`.
     """
     # avoid OOM
     torch.cuda.empty_cache()
@@ -394,7 +399,7 @@ def broadcast_to_vllm(
         count, num_params = 0, len(
             list(model.model.lm_backbone.named_parameters()),  # type: ignore
         )
-    elif loss_type == OnPolicyEnum.GRPO:
+    elif loss_type in ALGORITHM_TYPE.CRITIC_FREE:
         # Directly use the model params
         count, num_params = 0, len(
             list(model.model.named_parameters()),  # type: ignore
@@ -403,7 +408,14 @@ def broadcast_to_vllm(
         raise ValueError(
             f'Unsupported loss type: {loss_type}. Supported types are: ppo, grpo',
         )
+
     refss = []
+    cache_reset_refss = []
+    if enable_prefix_caching and dist.get_global_rank() == 0:
+        cache_reset_refss = [
+            engine.reset_prefix_cache.remote() for engine in vllm_engines
+        ]
+
     # This is needed to get the correct model device
     cur_device = batch['prompt'].device
 
@@ -513,6 +525,8 @@ def broadcast_to_vllm(
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
     ray.get(refss)
+    if enable_prefix_caching:
+        ray.get(cache_reset_refss)
     log.info(f'ray refs took: {time.time() - start_time}')
     log.info(f'update time is: {update_time}')
     log.info(f'number of parameters updated is: {count}')

@@ -79,9 +79,9 @@ class LLMRayActor:
             log.info(f'sampling_params is: {sampling_params}')
 
         return self.llm.generate(
-            sampling_params=sampling_params,
             *args,
             **kwargs,
+            sampling_params=sampling_params,
         )
 
     def chat(self, *args: Any, **kwargs: Any):
@@ -128,3 +128,6 @@ class LLMRayActor:
             'update_weight',
             args=(name, dtype, shape, empty_cache),
         )
+
+    def reset_prefix_cache(self):
+        self.llm.llm_engine.reset_prefix_cache()

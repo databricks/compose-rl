@@ -85,14 +85,177 @@ def hf_generate(
     return sequences
 
 
+def _vllm_generate(
+    vllm_engines: list,
+    max_gen_len: int,
+    generation_kwargs: dict,
+    pad_token_id: int,  # type: ignore
+    all_prompts: list,
+    batch_sizes: list,
+) -> list:
+    futs = []
+    sampling_params = {
+        'temperature': generation_kwargs.get('temperature', 1.0),
+        'top_p': generation_kwargs.get('top_p', 1.0),
+        'top_k': generation_kwargs.get('top_k', -1),
+        'max_tokens': max_gen_len,
+    }
+
+    # We have to remove all pad tokens here
+    all_prompts = [[
+        token
+        for token in prompt.detach().cpu().tolist()
+        if token != pad_token_id
+    ]
+                   for prompt in all_prompts]
+
+    # Generate with vllm
+    # Calculate the base batch size
+    vllm_batch_size = len(all_prompts) // len(vllm_engines)
+    # Calculate the remainder (prompts that don't fit evenly)
+    remainder = len(all_prompts) % len(vllm_engines)
+
+    start_idx = 0
+    for i, engine in enumerate(vllm_engines):
+        # Assign one extra prompt to the first 'remainder' engines
+        if i < remainder:
+            end_idx = start_idx + vllm_batch_size + 1
+        else:
+            end_idx = start_idx + vllm_batch_size
+
+        cur_prompt_ids = all_prompts[start_idx:end_idx]
+
+        futs.append(
+            engine.generate.remote(
+                prompt_token_ids=cur_prompt_ids,
+                sampling_params=sampling_params,
+            ),
+        )
+
+        # Update the start index for the next iteration
+        start_idx = end_idx
+
+    start_time = time.time()
+    results = ray.get(futs)
+    all_responses = []
+
+    # Get all of the ray futures
+    for i, result in enumerate(results):
+        # Each result is a list of responses this assumes one output per input
+        all_responses.extend([resp.outputs[0].token_ids for resp in result])
+
+    log.info(
+        f'took: {time.time() - start_time} to gather futures',
+    )
+
+    # Distribute padded responses back to the correct device
+    split_responses = []
+    start = 0
+    for size in batch_sizes:
+        split_responses.append(
+            all_responses[start:start + size],
+        )
+        start += size
+    return split_responses
+
+
+def _vllm_chat(
+    vllm_engines: list,
+    max_gen_len: int,
+    generation_kwargs: dict,
+    pad_token_id: int,  # type: ignore
+    all_prompts: list,
+    all_messages: list,
+    batch_sizes: list,
+) -> list:
+    futs = []
+    sampling_params = {
+        'temperature': generation_kwargs.get('temperature', 1.0),
+        'top_p': generation_kwargs.get('top_p', 1.0),
+        'top_k': generation_kwargs.get('top_k', -1),
+        'max_tokens': max_gen_len,
+    }
+
+    # We have to remove all pad tokens here. Keep here to check
+    all_prompts = [[
+        token
+        for token in prompt.detach().cpu().tolist()
+        if token != pad_token_id
+    ]
+                   for prompt in all_prompts]
+
+    # Generate with vllm
+    # Calculate the base batch size
+    vllm_batch_size = len(all_messages) // len(vllm_engines)
+    # Calculate the remainder (messages that don't fit evenly)
+    remainder = len(all_messages) % len(vllm_engines)
+
+    start_idx = 0
+    for i, engine in enumerate(vllm_engines):
+        # Assign one extra prompt to the first 'remainder' engines
+        if i < remainder:
+            end_idx = start_idx + vllm_batch_size + 1
+        else:
+            end_idx = start_idx + vllm_batch_size
+
+        cur_messages = all_messages[start_idx:end_idx]
+
+        futs.append(
+            engine.chat.remote(
+                messages=cur_messages,
+                sampling_params=sampling_params,
+            ),
+        )
+
+        # Update the start index for the next iteration
+        start_idx = end_idx
+
+    start_time = time.time()
+    results = ray.get(futs)
+    all_responses, all_vllm_prompts = [], []
+
+    # Get all of the ray futures
+    for i, result in enumerate(results):
+        # Each result is a list of responses this assumes one output per input
+        all_responses.extend([resp.outputs[0].token_ids for resp in result])
+
+        # Get prompt ids processed by vllm for checks
+        all_vllm_prompts.extend([resp.prompt_token_ids for resp in result])
+
+    log.info(
+        f'took: {time.time() - start_time} to gather futures',
+    )
+
+    # Remove pad tokens from vllm prompts
+    all_vllm_prompts = [[token
+                         for token in prompt
+                         if token != pad_token_id]
+                        for prompt in all_vllm_prompts]
+
+    # Checking vllm prompts with all prompts
+    assert all_prompts == all_vllm_prompts
+
+    # Distribute padded responses back to the correct device
+    split_responses = []
+    start = 0
+    for size in batch_sizes:
+        split_responses.append(
+            all_responses[start:start + size],
+        )
+        start += size
+
+    return split_responses
+
+
 def vllm_generate(
     vllm_engines: list,
     batch: dict,
     max_gen_len: int,
     generation_kwargs: dict,
     tokenizer: Tokenizer,
+    vllm_generate_function: str,
 ) -> torch.Tensor:
-    """Run vllm generate on the prompts.
+    """Run vllm chat on the prompts using messages.
 
     Runs generate over a set of sequences in the batch. It also does extra computation
     that is required for later loss computation.
@@ -103,6 +266,7 @@ def vllm_generate(
         max_gen_len (int): Maximum generation length.
         generation_kwargs (dict): Generation keyword arguments.
         tokenizer (Tokenizer): The actor critic's tokenizer.
+        vllm_generate_function (str): whether to use llm.
 
     Returns:
         sequences (tensor): Tensor containing the prompt and generated sequences.
@@ -120,10 +284,15 @@ def vllm_generate(
     # Pull the necessary variables from the batch and self
     cur_device = batch['prompt'].device
     prompt_tokens = batch['prompt']
+    if vllm_generate_function == 'chat':
+        messages = batch['messages']
 
     prompt_all_gather_start_time = time.time()
 
     all_batched_prompts = dist.all_gather_object(prompt_tokens)
+    if vllm_generate_function == 'chat':
+        all_batched_messages = dist.all_gather_object(messages)  # type: ignore
+
     batch_sizes = [len(batch) for batch in all_batched_prompts]
 
     log.info(
@@ -131,75 +300,40 @@ def vllm_generate(
     )
     all_prompts = [prompt for batch in all_batched_prompts for prompt in batch]
 
+    if vllm_generate_function == 'chat':
+        all_messages = [
+            message for batch in all_batched_messages  # type: ignore
+            for message_list in batch for message in message_list
+        ]
+        assert len(all_prompts) == len(all_messages)
+
     start_gen_time = time.time()
     if dist.get_global_rank() == 0:
-        futs = []
-        sampling_params = {
-            'temperature': generation_kwargs.get('temperature', 1.0),
-            'top_p': generation_kwargs.get('top_p', 1.0),
-            'top_k': generation_kwargs.get('top_k', -1),
-            'max_tokens': max_gen_len,
-        }
-
-        # We have to remove all pad tokens here
-        all_prompts = [[
-            token
-            for token in prompt.detach().cpu().tolist()
-            if token != pad_token_id
-        ]
-                       for prompt in all_prompts]
-
-        # Generate with vllm
-        # Calculate the base batch size
-        vllm_batch_size = len(all_prompts) // len(vllm_engines)
-        # Calculate the remainder (prompts that don't fit evenly)
-        remainder = len(all_prompts) % len(vllm_engines)
-
-        start_idx = 0
-        for i, engine in enumerate(vllm_engines):
-            # Assign one extra prompt to the first 'remainder' engines
-            if i < remainder:
-                end_idx = start_idx + vllm_batch_size + 1
-            else:
-                end_idx = start_idx + vllm_batch_size
-
-            cur_prompt_ids = all_prompts[start_idx:end_idx]
-
-            futs.append(
-                engine.generate.remote(
-                    prompt_token_ids=cur_prompt_ids,
-                    sampling_params=sampling_params,
-                ),
+        if vllm_generate_function == 'chat':
+            split_responses = _vllm_chat(
+                vllm_engines,
+                max_gen_len,
+                generation_kwargs,
+                pad_token_id,  # type: ignore
+                all_prompts,
+                all_messages,  # type: ignore
+                batch_sizes,
             )
-
-            # Update the start index for the next iteration
-            start_idx = end_idx
-
-        start_time = time.time()
-        results = ray.get(futs)
-        all_responses = []
-
-        # Get all of the ray futures
-        for i, result in enumerate(results):
-            # Each result is a list of responses this assumes one output per input
-            all_responses.extend([resp.outputs[0].token_ids for resp in result])
-
-        log.info(
-            f'took: {time.time() - start_time} to gather futures',
-        )
-
-        # Distribute padded responses back to the correct device
-        split_responses = []
-        start = 0
-        for size in batch_sizes:
-            split_responses.append(
-                all_responses[start:start + size],
+        else:
+            split_responses = _vllm_generate(
+                vllm_engines,
+                max_gen_len,
+                generation_kwargs,
+                pad_token_id,  # type: ignore
+                all_prompts,
+                batch_sizes,
             )
-            start += size
     else:
         # Remove the memory from all gather as they are only used for the first rank
         all_batched_prompts = None
+        all_batched_messages = None
         all_prompts = None
+        all_messages = None
         split_responses = None
 
     # Do another garbage collection and empty the cache

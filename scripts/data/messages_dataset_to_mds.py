@@ -14,6 +14,7 @@ import fsspec
 from messages_preprocessing_utils import (
     prepare_gsm8k_messages,
     prepare_math_messages,
+    prepare_messages,
     prepare_ultrafeedback_summarization_messages,
 )
 from streaming import MDSWriter
@@ -97,6 +98,10 @@ class UnifiedMessagesDataset(IterableDataset):
         elif 'math' in dataset_path.lower():
             log.info('Using MATH preprocessing function')
             return prepare_math_messages
+        elif 'stem' in dataset_path.lower() or 'science' in dataset_path.lower(
+        ):
+            log.info('Using STEM preprocessing function')
+            return prepare_messages
         elif 'allenai/ultrafeedback_binarized_cleaned' in dataset_path.lower():
             log.info('Using UltraFeedback summarization preprocessing function')
             return prepare_ultrafeedback_summarization_messages
