@@ -155,7 +155,7 @@ def offline_loss(
         vstar_rewards = batch.get('vstar_rewards', None)
         assert vstar_rewards is not None
         if not multistep:
-            reward_q = torch.mean((batch['reward'].view(-1, 1) < vstar_rewards).float(), dim=-1)
+            reward_q = torch.mean((batch['reward'].view(-1, 1) >= vstar_rewards).float(), dim=-1)
         else:
             raise NotImplementedError("Multistep for QRPO not implemented")
 
