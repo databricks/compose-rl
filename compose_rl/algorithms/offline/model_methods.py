@@ -28,6 +28,7 @@ from compose_rl.utils import (
 
 class RegressionOfflineEnum(Enum):
     APO = 'apo'
+    QRPO = 'qrpo'
 
 
 class PairwiseOfflineEnum(Enum):
@@ -139,9 +140,6 @@ def offline_loss(
 
             assert vstar.shape == batch['reward'].shape
 
-        # temporary
-        vstar = beta1 * torch.log(vstar)
-
         if bce == False:
             losses = (
                 beta2 * (policy_logp - ref_logp) -
@@ -153,15 +151,24 @@ def offline_loss(
             losses = -(actual_prob * torch.log(predicted_prob) 
                         +   (1.-actual_prob)*torch.log(1.-predicted_prob)
                     )
+    elif loss_type == RegressionOfflineEnum.QRPO:
+        vstar_rewards = batch.get('vstar_rewards', None)
+        assert vstar_rewards is not None
+        if not multistep:
+            reward_q = torch.mean((batch['reward'].view(-1, 1) < vstar_rewards).float(), dim=-1)
+        else:
+            raise NotImplementedError("Multistep for QRPO not implemented")
 
-        # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
-        # formula: sum_y exp( log pi(y) - log pi_ref(y) ) r(y) where y ~ pi_ref
-        # use clip to ensure the output from exp is valid
-        with torch.no_grad():
-            estimated_rewards = torch.exp(
-                torch.clip(policy_logp - ref_logp, max=5.),
-            ) * batch['reward']
-            estimated_reward = torch.mean(estimated_rewards)
+        losses = (reward_q - beta2 * torch.log(beta2) - 1 - beta2 * (policy_logp - ref_logp)) ** 2
+
+    # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
+    # formula: sum_y exp( log pi(y) - log pi_ref(y) ) r(y) where y ~ pi_ref
+    # use clip to ensure the output from exp is valid
+    with torch.no_grad():
+        estimated_rewards = torch.exp(
+            torch.clip(policy_logp - ref_logp, max=5.),
+        ) * batch['reward']
+        estimated_reward = torch.mean(estimated_rewards)
 
     losses = losses.mean()
 
@@ -174,9 +181,9 @@ def offline_loss(
         'implicit_rewards': implicit_rewards,
         'reverse_kl': reverse_kl,
         'forward_kl': forward_kl,
+        'estimated_reward': estimated_reward,
     }
     if loss_type == RegressionOfflineEnum.APO:
-        loss_dict['estimated_reward'] = estimated_reward
         loss_dict['batch_advantage'] = torch.mean(
             batch['reward'] - vstar,
         )
