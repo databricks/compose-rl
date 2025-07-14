@@ -246,7 +246,7 @@ class OfflineStreamingDataset(StreamingDataset):
             assert 'vstar' not in sample
             assert 'v-star' not in sample
             if isinstance(sample['vstar_rewards'], np.ndarray):
-                return_dict['vstar_rewards'] = torch.from_numpy(sample['vstar-rewards'])
+                return_dict['vstar_rewards'] = torch.from_numpy(sample['vstar_rewards'])
             else:
                 rewards_type = type(sample['vstar_rewards'])
                 raise ValueError(
