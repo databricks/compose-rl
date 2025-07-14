@@ -139,6 +139,9 @@ def offline_loss(
 
             assert vstar.shape == batch['reward'].shape
 
+        # temporary
+        vstar = beta1 * torch.log(vstar)
+
         if bce == False:
             losses = (
                 beta2 * (policy_logp - ref_logp) -
