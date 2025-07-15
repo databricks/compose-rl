@@ -527,7 +527,7 @@ class OnPolicyCallback(CallbackWithConfig):
                 raise ValueError(f'{num_gen_calls=} must be greater than 0')
 
     def init(self, state: State, logger: Logger):
-        log.info('number of prompts in train_prompt_loader dataset: ', len(state.train_loader.dataset))
+        log.info('number of prompts in train_prompt_loader dataset: ', len(state.train_dataloader.dataset))
         exit()
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
