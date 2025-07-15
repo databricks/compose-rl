@@ -173,7 +173,7 @@ def finegrained_preference_dataset_collate_fn(
 
     keys = data[0].keys()
     print("#############")
-    print(data[0]['label'].size())
+    print(data[0]['labels'].size())
     print("#############")
     batch = {}
     for key in keys:
@@ -191,10 +191,10 @@ def finegrained_preference_dataset_collate_fn(
         elif key in ['prompt_len', 'text_len']:
             batch[key] = torch.stack(cur_values).squeeze(dim=1)
             continue
-        #elif key in ['label']:
-        #    cur_values = [a.unsqueeze(0) for a in cur_values]
-        #    batch[key] = torch.cat(cur_values, dim=0)
-        #    continue
+        elif key in ['label']:
+            cur_values = [a.unsqueeze(0) for a in cur_values]
+            batch[key] = torch.cat(cur_values, dim=0)
+            continue
 
         batch[key] = ref_collate_fn(cur_values)['input_ids']
     batch['attention_mask'] = torch.logical_not(
