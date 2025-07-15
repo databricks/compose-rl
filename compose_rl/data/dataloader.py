@@ -124,11 +124,35 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
 )
 
 def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
-    """Get the number of tokens in a batch, excluding padding tokens."""
+    """Get the number of tokens in batch including prompt + valid generated tokens."""
     assert 'sequences' in batch, 'sequences must be in batch'
-    non_pad_mask = torch.ne(batch['sequences'], pad_token_id)
-    total_tokens = non_pad_mask.sum().item()
-    print(f'[RICKY] total_tokens for batch: {total_tokens}')
+
+    print(f'[RICKY] batch: {batch}')
+    shapes = {k: v.shape for k, v in batch.items() if isinstance(v, torch.Tensor)}
+    print(f'[RICKY] batch tensor shapes: {shapes}')
+
+    sequences = batch['sequences']
+
+    # If we have action_mask and prompt_len, use them for precise counting
+    if 'action_mask' in batch and 'prompt_len' in batch:
+        prompt_len = batch['prompt_len']
+        action_mask = batch['action_mask']
+
+        # Count prompt tokens (sum of all prompt lengths)
+        prompt_tokens = prompt_len.sum().item()
+
+        # Count valid generated tokens (sum of action_mask)
+        generated_tokens = action_mask.sum().item()
+
+        total_tokens = prompt_tokens + generated_tokens
+        print(f'[RICKY] total_tokens for batch: {total_tokens} using action_mask and prompt_len')
+
+    if sequences:
+        # Fallback to current method with warning
+        non_pad_mask = torch.ne(sequences, pad_token_id)
+        total_tokens = non_pad_mask.sum().item()
+        print(f"[RICKY] total_tokens for batch: {total_tokens} using sequences")
+
     return total_tokens
 
 build_prompt_dataloader = generate_dataloader_builder(
