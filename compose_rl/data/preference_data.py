@@ -200,6 +200,9 @@ def finegrained_preference_dataset_collate_fn(
     batch['attention_mask'] = torch.logical_not(
         torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
     )
+    print("#####after processing ########")
+    print(batch['labels'].size())
+    print("#############")
 
     return batch
 
@@ -323,10 +326,13 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
             idx (int): the index where we fetch the data in the StreamingDataset.
         """
         sample = super().__getitem__(idx)
-        text = self._read_binary_tokenized_sample(sample, 'input')
+        #text = self._read_binary_tokenized_sample(sample, 'input')
+        text =  torch.from_numpy(np.frombuffer(sample['input'], dtype=np.int64))
         label = torch.from_numpy(np.frombuffer(sample['label'], dtype=np.uint8))
         # This needs to be a float tensor for BCE
-        label = label.to(torch.float32)
+        #label = label.to(torch.float32)
+
+        assert text.shape == label.shape
 
         text_len = len(text)
         if 'mask' in sample:

@@ -91,7 +91,7 @@ parameters:
     forward_prefetch: true
     limit_all_gathers: true
 
-  max_seq_len: 4096
+  max_seq_len: 16384 #4096
   save_folder: /tmp/reward_model    # TODO: insert proper save_folder
   dist_timeout: 1200
   max_duration: 1ep
