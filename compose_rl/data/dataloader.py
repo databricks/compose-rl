@@ -109,7 +109,12 @@ def generate_dataloader_builder(
 
 def get_num_tokens_in_batch(batch: dict[str, Any]) -> int:
     """Get the number of tokens in a batch."""
-    return batch['sequences'].shape[1]
+    print(f"batch within the get_num_tokens_in_batch function: {batch}")
+    if 'sequences' in batch:
+        print(f"batch['sequences'].shape: {batch['sequences'].shape}")
+        return batch['sequences'].shape[1]
+    else:
+        return 100
 
 build_pairwise_preference_dataloader = generate_dataloader_builder(
     PairwisePreferenceStreamingDataset,
