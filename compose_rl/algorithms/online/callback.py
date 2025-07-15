@@ -795,7 +795,6 @@ class OnPolicyCallback(CallbackWithConfig):
                 sequences = torch.cat(padded_sequences, dim=0)
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
-        print(f"batch within the callback function: {batch}")
 
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore

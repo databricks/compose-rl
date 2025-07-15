@@ -4,8 +4,9 @@
 """Dataloader builders."""
 
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
+import torch
 from streaming import Stream, StreamingDataLoader, StreamingDataset
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer
@@ -37,6 +38,7 @@ __all__ = [
 def generate_dataloader_builder(
     dataset_cls: type[StreamingDataset],
     collate_fn: Callable,
+    token_counter_fn: Optional[Callable] = None,
 ) -> Callable:
     """Generates dataloader builder for a given dataset_cls and collate_fn."""
 
@@ -103,18 +105,13 @@ def generate_dataloader_builder(
             persistent_workers=persistent_workers,
             timeout=timeout,
         )
-        return DataSpec(dataloader=dataloader, get_num_tokens_in_batch=get_num_tokens_in_batch)
+        data_spec_kwargs = {}
+        if token_counter_fn is not None:
+            data_spec_kwargs['get_num_tokens_in_batch'] = partial(token_counter_fn, pad_token_id=tokenizer.pad_token_id)
+        return DataSpec(dataloader=dataloader, **data_spec_kwargs)
 
     return build_preference_dataloader
 
-def get_num_tokens_in_batch(batch: dict[str, Any]) -> int:
-    """Get the number of tokens in a batch."""
-    print(f"batch within the get_num_tokens_in_batch function: {batch}")
-    if 'sequences' in batch:
-        print(f"batch['sequences'].shape: {batch['sequences'].shape}")
-        return batch['sequences'].shape[1]
-    else:
-        return 100
 
 build_pairwise_preference_dataloader = generate_dataloader_builder(
     PairwisePreferenceStreamingDataset,
@@ -126,9 +123,18 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
     finegrained_preference_dataset_collate_fn,
 )
 
+def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
+    """Get the number of tokens in a batch, excluding padding tokens."""
+    assert 'sequences' in batch, 'sequences must be in batch'
+    non_pad_mask = torch.ne(batch['sequences'], pad_token_id)
+    total_tokens = non_pad_mask.sum().item()
+    print(f'[RICKY] total_tokens for batch: {total_tokens}')
+    return total_tokens
+
 build_prompt_dataloader = generate_dataloader_builder(
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
+    get_num_tokens_in_batch,
 )
 
 build_messages_dataloader = generate_dataloader_builder(
