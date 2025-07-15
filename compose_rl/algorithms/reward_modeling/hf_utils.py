@@ -138,7 +138,7 @@ class AutoModelForCausalLMWithRM(PreTrainedModel):
         pretrained = config.pretrained
 
         print("#####################################")
-        print(self.config.n_labels)
+        print("n_labels inside the AutoModelForCausalLMWithRM is {}".format(self.config.n_labels))
         print("#####################################")
 
         if pretrained:
