@@ -127,9 +127,13 @@ def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
     """Get the number of tokens in batch including prompt + valid generated tokens."""
     assert 'sequences' in batch, 'sequences must be in batch'
 
+    print(f'[RICKY] pad_token_id: {pad_token_id}')
+    print()
     print(f'[RICKY] batch: {batch}')
     shapes = {k: v.shape for k, v in batch.items() if isinstance(v, torch.Tensor)}
+    print()
     print(f'[RICKY] batch tensor shapes: {shapes}')
+    print()
 
     sequences = batch['sequences']
 
@@ -146,12 +150,14 @@ def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
 
         total_tokens = prompt_tokens + generated_tokens
         print(f'[RICKY] total_tokens for batch: {total_tokens} using action_mask and prompt_len')
+        print()
 
-    if sequences:
+    if sequences is not None:
         # Fallback to current method with warning
         non_pad_mask = torch.ne(sequences, pad_token_id)
         total_tokens = non_pad_mask.sum().item()
         print(f"[RICKY] total_tokens for batch: {total_tokens} using sequences")
+        print()
 
     return total_tokens
 
