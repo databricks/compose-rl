@@ -172,9 +172,6 @@ def finegrained_preference_dataset_collate_fn(
     )
 
     keys = data[0].keys()
-    print("################")
-    print(keys)
-    print("################")
     batch = {}
     for key in keys:
         cur_values = [item[key] for item in data]

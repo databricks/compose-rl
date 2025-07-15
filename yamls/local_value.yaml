@@ -32,7 +32,7 @@ parameters:
     return_lm_logits: false
     use_auth_token: true
     init_device: mixed
-    n_labels: 2
+    #n_labels: 2
     #additional_train_metrics:
     #- pairwise_rm_accuracy
     #additional_eval_metrics:
@@ -113,7 +113,7 @@ parameters:
     # name: finegrained_preference # For finegrained rewards
     name: finegrained_preference #pairwise_preference
     dataset:
-      remote: dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/value_data/train/
+      remote: dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/value_data_new/train/
       # remote: # TODO: Add remote path here if applicable
       # local: # TODO: Add the local path of the training ataloader
       shuffle: true
