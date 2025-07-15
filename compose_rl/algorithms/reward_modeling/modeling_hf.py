@@ -121,7 +121,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
             additional_eval_metrics=additional_eval_metrics,
             should_save_peft_only=should_save_peft_only,
         )
-        self.n_labels = n_labels
+        #self.n_labels = n_labels
         self.model.config.pretrained = False  # type: ignore
 
     @classmethod
@@ -132,6 +132,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
         use_auth_token: bool,
         attn_implementation: str,
         config_overrides: dict[str, Any],
+        n_labels: int
     ) -> PretrainedConfig:
 
         base_config = AutoConfig.from_pretrained(
@@ -155,7 +156,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
             hidden_size=base_config.hidden_size,
             vocab_size=base_config.vocab_size,
             pretrain_cfg=pretrain_cfg,
-            n_labels = self.n_labels
+            n_labels = n_labels
         )
 
         set_config_overrides(config, config_overrides)
