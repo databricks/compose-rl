@@ -92,7 +92,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
         additional_train_metrics: Optional[list] = None,
         additional_eval_metrics: Optional[list] = None,
         should_save_peft_only: bool = True,
-        n_labels: int = 1,
+        #n_labels: int = 1,
     ):
 
         config_overrides = config_overrides or {'return_logits': False}

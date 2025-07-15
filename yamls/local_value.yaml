@@ -111,7 +111,7 @@ parameters:
 
   train_loader:
     # name: finegrained_preference # For finegrained rewards
-    name: pairwise_preference
+    name: finegrained_preference #pairwise_preference
     dataset:
       remote: dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/value_data/train/
       # remote: # TODO: Add remote path here if applicable
