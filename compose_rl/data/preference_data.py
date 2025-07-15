@@ -197,6 +197,9 @@ def finegrained_preference_dataset_collate_fn(
     batch['attention_mask'] = torch.logical_not(
         torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
     )
+    print("@@@@@@@@@@@@@@@@@@")
+    print(batch['labels'].shape)
+    print(batch['text'].shape)
 
     return batch
 

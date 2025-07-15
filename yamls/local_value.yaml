@@ -27,14 +27,14 @@ parameters:
     # name: hf_classifier_rm # for finegrained rewards
     #name: hf_pairwise_rm
     name: hf_classifier_vm
-    pretrained_model_name_or_path: Qwen/Qwen2.5-1.5B-Instruct #Qwen/ #meta-llama/Meta-Llama-3.1-8B-Instruct
+    pretrained_model_name_or_path: Qwen/Qwen2.5-7B-Instruct #Qwen/ #meta-llama/Meta-Llama-3.1-8B-Instruct
     pretrained: true
     loss_type: ce
     use_flash_attention_2: true
     return_last: false
     return_lm_logits: false
     use_auth_token: true
-    init_device: mixed
+    #init_device: mixed
     #n_labels: 2
     #additional_train_metrics:
     #- pairwise_rm_accuracy
@@ -70,7 +70,7 @@ parameters:
     t_warmup: 0.1dur
 
   tokenizer:
-    name: Qwen/Qwen2.5-1.5B-Instruct #meta-llama/Meta-Llama-3.1-8B-Instruct
+    name: Qwen/Qwen2.5-7B-Instruct #meta-llama/Meta-Llama-3.1-8B-Instruct
     kwargs:
       model_max_length: ${max_seq_len}
       trust_remote_code: true
@@ -84,15 +84,18 @@ parameters:
   eval_first: false
 
   fsdp_config:
-    sharding_strategy: FULL_SHARD
+    verbose: false
     cpu_offload: false
     mixed_precision: PURE
-    activation_checkpointing: true
-    activation_checkpointing_reentrant: false
     state_dict_type: sharded
     use_orig_params: true
     forward_prefetch: true
-    limit_all_gathers: true
+    backward_prefetch: BACKWARD_PRE
+    sharding_strategy: FULL_SHARD
+    activation_checkpointing: true
+    activation_cpu_offload: false
+    activation_checkpointing_reentrant: false
+
 
   max_seq_len: 16384 #4096
   save_folder: /tmp/reward_model    # TODO: insert proper save_folder
@@ -132,7 +135,7 @@ parameters:
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
   global_train_batch_size: 16     # TODO: update for more realistic batch sizes
-  device_train_microbatch_size: 1
+  device_train_microbatch_size: 2
 
 integrations:
 - integration_type: git_repo
