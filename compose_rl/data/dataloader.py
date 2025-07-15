@@ -4,9 +4,10 @@
 """Dataloader builders."""
 
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 import torch
+from composer.core.data_spec import DataSpec
 from streaming import Stream, StreamingDataLoader, StreamingDataset
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer
@@ -25,7 +26,6 @@ from compose_rl.data.prompt_data import (
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
 )
-from composer.core.data_spec import DataSpec
 
 __all__ = [
     'build_finegrained_preference_dataloader',
@@ -52,7 +52,7 @@ def generate_dataloader_builder(
         prefetch_factor: int = 2,
         persistent_workers: bool = True,
         timeout: int = 0,
-    ) -> DataLoader:
+    ) -> Union[DataLoader, DataSpec]:
         """Builds a dataloader for prompt data.
 
         Args:
@@ -107,7 +107,10 @@ def generate_dataloader_builder(
         )
         data_spec_kwargs = {}
         if token_counter_fn is not None:
-            data_spec_kwargs['get_num_tokens_in_batch'] = partial(token_counter_fn, pad_token_id=tokenizer.pad_token_id)
+            data_spec_kwargs['get_num_tokens_in_batch'] = partial(
+                token_counter_fn,
+                pad_token_id=tokenizer.pad_token_id,
+            )
         return DataSpec(dataloader=dataloader, **data_spec_kwargs)
 
     return build_preference_dataloader
@@ -123,18 +126,20 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
     finegrained_preference_dataset_collate_fn,
 )
 
+
 def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
     """Get the number of tokens in batch including prompt + valid generated tokens."""
     if 'action_mask' in batch and 'prompt_len' in batch:
         prompt_len_tokens = batch['prompt_len'].sum().item()
         action_mask_tokens = batch['action_mask'].sum().item()
-        return prompt_len_tokens + action_mask_tokens
+        return int(prompt_len_tokens + action_mask_tokens)
     elif 'sequences' in batch:
         sequences = batch['sequences']
         non_pad_mask_tokens = torch.ne(sequences, pad_token_id).sum().item()
-        return non_pad_mask_tokens
+        return int(non_pad_mask_tokens)
     else:
         raise ValueError('No sequences or action_mask/prompt_len in batch')
+
 
 build_prompt_dataloader = generate_dataloader_builder(
     PromptStreamingDataset,
