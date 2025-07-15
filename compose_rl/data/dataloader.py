@@ -144,9 +144,11 @@ def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
 
         # Count prompt tokens (sum of all prompt lengths)
         prompt_tokens = prompt_len.sum().item()
+        print(f'[RICKY] prompt_tokens: {prompt_tokens}')
 
         # Count valid generated tokens (sum of action_mask)
         generated_tokens = action_mask.sum().item()
+        print(f'[RICKY] generated_tokens: {generated_tokens}')
 
         total_tokens = prompt_tokens + generated_tokens
         print(f'[RICKY] total_tokens for batch: {total_tokens} using action_mask and prompt_len')
