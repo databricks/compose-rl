@@ -24,6 +24,7 @@ from compose_rl.data.prompt_data import (
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
 )
+from composer.core.data_spec import DataSpec
 
 __all__ = [
     'build_finegrained_preference_dataloader',
@@ -102,10 +103,13 @@ def generate_dataloader_builder(
             persistent_workers=persistent_workers,
             timeout=timeout,
         )
-        return dataloader
+        return DataSpec(dataloader=dataloader, get_num_tokens_in_batch=get_num_tokens_in_batch)
 
     return build_preference_dataloader
 
+def get_num_tokens_in_batch(batch: dict[str, Any]) -> int:
+    """Get the number of tokens in a batch."""
+    return batch['sequences'].shape[1]
 
 build_pairwise_preference_dataloader = generate_dataloader_builder(
     PairwisePreferenceStreamingDataset,

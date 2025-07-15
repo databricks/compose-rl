@@ -792,9 +792,9 @@ class OnPolicyCallback(CallbackWithConfig):
                         self.pad_token_idx,  # type: ignore
                     )
                     padded_sequences.append(padded_sequence)
-                sequences = torch.cat(padded_sequences, dim=0)
-        # Add the prepared sequences to the batch again
+
         batch['sequences'] = sequences
+        print(f"batch: {batch}")
 
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore
