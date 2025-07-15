@@ -27,7 +27,7 @@ parameters:
     # name: hf_classifier_rm # for finegrained rewards
     #name: hf_pairwise_rm
     name: hf_classifier_vm
-    pretrained_model_name_or_path: Qwen/Qwen2.5-7B-Instruct #Qwen/ #meta-llama/Meta-Llama-3.1-8B-Instruct
+    pretrained_model_name_or_path: Qwen/Qwen2.5-7B #Qwen/ #meta-llama/Meta-Llama-3.1-8B-Instruct
     pretrained: true
     loss_type: ce
     use_flash_attention_2: true
@@ -70,10 +70,14 @@ parameters:
     t_warmup: 0.1dur
 
   tokenizer:
-    name: Qwen/Qwen2.5-7B-Instruct #meta-llama/Meta-Llama-3.1-8B-Instruct
+    name: Qwen/Qwen2.5-7B #meta-llama/Meta-Llama-3.1-8B-Instruct
     kwargs:
       model_max_length: ${max_seq_len}
       trust_remote_code: true
+      padding: longest
+      pad_token: <|endoftext|>
+      truncation: true
+      padding_side: left
 
   algorithms:
     gradient_clipping:
