@@ -200,7 +200,9 @@ def finegrained_preference_dataset_collate_fn(
     print("@@@@@@@@@@@@@@@@@@")
     print(batch['labels'].shape)
     print(batch['text'].shape)
-
+    print(batch['text'].min())
+    print(batch['text'].max())
+    
     return batch
 
 
