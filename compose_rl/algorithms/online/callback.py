@@ -584,7 +584,7 @@ class OnPolicyCallback(CallbackWithConfig):
     def before_load(self, state: State, logger: Logger):
         del logger
         self.train_prompt_loader = state.train_dataloader
-        log.info('number of prompts in train_prompt_loader dataset: ', len(state.train_dataloader.dataset))
+        log.info(f'number of prompts in train_prompt_loader dataset: {len(state.train_dataloader.dataset)}')
         exit()
 
     def after_load(self, state: State, logger: Logger):
