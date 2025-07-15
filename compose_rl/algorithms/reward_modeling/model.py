@@ -203,6 +203,10 @@ class ComposerHFClassifierValueModel(
         self.min_threshold = kwargs.pop('min_threshold', None)
         self.max_threshold = kwargs.pop('max_threshold', None)
 
+        print("#####################################")
+        print("ComposerHFClassifierValueModel")
+        print("#####################################")
+
         super().__init__(
             tokenizer=tokenizer,
             use_train_metrics=use_train_metrics,

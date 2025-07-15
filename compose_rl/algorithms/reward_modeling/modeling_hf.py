@@ -96,6 +96,11 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
 
         config_overrides = config_overrides or {'return_logits': False}
 
+        print("#####################################")
+        print("ComposerHFSequenceClassification")
+        print("#####################################")
+
+
         super().__init__(
             pretrained_model_name_or_path,
             tokenizer=tokenizer,
