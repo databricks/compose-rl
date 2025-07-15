@@ -16,21 +16,15 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from composer.utils import dist as composer_dist
 from composer import Trainer
 from composer.optim import DecoupledAdamW
-from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
+from llmfoundry.models import ComposerHFCausalLM
 from torch.utils.data import DataLoader
-from transformers import PreTrainedModel, PreTrainedTokenizerBase
-from transformers.models.gpt2 import GPT2LMHeadModel
 
 from compose_rl.algorithms.online import (
     ComposerHFPolicyLM,
-    ComposerMPTPolicyLM,
     SingleControllerOnPolicyCallback,
 )
-from compose_rl.algorithms.online.model_methods import OnPolicyEnum
-from compose_rl.algorithms.online.modeling_hf import ComposerHFPolicy
 from compose_rl.data import prompt_dataset_collate_fn
-from tests.common import PromptDataset, VerifiablePromptDataset, world_size
-from tests.fixtures.fixtures import assets_tokenizer_helper
+from tests.common import VerifiablePromptDataset
 
 from compose_rl.algorithms.online.generation_utils import init_process_group, create_vllm_engines
 
@@ -39,6 +33,10 @@ from typing import Any
 
 def ray_noset_visible_devices():
     return os.environ.get('RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES', '0') == '1'
+
+
+# 1. how to enable tests with llama 3.2 1b
+# 2. why is there authorization issue with composer wrapper
 
 
 def init_ray():
