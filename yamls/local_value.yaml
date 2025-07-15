@@ -131,6 +131,18 @@ parameters:
       shuffle_seed: 17
     drop_last: true
     num_workers: 8
+  
+  eval_loader:
+    name: finegrained_preference
+    dataset:
+      remote: dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/value_data_new/train/
+      shuffle: false
+      max_seq_len: ${max_seq_len}
+      shuffle_seed: 17
+    drop_last: true
+    num_workers: 8
+  
+
 
   eval_interval: 1     # TODO: change if an eval loader is specified
   save_interval: 1ep
@@ -138,8 +150,8 @@ parameters:
   console_log_interval: 1ba
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
-  global_train_batch_size: 16     # TODO: update for more realistic batch sizes
-  device_train_microbatch_size: 2
+  global_train_batch_size: 8     # TODO: update for more realistic batch sizes
+  device_train_microbatch_size: 1
 
 integrations:
 - integration_type: git_repo

@@ -338,8 +338,12 @@ def classifier_loss(
     else:
         raise NotImplementedError(f'Loss type: {loss_type} is not supported.')
 
+    predicted_label = torch.argmax(flat_log_probs, dim = -1).detach()
+    accuracy = torch.sum((predicted_label == flat_labels)*flat_mask) / torch.sum(flat_mask)
+
     loss_dict = {
         'total': loss,
+        'accuracy': accuracy
     }
 
     return loss_dict
