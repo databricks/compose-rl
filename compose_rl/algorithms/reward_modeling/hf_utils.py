@@ -136,6 +136,11 @@ class AutoModelForCausalLMWithRM(PreTrainedModel):
         self.config = config
         pretrain_cfg = config.pretrain_cfg
         pretrained = config.pretrained
+
+        print("#####################################")
+        print(self.config.n_labels)
+        print("#####################################")
+
         if pretrained:
             self.lm_backbone = AutoModelForCausalLM.from_pretrained(
                 config.base_model,
