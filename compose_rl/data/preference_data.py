@@ -332,6 +332,9 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
         # This needs to be a float tensor for BCE
         #label = label.to(torch.float32)
 
+        print("@@@@@@@@@@@@@@@@@@@@@")
+        print(text.shape)
+        print(label.shape)
         assert text.shape == label.shape
 
         text_len = len(text)
