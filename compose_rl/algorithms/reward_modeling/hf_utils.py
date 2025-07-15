@@ -96,7 +96,7 @@ class RewardModelConfig(PretrainedConfig):
         base_model: Optional[Union[str, os.PathLike]] = None,
         base_config: Optional[PretrainedConfig] = None,
         p_dropout: float = 0.0,
-        n_labels: int = 1,
+        n_labels: int = 2,
         bias: float = 0.0,
         return_logits: bool = False,
         pretrain_cfg: Optional[dict[str, Any]] = None,
