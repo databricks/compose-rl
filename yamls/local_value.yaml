@@ -1,5 +1,7 @@
-name: local-llama-8b-reward
+name: local-value-model-training
 image: mosaicml/dle:nightly-latest
+
+run_name: value_model_training
 
 scheduling:
   priority: high
@@ -12,13 +14,14 @@ compute:
 
 parameters:
   seed: 17
-  # loggers:
+  
+  loggers:
   # TODO: define loggers, e.g. mlflow, wandb, etc.
-  # mlflow:
-  #   tracking_uri: databricks
-  #   experiment_name: debug_rm
-  #   tags:
-  #     run: "{run_name}"
+    mlflow:
+      tracking_uri: databricks
+      experiment_name: debug_value_training
+      tags:
+        run: "{run_name}"
 
   model:
     # name: hf_classifier_rm # for finegrained rewards
