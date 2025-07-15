@@ -92,12 +92,13 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
         additional_train_metrics: Optional[list] = None,
         additional_eval_metrics: Optional[list] = None,
         should_save_peft_only: bool = True,
+        n_labels: int = 1,
     ):
 
         config_overrides = config_overrides or {'return_logits': False}
 
         print("#####################################")
-        print("ComposerHFSequenceClassification")
+        print("1 ComposerHFSequenceClassification")
         print("#####################################")
 
 
@@ -120,6 +121,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
             additional_eval_metrics=additional_eval_metrics,
             should_save_peft_only=should_save_peft_only,
         )
+        self.n_labels = n_labels
         self.model.config.pretrained = False  # type: ignore
 
     @classmethod
@@ -153,6 +155,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
             hidden_size=base_config.hidden_size,
             vocab_size=base_config.vocab_size,
             pretrain_cfg=pretrain_cfg,
+            n_labels = self.n_labels
         )
 
         set_config_overrides(config, config_overrides)

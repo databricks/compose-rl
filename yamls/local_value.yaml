@@ -32,7 +32,7 @@ parameters:
     return_lm_logits: false
     use_auth_token: true
     init_device: mixed
-    #n_labels: 2
+    n_labels: 2
     #additional_train_metrics:
     #- pairwise_rm_accuracy
     #additional_eval_metrics:
