@@ -331,6 +331,7 @@ def classifier_loss(
         print("######################")
         print(outputs.keys())
         print(batch.keys())
+        print("info batch: size{}, type{}".format(batch['text'].size(), type(batch['text'])))
         print("info output_score: size{}, type{}".format(output_scores.size(), type(output_scores)))
         print("info labels: size{}, type{}".format(batch['labels'].size(), type(batch['labels'])))
         print("######################")
