@@ -125,43 +125,16 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
 
 def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
     """Get the number of tokens in batch including prompt + valid generated tokens."""
-    assert 'sequences' in batch, 'sequences must be in batch'
-
-    print(f'[RICKY] pad_token_id: {pad_token_id}')
-    print()
-    print(f'[RICKY] batch: {batch}')
-    shapes = {k: v.shape for k, v in batch.items() if isinstance(v, torch.Tensor)}
-    print()
-    print(f'[RICKY] batch tensor shapes: {shapes}')
-    print()
-
-    sequences = batch['sequences']
-
-    # If we have action_mask and prompt_len, use them for precise counting
     if 'action_mask' in batch and 'prompt_len' in batch:
-        prompt_len = batch['prompt_len']
-        action_mask = batch['action_mask']
-
-        # Count prompt tokens (sum of all prompt lengths)
-        prompt_tokens = prompt_len.sum().item()
-        print(f'[RICKY] prompt_tokens: {prompt_tokens}')
-
-        # Count valid generated tokens (sum of action_mask)
-        generated_tokens = action_mask.sum().item()
-        print(f'[RICKY] generated_tokens: {generated_tokens}')
-
-        total_tokens = prompt_tokens + generated_tokens
-        print(f'[RICKY] total_tokens for batch: {total_tokens} using action_mask and prompt_len')
-        print()
-
-    if sequences is not None:
-        # Fallback to current method with warning
-        non_pad_mask = torch.ne(sequences, pad_token_id)
-        total_tokens = non_pad_mask.sum().item()
-        print(f"[RICKY] total_tokens for batch: {total_tokens} using sequences")
-        print()
-
-    return total_tokens
+        prompt_len_tokens = batch['prompt_len'].sum().item()
+        action_mask_tokens = batch['action_mask'].sum().item()
+        return prompt_len_tokens + action_mask_tokens
+    elif 'sequences' in batch:
+        sequences = batch['sequences']
+        non_pad_mask_tokens = torch.ne(sequences, pad_token_id).sum().item()
+        return non_pad_mask_tokens
+    else:
+        raise ValueError('No sequences or action_mask/prompt_len in batch')
 
 build_prompt_dataloader = generate_dataloader_builder(
     PromptStreamingDataset,
