@@ -328,7 +328,7 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
         sample = super().__getitem__(idx)
         #text = self._read_binary_tokenized_sample(sample, 'input')
         text =  torch.from_numpy(np.frombuffer(sample['input'], dtype=np.int64))
-        label = torch.from_numpy(np.frombuffer(sample['label'], dtype=np.uint8))
+        label = torch.from_numpy(np.frombuffer(sample['label'], dtype=np.int64))
         # This needs to be a float tensor for BCE
         #label = label.to(torch.float32)
 
