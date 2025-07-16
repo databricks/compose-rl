@@ -7,7 +7,10 @@ from compose_rl.data.dataloader import get_num_tokens_in_batch
 
 
 def test_get_num_tokens_with_action_mask_and_prompt_len():
-    """Test token counting with action_mask and prompt_len (online RL scenario)."""
+    """Test token counting with action_mask and prompt_len.
+
+    Verifies correct counting of prompt + valid generated tokens.
+    """
     batch = {
         'sequences':
             torch.tensor([
@@ -31,7 +34,10 @@ def test_get_num_tokens_with_action_mask_and_prompt_len():
 
 
 def test_get_num_tokens_fallback_without_action_mask():
-    """Test fallback counting when action_mask is not available."""
+    """Test fallback counting when action_mask is not available.
+
+    Verifies fallback to counting all non-padding tokens.
+    """
     batch = {
         'sequences':
             torch.tensor([

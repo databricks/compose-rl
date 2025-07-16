@@ -3,6 +3,7 @@
 
 """Dataloader builders."""
 
+import logging
 from functools import partial
 from typing import Any, Callable, Optional, Union
 
@@ -33,6 +34,8 @@ __all__ = [
     'build_prompt_dataloader',
     'build_messages_dataloader',
 ]
+
+log = logging.getLogger(__name__)
 
 
 def generate_dataloader_builder(
@@ -128,10 +131,16 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
 
 
 def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
-    """Get the number of tokens in batch including prompt + valid generated tokens."""
+    """Get the number of tokens in batch including prompt + valid generated tokens.
+
+    Uses action_mask and prompt_len for precise counting when available,
+    otherwise counts all non-padding tokens.
+    """
     if 'action_mask' in batch and 'prompt_len' in batch:
         prompt_len_tokens = batch['prompt_len'].sum().item()
         action_mask_tokens = batch['action_mask'].sum().item()
+        log.info(f'prompt tokens in batch: {prompt_len_tokens}')
+        log.info(f'generated tokens in batch: {action_mask_tokens}')
         return int(prompt_len_tokens + action_mask_tokens)
     elif 'sequences' in batch:
         sequences = batch['sequences']
