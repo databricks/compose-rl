@@ -171,6 +171,7 @@ def finegrained_preference_dataset_collate_fn(
         mlm_probability=0.0,
     )
 
+    batch = {}
     all_text = [item['text'] for item in data]
     batch['text'] = ref_collate_fn(all_text)
     print("############## batch[text] size is {}".format(batch['text'].shape))
@@ -185,7 +186,7 @@ def finegrained_preference_dataset_collate_fn(
         text_len = sample["text_len"]
         print("text size is {}".format(text.size()))
         print("labels size is {}".format(labels.size()))
-        
+
         assert text.size(0) == labels.size(0) and text.size(0) == text_len
 
         pad_len = max_len - text_len
