@@ -174,6 +174,9 @@ def finegrained_preference_dataset_collate_fn(
     batch = {}
     all_text = [item['text'] for item in data]
     batch['text'] = ref_collate_fn(all_text)['input_ids']
+    batch['attention_mask'] = torch.logical_not(
+        torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
+    )
     print("############## batch[text] size is {}".format(batch['text'].shape))
     bs, max_len = batch['text'].size()
 
@@ -182,10 +185,10 @@ def finegrained_preference_dataset_collate_fn(
     for sample in data:
         text = sample["text"]
         labels = sample["labels"]
-        mask = sample.get("mask", torch.ones_like(labels))
         text_len = sample["text_len"]
         print("text size is {}".format(text.size()))
         print("labels size is {}".format(labels.size()))
+        mask = sample.get('mask', None)
 
         assert text.size(0) == labels.size(0) and text.size(0) == text_len
 
@@ -200,15 +203,22 @@ def finegrained_preference_dataset_collate_fn(
             ],
             dim = -1, 
         )
+        if mask is None:
+            cat_mask = torch.ones_like(cat_labels)
+        else:
+            assert mask.size(0) == text_len
+            cat_mask = torch.cat(
+                mask, 
+                torch.zeros(pad_len, dtype = mask.dtype)*0
+            )
+
         all_padded_labels.append(cat_labels)
-        all_masks.append(mask)
-    
+        all_masks.append(cat_mask)
+
     batch["labels"] = torch.stack(all_padded_labels, dim = 0)
     batch['mask'] = torch.stack(all_masks, dim = 0)
     assert batch['text'].size(0) == batch['labels'].size(0)
-    batch['attention_mask'] = torch.logical_not(
-        torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
-    )
+    
 
     '''
     keys = data[0].keys()
