@@ -3,7 +3,7 @@
 
 import torch
 
-from compose_rl.data.dataloader import get_num_tokens_in_batch
+from compose_rl.data.dataloader import get_num_tokens_in_batch_online
 
 
 def test_get_num_tokens_with_action_mask_and_prompt_len():
@@ -28,7 +28,7 @@ def test_get_num_tokens_with_action_mask_and_prompt_len():
             ]),
     }
 
-    result = get_num_tokens_in_batch(batch, pad_token_id=0)
+    result = get_num_tokens_in_batch_online(batch, pad_token_id=0)
     expected = 4 + 4 + 3 + 2  # prompt_tokens + generated_tokens
     assert result == expected
 
@@ -46,6 +46,6 @@ def test_get_num_tokens_fallback_without_action_mask():
             ]),
     }
 
-    result = get_num_tokens_in_batch(batch, pad_token_id=0)
+    result = get_num_tokens_in_batch_online(batch, pad_token_id=0)
     expected = 7 + 6
     assert result == expected

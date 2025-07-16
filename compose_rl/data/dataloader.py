@@ -130,7 +130,7 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
 )
 
 
-def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
+def get_num_tokens_in_batch_online(batch: dict[str, Any], pad_token_id: int) -> int:
     """Get the number of tokens in batch including prompt + valid generated tokens.
 
     Uses action_mask and prompt_len for precise counting when available,
@@ -138,22 +138,27 @@ def get_num_tokens_in_batch(batch: dict[str, Any], pad_token_id: int) -> int:
     """
     if 'action_mask' in batch and 'prompt_len' in batch:
         prompt_len_tokens = batch['prompt_len'].sum().item()
-        action_mask_tokens = batch['action_mask'].sum().item()
-        log.info(f'prompt tokens in batch: {prompt_len_tokens}')
-        log.info(f'generated tokens in batch: {action_mask_tokens}')
-        return int(prompt_len_tokens + action_mask_tokens)
-    elif 'sequences' in batch:
-        sequences = batch['sequences']
-        non_pad_mask_tokens = torch.ne(sequences, pad_token_id).sum().item()
-        return int(non_pad_mask_tokens)
-    else:
-        raise ValueError('No sequences or action_mask/prompt_len in batch')
+        generated_items = batch['action_mask'].sum().item()
+        padding_tokens = batch['action_mask'].numel().item() - generated_items
+        log.info(f'[action_mask] prompt tokens in batch: {prompt_len_tokens}')
+        log.info(f'[action_mask] generated tokens in batch: {generated_items}')
+        log.info(f'[action_mask] padding tokens in batch: {padding_tokens}')
+    if 'sequences' in batch:
+        assert 'prompt' in batch, 'prompt must be in batch'
+        prompt_len_tokens = batch['prompt'].numel().item()
+        non_pad_mask_tokens = torch.ne(batch['sequences'], pad_token_id).sum().item()
+        generated_tokens = non_pad_mask_tokens - prompt_len_tokens
+        padding_tokens = torch.eq(batch['sequences'], pad_token_id).sum().item()
+        log.info(f'[sequences] prompt tokens in batch: {prompt_len_tokens}')
+        log.info(f'[sequences] generated tokens in batch: {generated_tokens}')
+        log.info(f'[sequences] padding tokens in batch: {padding_tokens}')
+    return int(non_pad_mask_tokens)
 
 
 build_prompt_dataloader = generate_dataloader_builder(
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
-    get_num_tokens_in_batch,
+    get_num_tokens_in_batch_online,
 )
 
 build_messages_dataloader = generate_dataloader_builder(
