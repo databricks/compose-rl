@@ -92,7 +92,7 @@ class BinaryRewardClassificationAccuracy(Metric):
 
         # TODO (raj): Handle multi-class classification with logging
         n_class = logits.size(-1)
-        if n_class >=2 : 
+        if n_class >=2: 
             log_probs = F.log_softmax(logits, dim = -1)
             predictions = torch.argmax(log_probs, dim = -1).detach()
         else:
@@ -100,7 +100,7 @@ class BinaryRewardClassificationAccuracy(Metric):
             predictions = (probs > self.threshold).long()
 
         self.correct += (predictions == targets).sum().detach().cpu()
-        self.total += targets.shape[0]
+        self.total += (predictions == targets).numel() #targets.shape[0]
 
     def compute(self):
         """Compute the accuracy."""
