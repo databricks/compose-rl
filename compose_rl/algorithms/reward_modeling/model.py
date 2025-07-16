@@ -232,7 +232,27 @@ class ComposerHFClassifierValueModel(
         batch: MutableMapping,
         outputs: Optional[SequenceClassifierOutput] = None,
     ) -> dict[str, torch.Tensor]:
-        return outputs if outputs is not None else self.forward(batch)
+        if outputs is not None:
+            return outputs
+        else:
+            outputs = self.forward(batch)
+            output_scores = outputs['output_scores']
+            n_class = output_scores.size(0)
+            flat_log_probs = F.log_softmax(output_scores,dim=-1).view(-1, n_class)
+            flat_labels = batch['labels'].to(torch.int).view(-1)
+            if 'mask' in batch:
+                flat_mask = batch['mask'].view(-1)
+            else:
+                flat_mask = torch.ones_like(flat_labels) 
+            
+            loss = -torch.mean(flat_log_probs[torch.arange(flat_log_probs.size(0)), flat_labels] * flat_mask)
+            accuracy = torch.sum((predicted_label == flat_labels)*flat_mask) / torch.sum(flat_mask)
+            loss_dict = {
+                'total': loss,
+                'accuracy': accuracy
+            }
+            return loss_dict
+        #return outputs if outputs is not None else self.forward(batch)
 
     def loss(self, outputs: SequenceClassifierOutput,
              batch: Mapping) -> dict[str, torch.Tensor]:
