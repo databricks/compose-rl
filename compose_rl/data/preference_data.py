@@ -175,7 +175,7 @@ def finegrained_preference_dataset_collate_fn(
     all_text = [item['text'] for item in data]
     batch['text'] = ref_collate_fn(all_text)['input_ids']
     print("############## batch[text] size is {}".format(batch['text'].shape))
-    bs, max_len, n_class = batch['text'].size()
+    bs, max_len = batch['text'].size()
 
     all_padded_labels = []
     all_masks = []
