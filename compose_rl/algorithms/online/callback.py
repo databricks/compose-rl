@@ -584,17 +584,16 @@ class OnPolicyCallback(CallbackWithConfig):
     def before_load(self, state: State, logger: Logger):
         del logger
         self.train_prompt_loader = state.train_dataloader
-        dataset_len = torch.Tensor([len(state.train_dataloader.dataset)], device='cuda')
-        # all reduce the dataset length
-        dist.all_reduce(dataset_len)
-        log.info(f'number of prompts in full train_prompt_loader dataset: {dataset_len.item()}')
-        len_all_prompts = [state.train_dataloader.dataset[i]['prompt_len'].item() for i in range(dataset_len.item())]
-        max_len = torch.Tensor([max(len_all_prompts)], device='cuda')
-        mean_len = torch.Tensor([sum(len_all_prompts) / len(len_all_prompts)], device='cuda')
-        global_max = dist.all_reduce(max_len)
-        global_mean = dist.all_reduce(mean_len)
-        log.info(f'global max prompt length: {global_max.item()}')
-        log.info(f'global mean prompt length: {global_mean.item()}')
+        dataset_len = len(state.train_dataloader.dataset)
+        dataset_len_all = dist.all_gather_object(dataset_len)
+        log.info(f'number of prompts in full train_prompt_loader dataset: {sum(dataset_len_all)}')
+        len_all_prompts = [state.train_dataloader.dataset[i]['prompt_len'].item() for i in range(dataset_len)]
+        max_len = max(len_all_prompts)
+        mean_len = sum(len_all_prompts) / len(len_all_prompts)
+        max_len_all = dist.all_gather_object(max_len)
+        mean_len_all = dist.all_gather_object(mean_len)
+        log.info(f'global max prompt length: {max(max_len_all)}')
+        log.info(f'global mean prompt length: {sum(mean_len_all) / len(mean_len_all)}')
         exit()
 
     def after_load(self, state: State, logger: Logger):
