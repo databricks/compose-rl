@@ -43,8 +43,8 @@ parameters:
     # For regression based rewards
     # additional_train_metrics:
     # - classifier_accuracy
-    # additional_eval_metrics:
-    # - classifier_accuracy
+    additional_eval_metrics:
+    - classifier_accuracy
 
 
   callbacks:

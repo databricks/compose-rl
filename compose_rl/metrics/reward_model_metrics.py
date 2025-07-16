@@ -4,6 +4,7 @@
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 from torchmetrics import Metric
 
@@ -90,8 +91,13 @@ class BinaryRewardClassificationAccuracy(Metric):
         assert logits.shape[0] == targets.shape[0], 'Batch sizes must match'
 
         # TODO (raj): Handle multi-class classification with logging
-        probs = torch.sigmoid(logits.squeeze())
-        predictions = (probs > self.threshold).long()
+        n_class = logits.size(-1)
+        if n_class >=2 : 
+            log_probs = F.log_softmax(logits, dim = -1)
+            predictions = torch.argmax(log_probs, dim = -1).detach()
+        else:
+            probs = torch.sigmoid(logits.squeeze())
+            predictions = (probs > self.threshold).long()
 
         self.correct += (predictions == targets).sum().detach().cpu()
         self.total += targets.shape[0]
