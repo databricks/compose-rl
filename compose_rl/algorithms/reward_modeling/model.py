@@ -9,6 +9,7 @@ from functools import partial
 from typing import Any, Mapping, MutableMapping, Optional, Union
 
 import torch
+import torch.nn.functional as F
 from composer.utils import is_model_fsdp
 from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 
@@ -236,7 +237,7 @@ class ComposerHFClassifierValueModel(
             return outputs
         else:
             outputs = self.forward(batch)
-            output_scores = outputs['output_scores']
+            output_scores = outputs['output_scores'].detach()
             n_class = output_scores.size(0)
             flat_log_probs = F.log_softmax(output_scores,dim=-1).view(-1, n_class)
             flat_labels = batch['labels'].to(torch.int).view(-1)
