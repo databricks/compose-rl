@@ -82,7 +82,7 @@ class PromptStreamingDataset(StreamingDataset):
     def _read_binary_tokenized_sample(self, sample: dict[str, Any], key: str):
         decoded_arr = torch.from_numpy(
             np.frombuffer(sample[key],
-                          dtype=np.int64)[:self.max_seq_len].copy(),
+                          dtype=np.int64).copy(),
         )
         return decoded_arr
 
