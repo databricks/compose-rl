@@ -581,10 +581,8 @@ class OnPolicyCallback(CallbackWithConfig):
 
         state.vllm_engines = self.vllm_engines  # type: ignore[attr-defined]
 
-    def before_load(self, state: State, logger: Logger):
-        del logger
-        self.train_prompt_loader = state.train_dataloader
-        dataset_len = len(state.train_dataloader.dataset)
+    def log_dataset_stats(self):
+        dataset_len = len(self.train_prompt_loader.dataset)
         dataset_len_all = dist.all_gather_object(dataset_len)
         log.info(f'number of prompts in full train_prompt_loader dataset: {sum(dataset_len_all)}')
         len_all_prompts = [state.train_dataloader.dataset[i]['prompt_len_original'].item() for i in range(dataset_len)]
@@ -594,6 +592,12 @@ class OnPolicyCallback(CallbackWithConfig):
         mean_len_all = dist.all_gather_object(mean_len)
         log.info(f'global max prompt length: {max(max_len_all)}')
         log.info(f'global mean prompt length: {sum(mean_len_all) / len(mean_len_all)}')
+
+    def before_load(self, state: State, logger: Logger):
+        del logger
+        self.train_prompt_loader = state.train_dataloader
+        self.log_dataset_stats()
+        self.log_dataset_stats()
 
     def after_load(self, state: State, logger: Logger):
         del logger  # unused
