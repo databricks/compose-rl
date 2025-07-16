@@ -587,7 +587,7 @@ class OnPolicyCallback(CallbackWithConfig):
         dataset_len = len(state.train_dataloader.dataset)
         dataset_len_all = dist.all_gather_object(dataset_len)
         log.info(f'number of prompts in full train_prompt_loader dataset: {sum(dataset_len_all)}')
-        len_all_prompts = [state.train_dataloader.dataset[i]['prompt_len'].item() for i in range(dataset_len)]
+        len_all_prompts = [state.train_dataloader.dataset[i]['prompt_len_original'].item() for i in range(dataset_len)]
         max_len = max(len_all_prompts)
         mean_len = sum(len_all_prompts) / len(len_all_prompts)
         max_len_all = dist.all_gather_object(max_len)
