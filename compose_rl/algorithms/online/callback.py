@@ -691,6 +691,7 @@ class OnPolicyCallback(CallbackWithConfig):
                     # For keys that do not require additional processing
                     if key in [
                         'prompt_len',
+                        'prompt_len_original',
                         'verified_answer',
                         'prompt_id',
                         'vstar',
