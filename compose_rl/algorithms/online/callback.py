@@ -593,11 +593,27 @@ class OnPolicyCallback(CallbackWithConfig):
         log.info(f'global max prompt length: {max(max_len_all)}')
         log.info(f'global mean prompt length: {sum(mean_len_all) / len(mean_len_all)}')
 
+    def log_dataloader_stats(self):
+        num_prompts = 0
+        seq_len = 0
+        max_seq_len = 0
+        for batch in self.train_prompt_loader:
+            num_prompts += batch['prompt_len'].shape[0]
+            seq_len += batch['prompt_len'].sum().item()
+            max_seq_len = max(max_seq_len, batch['prompt_len'].max().item())
+        num_prompts_all = dist.all_gather_object(num_prompts)
+        log.info(f'number of prompts in train_prompt_loader: {sum(num_prompts_all)}')
+        mean_seq_len = seq_len / num_prompts
+        max_seq_len_all = dist.all_gather_object(max_seq_len)
+        mean_seq_len_all = dist.all_gather_object(mean_seq_len)
+        log.info(f'global max sequence length in train_prompt_loader: {max(max_seq_len_all)}')
+        log.info(f'global mean sequence length in train_prompt_loader: {sum(mean_seq_len_all) / len(mean_seq_len_all)}')
+
     def before_load(self, state: State, logger: Logger):
         del logger
         self.train_prompt_loader = state.train_dataloader
         self.log_dataset_stats()
-        self.log_dataset_stats()
+        self.log_dataloader_stats()
 
     def after_load(self, state: State, logger: Logger):
         del logger  # unused
