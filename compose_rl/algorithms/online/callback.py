@@ -584,7 +584,10 @@ class OnPolicyCallback(CallbackWithConfig):
     def before_load(self, state: State, logger: Logger):
         del logger
         self.train_prompt_loader = state.train_dataloader
-        log.info(f'number of prompts in train_prompt_loader dataset: {len(state.train_dataloader.dataset)}')
+        dataset_len = torch.Tensor([len(state.train_dataloader.dataset)])
+        # all reduce the dataset length
+        dist.all_reduce(dataset_len)
+        log.info(f'number of prompts in full train_prompt_loader dataset: {dataset_len.item()}')
         exit()
 
     def after_load(self, state: State, logger: Logger):
