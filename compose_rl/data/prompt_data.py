@@ -96,11 +96,10 @@ class PromptStreamingDataset(StreamingDataset):
         sample = super().__getitem__(idx)
         prompt = self._read_binary_tokenized_sample(sample, 'prompt')
         original_prompt_len = len(prompt)
-
         # TODO (bcui): Maybe add in an option to truncate a prompt by a given length?
         if len(prompt) + self.max_gen_len > self.max_seq_len:
             truncate_len = len(prompt) + self.max_gen_len - self.max_seq_len
-            log.info(f'Truncating prompt by: {truncate_len}')
+            log.info(f'Truncating prompt by: {truncate_len} from {len(prompt)}')
             prompt = prompt[:-truncate_len]
 
         prompt_len = torch.Tensor([len(prompt)]).to(dtype=torch.int64)

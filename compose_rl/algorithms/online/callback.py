@@ -594,7 +594,6 @@ class OnPolicyCallback(CallbackWithConfig):
         mean_len_all = dist.all_gather_object(mean_len)
         log.info(f'global max prompt length: {max(max_len_all)}')
         log.info(f'global mean prompt length: {sum(mean_len_all) / len(mean_len_all)}')
-        exit()
 
     def after_load(self, state: State, logger: Logger):
         del logger  # unused
