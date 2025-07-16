@@ -582,6 +582,7 @@ class OnPolicyCallback(CallbackWithConfig):
         state.vllm_engines = self.vllm_engines  # type: ignore[attr-defined]
 
     def log_dataset_stats(self):
+        log.info(f'logging based on dataset stats')
         len_all_prompts = [x['prompt_len_original'].item() for x in self.train_prompt_loader.dataset]
         dataset_len = len(len_all_prompts)
         dataset_len_all = dist.all_gather_object(dataset_len)
@@ -590,10 +591,11 @@ class OnPolicyCallback(CallbackWithConfig):
         mean_len = sum(len_all_prompts) / len(len_all_prompts)
         max_len_all = dist.all_gather_object(max_len)
         mean_len_all = dist.all_gather_object(mean_len)
-        log.info(f'global max prompt length: {max(max_len_all)}')
-        log.info(f'global mean prompt length: {sum(mean_len_all) / len(mean_len_all)}')
+        log.info(f'global max prompt length in train dataset: {max(max_len_all)}')
+        log.info(f'global mean prompt length in train dataset: {sum(mean_len_all) / len(mean_len_all)}')
 
     def log_dataloader_stats(self):
+        log.info(f'logging based on dataloader stats')
         num_prompts = 0
         seq_len = 0
         max_seq_len = 0
@@ -602,7 +604,7 @@ class OnPolicyCallback(CallbackWithConfig):
             seq_len += batch['prompt_len'].sum().item()
             max_seq_len = max(max_seq_len, batch['prompt_len'].max().item())
         num_prompts_all = dist.all_gather_object(num_prompts)
-        log.info(f'number of prompts in train_prompt_loader: {sum(num_prompts_all)}')
+        log.info(f'number of prompts in full train_prompt_loader: {sum(num_prompts_all)}')
         mean_seq_len = seq_len / num_prompts
         max_seq_len_all = dist.all_gather_object(max_seq_len)
         mean_seq_len_all = dist.all_gather_object(mean_seq_len)
