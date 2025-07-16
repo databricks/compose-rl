@@ -614,6 +614,7 @@ class OnPolicyCallback(CallbackWithConfig):
         self.train_prompt_loader = state.train_dataloader
         self.log_dataset_stats()
         self.log_dataloader_stats()
+        exit()
 
     def after_load(self, state: State, logger: Logger):
         del logger  # unused
