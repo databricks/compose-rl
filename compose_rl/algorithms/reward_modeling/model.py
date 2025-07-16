@@ -226,6 +226,8 @@ class ComposerHFClassifierValueModel(
             return_lm_logits=self.return_lm_logits,
         )
 
+        print("made past forward")
+
         return ret_val
 
     def eval_forward(
@@ -263,6 +265,7 @@ class ComposerHFClassifierValueModel(
 
     def loss(self, outputs: SequenceClassifierOutput,
              batch: Mapping) -> dict[str, torch.Tensor]:
+        print("right before computing clasifier_loss")
         return classifier_loss(
             outputs,
             batch,
