@@ -329,7 +329,7 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
                 batch['input_ids'],
                 attention_mask=batch['attention_mask'],
             ).logits
-            logits = logits[:, :, self.eos_token_id]
+            logits = logits[:, :, self.eos_token_id]  # type: ignore
             if self.min_threshold is not None and self.max_threshold is not None:
                 logits: torch.Tensor = torch.clamp(
                     logits,
