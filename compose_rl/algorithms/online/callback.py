@@ -582,10 +582,10 @@ class OnPolicyCallback(CallbackWithConfig):
         state.vllm_engines = self.vllm_engines  # type: ignore[attr-defined]
 
     def log_dataset_stats(self):
-        dataset_len = len(self.train_prompt_loader.dataset)
+        len_all_prompts = [x['prompt_len_original'].item() for x in self.train_prompt_loader.dataset]
+        dataset_len = len(len_all_prompts)
         dataset_len_all = dist.all_gather_object(dataset_len)
         log.info(f'number of prompts in full train_prompt_loader dataset: {sum(dataset_len_all)}')
-        len_all_prompts = [self.train_prompt_loader.dataset[i]['prompt_len_original'].item() for i in range(dataset_len)]
         max_len = max(len_all_prompts)
         mean_len = sum(len_all_prompts) / len(len_all_prompts)
         max_len_all = dist.all_gather_object(max_len)
