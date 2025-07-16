@@ -44,6 +44,11 @@ def test_get_num_tokens_fallback_without_action_mask():
                 [1, 2, 3, 4, 10, 11, 12, 0, 0],  # 7 non-padding tokens
                 [5, 6, 7, 8, 20, 21, 0, 0, 0],  # 6 non-padding tokens
             ]),
+        'prompt':
+            torch.tensor([
+                [1, 2, 3, 4],  # 4 prompt tokens
+                [5, 6, 7, 8],  # 4 prompt tokens
+            ]),
     }
 
     result = get_num_tokens_in_batch_online(batch, pad_token_id=0)

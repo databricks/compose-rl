@@ -131,7 +131,8 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
 
 
 def get_num_tokens_in_batch_online(
-    batch: dict[str, Any], pad_token_id: int
+    batch: dict[str, Any],
+    pad_token_id: int,
 ) -> int:
     """Get the number of tokens in batch including prompt + valid generated tokens.
 
@@ -145,7 +146,7 @@ def get_num_tokens_in_batch_online(
         log.info(f'prompt tokens in batch: {prompt_len_tokens}')
         log.info(f'generated tokens in batch: {generated_items}')
         log.info(
-            f'unused generation (padding) tokens in batch: {padding_tokens}'
+            f'unused generation (padding) tokens in batch: {padding_tokens}',
         )
         return int(prompt_len_tokens + generated_items)
     elif 'sequences' in batch:
@@ -158,7 +159,7 @@ def get_num_tokens_in_batch_online(
         log.info(f'prompt tokens in batch: {prompt_len_tokens}')
         log.info(f'generated tokens in batch: {generated_tokens}')
         log.info(f'added padding tokens in batch: {padding_tokens}')
-        return int(prompt_len_tokens + generated_tokens)
+        return int(non_pad_mask_tokens)
     else:
         raise ValueError('No sequences or action_mask/prompt_len in batch')
 
