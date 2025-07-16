@@ -238,16 +238,20 @@ class ComposerHFClassifierValueModel(
         else:
             outputs = self.forward(batch)
             output_scores = outputs['output_scores'].detach()
-            n_class = output_scores.size(-1)
-            flat_log_probs = F.log_softmax(output_scores,dim=-1).view(-1, n_class)
-            flat_labels = batch['labels'].to(torch.int).view(-1)
-            if 'mask' in batch:
-                flat_mask = batch['mask'].view(-1)
-            else:
-                flat_mask = torch.ones_like(flat_labels) 
+            if self.loss_type == ClassifierRewardEnum.CE:
+                n_class = output_scores.size(-1)
+                flat_log_probs = F.log_softmax(output_scores,dim=-1).view(-1, n_class)
+                flat_labels = batch['labels'].to(torch.int).view(-1)
+                if 'mask' in batch:
+                    flat_mask = batch['mask'].view(-1)
+                else:
+                    flat_mask = torch.ones_like(flat_labels) 
             
-
-            loss = -torch.mean(flat_log_probs[torch.arange(flat_log_probs.size(0)), flat_labels] * flat_mask)
+                loss = -torch.mean(flat_log_probs[torch.arange(flat_log_probs.size(0)), flat_labels] * flat_mask)
+            else:
+                raise NotImplementedError(f'Loss type: {self.loss_type} is not supported.')
+            
+            predicted_label = torch.argmax(flat_log_probs, dim = -1).detach()
             accuracy = torch.sum((predicted_label == flat_labels)*flat_mask) / torch.sum(flat_mask)
             loss_dict = {
                 'total': loss,
