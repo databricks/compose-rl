@@ -139,13 +139,13 @@ def get_num_tokens_in_batch_online(batch: dict[str, Any], pad_token_id: int) -> 
     if 'action_mask' in batch and 'prompt_len' in batch:
         prompt_len_tokens = batch['prompt_len'].sum().item()
         generated_items = batch['action_mask'].sum().item()
-        padding_tokens = batch['action_mask'].numel().item() - generated_items
+        padding_tokens = batch['action_mask'].numel() - generated_items
         log.info(f'[action_mask] prompt tokens in batch: {prompt_len_tokens}')
         log.info(f'[action_mask] generated tokens in batch: {generated_items}')
         log.info(f'[action_mask] padding tokens in batch: {padding_tokens}')
     if 'sequences' in batch:
         assert 'prompt' in batch, 'prompt must be in batch'
-        prompt_len_tokens = batch['prompt'].numel().item()
+        prompt_len_tokens = batch['prompt'].numel()
         non_pad_mask_tokens = torch.ne(batch['sequences'], pad_token_id).sum().item()
         generated_tokens = non_pad_mask_tokens - prompt_len_tokens
         padding_tokens = torch.eq(batch['sequences'], pad_token_id).sum().item()
