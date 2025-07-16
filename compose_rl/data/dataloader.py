@@ -134,7 +134,7 @@ def get_num_tokens_in_batch_online(
     batch: dict[str, Any],
     pad_token_id: int,
 ) -> int:
-    """Get the number of tokens in batch including prompt + valid generated tokens.
+    """Get the number of tokens in batch including prompt + generated tokens.
 
     Uses action_mask and prompt_len for precise counting when available,
     otherwise counts all non-padding tokens.
