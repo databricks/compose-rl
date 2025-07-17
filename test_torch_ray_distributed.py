@@ -2,76 +2,17 @@ import ray
 import torch
 import torch.distributed as dist
 import os
-import socket
-import subprocess
-import time
-from contextlib import contextmanager
+
 from typing import Optional, Tuple
 import argparse
 from datetime import timedelta
 
-from functools import partial
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM
 
-from composer.utils import dist as composer_dist
-from composer import Trainer
-from composer.optim import DecoupledAdamW
-from llmfoundry.models import ComposerHFCausalLM
-from torch.utils.data import DataLoader
-
-from compose_rl.algorithms.online import (
-    ComposerHFPolicyLM,
-    SingleControllerOnPolicyCallback,
-)
-from compose_rl.data import prompt_dataset_collate_fn
-from tests.common import VerifiablePromptDataset
 
 from compose_rl.algorithms.online.generation_utils import init_process_group, create_vllm_engines
 
-from typing import Any
-
-
-def ray_noset_visible_devices():
-    return os.environ.get('RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES', '0') == '1'
-
-
-# 1. how to enable tests with llama 3.2 1b
-# 2. why is there authorization issue with composer wrapper
-
-
-def init_ray():
-    # init ray on master node, rank 0
-    if dist.get_rank() == 0:
-        # Start head node
-        subprocess.run(['ray', 'start', '--head'], check=True)
-        ray.init('auto')
-        # get existing ray ip and port 
-        ctx = ray.get_runtime_context()
-        address = ctx.gcs_address
-        print(f'available gpus: {ray.available_resources()}')
-    else:
-        address = ''
-    address_list = [address]
-    # broadcast address to all other ranks
-    dist.broadcast_object_list(address_list, src=0)
-    if dist.get_rank() != 0 and os.environ.get('LOCAL_RANK', None) == '0':
-        address = address_list[0]
-        print(f'rank: {dist.get_rank()} connecting to address: {address}')
-        subprocess.run(['ray', 'start', f'--address={address}'], check=True)
-    dist.barrier()
-    if dist.get_rank() == 0:
-        # wait until num of gpus reach world_size
-        num_gpus = int(ray.cluster_resources()['GPU'])
-        counter = 0
-        while num_gpus < dist.get_world_size():
-            print(f'waiting for {dist.get_world_size() - num_gpus} gpus to be available')
-            num_gpus = int(ray.cluster_resources()['GPU'])
-            time.sleep(5)
-            counter += 1
-            if counter > 4:
-                raise RuntimeError(f'Failed to start {dist.get_world_size()} gpus')
-        print(f'Total available gpus: {ray.available_resources()}')
-    return address
+from compose_rl.utils.ray_utils import is_cuda_visible_devices_set, get_node_ip, get_free_port, start_ray_server
 
 
 @ray.remote(num_gpus=1)
@@ -91,244 +32,39 @@ class DistributedGPUActor:
         self.master_port = master_port
         
         # Set up basic environment variables
-        os.environ["WORLD_SIZE"] = str(world_size)
-        os.environ["RANK"] = str(rank)
+        os.environ['WORLD_SIZE'] = str(world_size)
+        os.environ['RANK'] = str(rank)
         
         # Set LOCAL_RANK based on Ray GPU allocation
-        os.environ["LOCAL_RANK"] = str(ray.get_gpu_ids()[0]) if ray_noset_visible_devices() else "0"
+        os.environ['LOCAL_RANK'] = '0' if is_cuda_visible_devices_set() else str(ray.get_gpu_ids()[0])
         
         # If this is rank 0 and no master_addr/master_port provided, allocate them
         if rank == 0 and (master_addr is None or master_port is None):
             self._allocate_master_address()
 
-        os.environ["MASTER_ADDR"] = self.master_addr
-        os.environ["MASTER_PORT"] = str(self.master_port)
+        os.environ['MASTER_ADDR'] = self.master_addr
+        os.environ['MASTER_PORT'] = str(self.master_port)
 
         self.model = None
         self.model_update_group = None
-
-        self.pretrain_model_name = None
-        self.ref_path = None
-        self._dataloader = None
-        self._tokenizer = None
-        self.ppo_callback = None
-        self.ppo_trainer: Trainer = None
-
-    def build_dataloader(self):
-        max_seq_len = 32
-        prompt_len = 10
-
-        dataset = VerifiablePromptDataset(prompt_len=prompt_len)
-        dataloader = DataLoader(
-            dataset,
-            collate_fn=partial(
-                prompt_dataset_collate_fn,
-                self.tokenizer,
-                max_seq_len,
-            ),
-            sampler=composer_dist.get_sampler(dataset),
-            batch_size=4,
-        )
-        # We need to mock this method, since our dataset isn't a StreamingDataset
-        dataloader.state_dict = lambda: {}
-        dataloader.load_state_dict = lambda x: None
-        return dataloader
-
-    @property
-    def dataloader(self):
-        if self._dataloader is None:
-            self._dataloader = self.build_dataloader()
-        return self._dataloader
-
-    def build_tokenizer(self):
-        # tokenizer = assets_tokenizer_helper(self.pretrain_model_name)
-        tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name)
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-        return tokenizer
-
-    @property
-    def tokenizer(self):
-        if self._tokenizer is None:
-            self._tokenizer = self.build_tokenizer()
-        return self._tokenizer
-
-    @property
-    def model_config(self):
-        return {
-            'tokenizer': self.tokenizer,
-            'pretrained_model_name_or_path': self.pretrain_model_name,
-            'pretrained': True,
-            'use_flash_attention_2': True,
-            'allow_embedding_resizing': True,
-        }
-
-    @property
-    def fsdp_config(self):
-        return dict()
-
-    def build_ref_model(self, pretrain_model_name: str):
-        tmp_ref_path = str('./ref_checkpoints')
-        ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
-        if os.path.exists(ref_path):
-            self.ref_path = ref_path
-            return
-
-        self.pretrain_model_name = pretrain_model_name
-        composer_dist.initialize_dist('gpu')
-
-        tmp_model = ComposerHFCausalLM(**self.model_config, use_auth_token=True)
-
-        tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
-
-        temp_dataloader = [{
-            'input_ids': torch.ones((2, 15)).to(dtype=torch.int64),
-            'attention_mask': torch.ones((2, 15)),
-            'labels': torch.ones((2, 15)).to(dtype=torch.int64),
-        }]
-
-        temp_trainer = Trainer(
-            model=tmp_model,
-            train_dataloader=temp_dataloader,
-            optimizers=tmp_optimizer,
-            max_duration='1ba',
-            parallelism_config={'fsdp': self.fsdp_config},
-            save_folder=tmp_ref_path,
-            save_weights_only=True,
-            device_train_microbatch_size=2,
-        )
-
-        temp_trainer.fit()
-
-        # After making the reference model, we can proceed with the PPO training
-        self.ref_path = ref_path
-
-    def build_ppo_trainer(self, pretrain_model_name: str):
-        self.pretrain_model_name = pretrain_model_name
-        composer_dist.initialize_dist('gpu')
-        max_seq_len = 32
-        precision = 'amp_bf16'
-
-        model = ComposerHFPolicyLM(**self.model_config, use_auth_token=True)
-
-        optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
-
-        num_batches_per_update = 2
-
-        # ref_model_config = copy.deepcopy(self.model_config)
-        ref_model_config = {**self.model_config, 'name': 'hf_causal_lm'}
-
-        variables = {
-            'buffer': {
-                'name': 'MinibatchRolloutBuffer',
-                'max_buffer_size': num_batches_per_update,
-            },
-            'max_gen_len': 8,
-            'gamma': 0.99,
-            'lambda_gae': 0.95,
-            'generation_kwargs': {
-                'use_cache': True,
-                'do_sample': False,
-            },
-            'kl_controller': {
-                'init_kl_coef': 0.2,
-                'target': 0.01,
-                'horizon': 12800,
-                'kl_ctl_type': 'adaptive',
-            },
-            'reference_model': {
-                'model_config': ref_model_config,
-                'precision': precision,
-                'load_path': self.ref_path,
-                'non_train_fsdp_config': self.fsdp_config,
-            },
-            'device_generate_batch_size': 2,
-            'epoch_per_iteration': 1,
-            'num_batches_per_update': num_batches_per_update,
-            'rewards': {
-                'output_length': {
-                    'reward_type': 'output_length',
-                    'max_gen_len': 10,
-                },
-            },
-        }
-        train_config = {
-            'model': {**self.model_config, 'kl_estimator': 'k1', 'kl_clip_range': 40.0},
-            'fsdp_config': self.fsdp_config,
-            'seed': 17,
-            'precision': precision,
-            'variables': variables,
-            'max_seq_len': max_seq_len,
-            'global_train_batch_size': 2,
-            'device_train_batch_size': 2,
-            'device_train_microbatch_size': 1,
-        }
-
-        # tmp_save_path = str('./checkpoints')
-        self.ppo_callback = SingleControllerOnPolicyCallback(train_config=train_config)
-        self.ppo_trainer = Trainer(
-            model=model,
-            optimizers=optimizer,
-            callbacks=self.ppo_callback,
-            train_dataloader=self.dataloader,
-            precision=precision,
-            parallelism_config={'fsdp': self.fsdp_config},
-            max_duration='3iter',
-            device_train_microbatch_size=1,
-            load_path=self.ref_path,
-            # save_folder=tmp_save_path,
-            # save_interval='1iter',
-        )
-
-        # trainer.fit(duration='1iter')
-
-        # This is the KL assert that must be true if we are truly loading from the same model.
-        # This is only true on the first iteration
-        # assert torch.allclose(
-        #     trainer.state.loss['kl/ift_kl'], # pyright: ignore
-        #     torch.tensor(0.0),
-        #     atol=5e-5,
-        # )
-
-    def train_1_iter(self):
-        self.ppo_trainer.fit(duration='1iter')
-        # This is the KL assert that must be true if we are truly loading from the same model.
-        # This is only true on the first iteration
-        assert torch.allclose(
-            self.ppo_trainer.state.loss['kl/ift_kl'], # pyright: ignore
-            torch.tensor(0.0),
-            atol=5e-5,
-        )
-
-    def sync_weight_and_gen(self, vllm_engines: list[Any]):
-        self.ppo_callback.round_trip_to_inference_engines(
-            device=self.ppo_trainer.state.device,
-            vllm_engines=vllm_engines,
-            model_update_group=self.model_update_group,
-        )
-
-
-    def get_node_ip(self):
-        return ray.util.get_node_ip_address().strip('[]')
-    
-    def get_free_port(self):
-        with socket.socket() as sock:
-            sock.bind(("", 0))
-            return sock.getsockname()[1]
     
     def _allocate_master_address(self):
         """Allocate master address and port for rank 0."""
         if self.master_addr is None:
             # Get the local IP address
-            self.master_addr = self.get_node_ip()
+            self.master_addr = get_node_ip()
 
         if self.master_port is None:
             # Allocate a free port
-            self.master_port = self.get_free_port()
+            self.master_port = get_free_port()
     
     def get_master_address(self) -> Tuple[Optional[str], Optional[int]]:
         """Return the master address and port as a tuple."""
         return (self.master_addr, self.master_port)
     
+    def get_free_port(self):
+        return get_free_port()
+
     def init_default_process_group(self):
         """Initialize the distributed process group."""         
         # Initialize process group
@@ -349,7 +85,7 @@ class DistributedGPUActor:
         self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype='auto')
         self.model.to('cuda')
 
-    def sync_weights(self, vllm_engines: list[Any]):
+    def sync_weights(self, vllm_engines: list):
         for name, p in self.model.named_parameters():
             refs = [engine.update_weight.remote(name, p.dtype, p.shape, empty_cache=False) for engine in vllm_engines]
             dist.broadcast(p, src=0, group=self.model_update_group)
@@ -368,20 +104,6 @@ class DistributedGPUActor:
         """Initialize the vLLM process group."""
         self.model_update_group = init_process_group(backend=backend, init_method=f'tcp://{master_addr}:{master_port}', world_size=world_size, rank=rank, group_name=group_name)
         return dist.get_world_size(self.model_update_group)
-
-@contextmanager
-def start_ray_server():
-    dist.init_process_group(backend='gloo')
-    address = init_ray()
-    try:
-        yield address
-        dist.barrier()
-    finally:
-        if dist.get_rank() == 0:
-            ray.shutdown()
-            subprocess.run(['ray', 'stop'], check=True)
-        dist.barrier()
-        dist.destroy_process_group()
 
 
 def run(tp_size: int = 8):
@@ -414,24 +136,15 @@ def run(tp_size: int = 8):
                 actor = DistributedGPUActor.remote(i, num_train_actors, master_addr, master_port)
                 train_actors.append(actor)
             
-            # # Initialize process groups for all actors
-            # init_tasks = [actor.init_default_process_group.remote() for actor in train_actors]
-            # ray.get(init_tasks)
+            # Initialize process groups for all actors
+            init_tasks = [actor.init_default_process_group.remote() for actor in train_actors]
+            ray.get(init_tasks)
             
-            # # Perform tensor all_reduce on all actors
-            # reduce_tasks = [actor.tensor_all_reduce.remote() for actor in train_actors]
-            # results = ray.get(reduce_tasks)
-            # print(f"All-reduce results: {results}")
+            # Perform tensor all_reduce on all actors
+            reduce_tasks = [actor.tensor_all_reduce.remote() for actor in train_actors]
+            results = ray.get(reduce_tasks)
+            print(f"All-reduce results: {results}")
 
-
-
-            build_ref_model_tasks = [actor.build_ref_model.remote(pretrain_model_name) for actor in train_actors]
-            ray.get(build_ref_model_tasks)
-            print('build ref model done')
-
-            build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote(pretrain_model_name) for actor in train_actors]
-            ray.get(build_ppo_trainer_tasks)
-            print('build ppo trainer done')
 
             vllm_tensor_parallel_size = min(tp_size, dist.get_world_size() - num_train_actors)
             num_vllm_engines = dist.get_world_size() // 2 // vllm_tensor_parallel_size
@@ -467,25 +180,13 @@ def run(tp_size: int = 8):
                 rank=0,
                 group_name='weight-update',
             ))
-            # should only get refs of both master and vllm_engines together, otherwise it will hang
-            print(ray.get(refs))
 
-            refs = [actor.sync_weight_and_gen.remote(vllm_engines) for actor in train_actors]
+            refs = [actor.init_model.remote(pretrain_model_name) for actor in train_actors]
             ray.get(refs)
-            print('sync weight and gen done')
+            print('init model done')
 
-            refs = [actor.train_1_iter.remote() for actor in train_actors]
-            ray.get(refs)
-            print('train 1 iter done')
-
-
-
-            # refs = [actor.init_model.remote(pretrain_model_name) for actor in train_actors]
-            # ray.get(refs)
-            # print('init model done')
-
-            # ray.get(master_actor.sync_weights.remote(vllm_engines))
-            # print('sync weights done')
+            ray.get(master_actor.sync_weights.remote(vllm_engines))
+            print('sync weights done')
 
             ref = vllm_engines[0].generate.remote(prompts)
             gen_results = ray.get(ref)
