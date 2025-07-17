@@ -203,6 +203,7 @@ def classifier_forward(
     outputs: dict[str, torch.Tensor] = {
         'output_scores': output_scores,    #TODO: expect shape (Bc, len, # of labels)
         'labels': batch['labels'],
+        'attention_mask': batch['attention_mask']
     }
 
     return outputs

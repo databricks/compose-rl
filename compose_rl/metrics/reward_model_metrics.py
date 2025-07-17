@@ -82,7 +82,7 @@ class BinaryRewardClassificationAccuracy(Metric):
         """Update state with predictions and targets.
 
         Args:
-            batch: Dictionary containing 'output_scores' and 'labels'
+            batch: Dictionary containing 'output_scores' and 'labels' and 'attention_mask'
             output_logits: `None`
         """
         del output_logits
@@ -93,14 +93,13 @@ class BinaryRewardClassificationAccuracy(Metric):
         # TODO (raj): Handle multi-class classification with logging
         n_class = logits.size(-1)
         if n_class >=2: 
-            log_probs = F.log_softmax(logits, dim = -1)
-            predictions = torch.argmax(log_probs, dim = -1).detach()
+            predictions = torch.argmax(logits, dim = -1).detach()
         else:
             probs = torch.sigmoid(logits.squeeze())
             predictions = (probs > self.threshold).long()
 
-        self.correct += (predictions == targets).sum().detach().cpu()
-        self.total += (predictions == targets).numel() #targets.shape[0]
+        self.correct += ((predictions == targets)*batch['attention_mask']).sum().detach().cpu()
+        self.total += ((predictions == targets)*batch['attention_mask']).numel() #targets.shape[0]
 
     def compute(self):
         """Compute the accuracy."""
