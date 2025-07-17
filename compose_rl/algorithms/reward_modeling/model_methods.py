@@ -339,13 +339,7 @@ def classifier_loss(
         )
         flat_att_mask = batch["attention_mask"].reshape(-1).float()  # attention mask for input padding
         value_pos_mask = batch["mask"].reshape(-1).float()  # attention mask for value
-        
-        print(torch.sum(flat_att_mask- value_pos_mask))
-        print((torch.logical_not(torch.eq(flat_labels, -100)).to(torch.int) - flat_att_mask.to(torch.int)).sum())
-        print(flat_att_mask)
-        print(value_pos_mask)
-        print(flat_att_mask.shape)
-        print(value_pos_mask.shape)
+    
         # mask out padding positions, and mask out positions where no need to compute value
         masked_loss = (token_level_loss * flat_att_mask) * value_pos_mask
         loss = torch.sum(masked_loss) / torch.sum(flat_att_mask*value_pos_mask)
