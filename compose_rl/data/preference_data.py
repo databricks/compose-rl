@@ -197,11 +197,13 @@ def finegrained_preference_dataset_collate_fn(
         cat_labels = torch.cat(
             [
                 labels, 
-                torch.ones(int(pad_len.item()), dtype = labels.dtype)*
+                torch.ones(pad_len, dtype = labels.dtype)*
                 (-100)
             ],
             dim = -1, 
         )
+        print(pad_len)
+        print(cat_labels[-10:])
         if mask is None:
             cat_mask = torch.ones_like(cat_labels)
             cat_mask[-pad_len:] = 0
