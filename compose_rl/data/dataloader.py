@@ -7,7 +7,6 @@ import logging
 from functools import partial
 from typing import Any, Callable, Optional, Union
 
-import torch
 from composer.core.data_spec import DataSpec
 from streaming import Stream, StreamingDataLoader, StreamingDataset
 from torch.utils.data import DataLoader
@@ -149,7 +148,11 @@ def get_num_tokens_in_batch_online(
         )
         return int(prompt_len_tokens + generated_items)
     else:
-        raise ValueError('No sequences or action_mask/prompt_len in batch')
+        log.warning(
+            'No action_mask/prompt_len in batch. ' +
+            'Using default value of 100 for num_tokens_in_batch.',
+        )
+        return 100
 
 
 build_prompt_dataloader = generate_dataloader_builder(
