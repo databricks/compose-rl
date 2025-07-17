@@ -136,8 +136,7 @@ def get_num_tokens_in_batch_online(
 ) -> int:
     """Get the number of tokens in batch including prompt + generated tokens.
 
-    Uses action_mask and prompt_len for precise counting when available,
-    otherwise counts all non-padding tokens.
+    Uses action_mask and prompt_len for precise counting when available.
     """
     if 'action_mask' in batch and 'prompt_len' in batch:
         prompt_len_tokens = batch['prompt_len'].sum().item()
@@ -149,17 +148,6 @@ def get_num_tokens_in_batch_online(
             f'unused generation (padding) tokens in batch: {padding_tokens}',
         )
         return int(prompt_len_tokens + generated_items)
-    elif 'sequences' in batch:
-        assert 'prompt' in batch, 'prompt must be in batch'
-        prompt_len_tokens = batch['prompt'].numel()
-        non_pad_mask_tokens = torch.ne(batch['sequences'],
-                                       pad_token_id).sum().item()
-        generated_tokens = non_pad_mask_tokens - prompt_len_tokens
-        padding_tokens = torch.eq(batch['sequences'], pad_token_id).sum().item()
-        log.info(f'prompt tokens in batch: {prompt_len_tokens}')
-        log.info(f'generated tokens in batch: {generated_tokens}')
-        log.info(f'added padding tokens in batch: {padding_tokens}')
-        return int(non_pad_mask_tokens)
     else:
         raise ValueError('No sequences or action_mask/prompt_len in batch')
 
