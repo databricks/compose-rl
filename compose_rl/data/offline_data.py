@@ -288,7 +288,23 @@ class OfflineStreamingDataset(StreamingDataset):
                 raise ValueError(
                     f'Expect pixel values to be numpy.ndarray or PIL.Image type, but got {pixel_values_type}',
                 )
+            return_dict['pixel_values'] = pixel_values
 
+        if 'image' in sample:
+            assert 'pixel_values' not in sample
+            assert self.processor is not None
+
+            text = self.processor.decode(return_dict['input_ids'])
+            input_tensors = self.processor(
+                text=text,
+                images=base64_to_pil(sample['image']),
+                return_tensors="pt",
+                padding=False,
+                truncation=False,
+            )
+            return_dict['pixel_values'] = input_tensors['pixel_values'][0]
+
+        if 'token_type_ids' in sample:
             if isinstance(sample['token_type_ids'], bytes):
                 token_type_ids = self._read_binary_tokenized_sample(
                     sample,
@@ -303,25 +319,6 @@ class OfflineStreamingDataset(StreamingDataset):
                 raise ValueError(
                     f'Expect token_type_ids to be numpy.ndarray or bytes, but got {token_type}',
                 )
-
-            return_dict['pixel_values'] = pixel_values
             return_dict['token_type_ids'] = token_type_ids
-
-        if 'image' in sample:
-            assert 'pixel_values' not in sample
-            assert 'token_type_ids' not in sample
-            assert self.processor is not None
-
-            text = self.processor.decode(return_dict['input_ids'])
-            input_tensors = self.processor(
-                text=text,
-                images=base64_to_pil(sample['image']),
-                return_tensors="pt",
-                padding=False,
-                truncation=False,
-            )
-            return_dict['pixel_values'] = input_tensors['pixel_values'][0]
-            return_dict['token_type_ids'] = input_tensors['token_type_ids'][0]
-            assert return_dict['token_type_ids'].size(-1) == return_dict['input_ids'].size(-1)
 
         return return_dict
