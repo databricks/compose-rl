@@ -176,7 +176,7 @@ class DistributedGPUActor:
         self.pretrain_model_name = pretrain_model_name
         composer_dist.initialize_dist('gpu')
 
-        tmp_model = ComposerHFCausalLM(**self.model_config)
+        tmp_model = ComposerHFCausalLM(**self.model_config, use_auth_token=True)
 
         tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
 
@@ -208,7 +208,7 @@ class DistributedGPUActor:
         max_seq_len = 32
         precision = 'amp_bf16'
 
-        model = ComposerHFPolicyLM(**self.model_config)
+        model = ComposerHFPolicyLM(**self.model_config, use_auth_token=True)
 
         optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
 
@@ -291,6 +291,13 @@ class DistributedGPUActor:
 
     def train_1_iter(self):
         self.ppo_trainer.fit(duration='1iter')
+        # This is the KL assert that must be true if we are truly loading from the same model.
+        # This is only true on the first iteration
+        assert torch.allclose(
+            self.ppo_trainer.state.loss['kl/ift_kl'], # pyright: ignore
+            torch.tensor(0.0),
+            atol=5e-5,
+        )
 
     def sync_weight_and_gen(self, vllm_engines: list[Any]):
         self.ppo_callback.round_trip_to_inference_engines(
@@ -480,12 +487,12 @@ def run(tp_size: int = 8):
             # ray.get(master_actor.sync_weights.remote(vllm_engines))
             # print('sync weights done')
 
-            # ref = vllm_engines[0].generate.remote(prompts)
-            # gen_results = ray.get(ref)
-            # for output in gen_results:
-            #     prompt = output.prompt
-            #     generated_text = output.outputs[0].text
-            #     print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+            ref = vllm_engines[0].generate.remote(prompts)
+            gen_results = ray.get(ref)
+            for output in gen_results:
+                prompt = output.prompt
+                generated_text = output.outputs[0].text
+                print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
