@@ -13,6 +13,28 @@ from streaming import StreamingDataset
 from torchvision import transforms
 from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer, AutoProcessor
 
+import base64
+from io import BytesIO
+
+def base64_to_pil(base64_string: str):
+    """
+    Converts a base64 string to a PIL Image object.
+
+    Args:
+        base64_string: The base64 encoded string of the image.
+
+    Returns:
+        A PIL Image object, or None if an error occurs.
+    """
+    try:
+        image_data = base64.b64decode(base64_string)
+        image_stream = BytesIO(image_data)
+        image = Image.open(image_stream)
+        return image
+    except Exception as e:
+        print(f"Error decoding base64 string: {e}")
+        return None
+
 log = logging.getLogger(__name__)
 
 
@@ -253,8 +275,9 @@ class OfflineStreamingDataset(StreamingDataset):
                     f'Expect vstar_rewards to be numpy.ndarray type, but got {rewards_type}',
                 )
 
-
+        # Gemma 3 Specific
         if 'pixel_values' in sample:
+            assert 'image' not in sample
             if isinstance(sample['pixel_values'], np.ndarray):
                 pixel_values = torch.from_numpy(sample['pixel_values'])
             elif isinstance(sample['pixel_values'], Image.Image):
@@ -283,5 +306,22 @@ class OfflineStreamingDataset(StreamingDataset):
 
             return_dict['pixel_values'] = pixel_values
             return_dict['token_type_ids'] = token_type_ids
+
+        if 'image' in sample:
+            assert 'pixel_values' not in sample
+            assert 'token_type_ids' not in sample
+            assert self.processor is not None
+
+            text = self.processor.decode(return_dict['input_ids'])
+            input_tensors = self.processor(
+                text=text,
+                images=base64_to_pil(sample['image']),
+                return_tensors="pt",
+                padding=False,
+                truncation=False,
+            )
+            return_dict['pixel_values'] = input_tensors['pixel_values'][0]
+            return_dict['token_type_ids'] = input_tensors['token_type_ids'][0]
+            assert return_dict['token_type_ids'].size(-1) == return_dict['input_ids'].size(-1)
 
         return return_dict
