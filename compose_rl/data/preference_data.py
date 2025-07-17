@@ -351,8 +351,8 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
             text = self._read_binary_tokenized_sample(sample, 'input')
             label =self._read_binary_tokenized_sample(sample, 'label')
         elif isinstance(sample['input'], np.ndarray) and isinstance(sample['label'], np.ndarray):
-            text = sample['input'][:self.max_seq_len]
-            label = sample['label'][:self.max_seq_len]
+            text = torch.from_numpy(sample['input'][:self.max_seq_len])
+            label = torch.from_numpy(sample['label'][:self.max_seq_len])
 
         text_len = len(text)
         if 'mask' in sample: # mask is for masking out positions where we do need to predict value
