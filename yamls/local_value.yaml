@@ -1,7 +1,7 @@
 name: local-value-model-training
 image: mosaicml/dle:nightly-latest
 
-run_name: value_model_training
+run_name: value_model_training_math
 
 scheduling:
   priority: high
@@ -52,6 +52,11 @@ parameters:
     speed_monitor:
       window_size: 10
     memory_monitor: {}
+    hf_checkpointer:
+      overwrite: true
+      precision: bfloat16
+      save_folder: s3://data-force-one-datasets/mosaicml-internal-checkpoints/wensun/models/{run_name}
+      save_interval: 1ep
 
   optimizer:
     lr: 1.0e-06
@@ -157,7 +162,7 @@ parameters:
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
   global_train_batch_size: 128     # TODO: update for more realistic batch sizes
-  device_train_microbatch_size: 8
+  device_train_microbatch_size: 16
 
 integrations:
 - integration_type: git_repo
