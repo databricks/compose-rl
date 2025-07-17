@@ -177,20 +177,20 @@ def finegrained_preference_dataset_collate_fn(
     batch['attention_mask'] = torch.logical_not(
         torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
     )
-    bs, max_len = batch['text'].size()
+    bs, max_len = batch['text'].size() # max length in this padded batch
 
     all_padded_labels = []
     all_masks = []
     for sample in data:
-        text = sample["text"]
-        labels = sample["labels"]
+        text = sample["text"]  # get raw text (not padded)
+        labels = sample["labels"]  # get raw label
         text_len = sample["text_len"]
-        assert text.size(0) == labels.size(0) and text.size(0) == text_len
+        assert text.shape == labels.shape and text.size(0) == text_len
         # mask: maskes out positions where we don't need to predict values
-        mask = sample.get('mask', None)   
+        mask = sample.get('mask', None)    
 
         pad_len = max_len - text_len
-        assert pad_len >= 0 
+        assert pad_len >= 0  
         # pad the labels with right padding and label = -100
         cat_labels = torch.cat(
             [
@@ -203,7 +203,7 @@ def finegrained_preference_dataset_collate_fn(
         if mask is None:
             cat_mask = torch.ones_like(cat_labels)
         else:
-            assert mask.size(0) == text_len
+            assert mask.shape == text.shape
             # padding zeros to the mask
             cat_mask = torch.cat(
                 mask, 
@@ -215,8 +215,10 @@ def finegrained_preference_dataset_collate_fn(
 
     batch["labels"] = torch.stack(all_padded_labels, dim = 0)
     batch['mask'] = torch.stack(all_masks, dim = 0)
-    # text and label should have the same shape: bs x max_len
-    assert batch['text'].shape == batch['labels'].shape 
+    # text, label, mask, attention_mask should have the same shape: bs x max_len
+    assert batch['text'].shape == batch['labels'].shape
+    assert batch["text"].shape == batch["mask"].shape
+    assert batch["text"].shape == batch["attention_mask"].shape
     
     return batch
 

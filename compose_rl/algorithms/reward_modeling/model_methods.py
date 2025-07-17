@@ -327,28 +327,31 @@ def classifier_loss(
             batch['labels'],
         )
     elif loss_type == ClassifierRewardEnum.CE:  # CE for mult-class classification
-        n_class = output_scores.size(-1)
-        print(output_scores.shape)
-        print(batch["labels"].shape)
-        print(batch["labels"].min())
-        print(batch["labels"].max())
-        loss = F.cross_entropy(output_scores.transpose(1,2), batch["labels"])
-        #flat_log_probs = F.log_softmax(output_scores, dim = -1).view(-1, n_class)
-        #flat_labels = batch['labels'].to(torch.int).view(-1)
-        #if 'mask' in batch:
-        #    flat_mask = batch['mask'].view(-1) # maks is provided by user to mask out certain token positions in calculating the loss function
-        #else:
-        #    flat_mask = torch.ones_like(flat_labels)
-        #loss = -torch.mean(flat_log_probs[torch.arange(flat_log_probs.size(0)), flat_labels] * flat_mask)
+        bs, _, n_class = output_scores.size()
+        assert batch["labels"].min() >= 0 and batch["labels"].max() <= n_class
+        flat_output_scores = output_scores.reshape(-1, n_class)
+        flat_labels = batch["labels"].reshape(-1)
+        token_level_loss = F.cross_entropy(
+            flat_output_scores, 
+            flat_labels,
+            reduction = "none"
+        )
+        flat_att_mask = batch["attention_mask"].reshape(-1).float()
+        value_pos_mask = batch["mask"].reshape(-1).float()
+        # mask out padding positions, and mask out positions where no need to compute value
+        masked_loss = (token_level_loss * flat_att_mask) * value_pos_mask
+        loss = torch.sum(masked_loss) / torch.sum(flat_att_mask*value_pos_mask)
+        #loss = F.cross_entropy(output_scores.transpose(1,2), batch["labels"])
     else:
         raise NotImplementedError(f'Loss type: {loss_type} is not supported.')
 
-    #predicted_label = torch.argmax(flat_log_probs, dim = -1).detach()
-    #accuracy = torch.sum((predicted_label == flat_labels)*flat_mask) / torch.sum(flat_mask)
-
+    flat_predicted_label = torch.argmax(output_scores.reshape(-1, n_class), dim = -1).detach()
+    token_level_correct = (flat_predicted_label == batch["labels"].reshape(-1))
+    accuracy = torch.sum(token_level_correct*value_pos_mask*flat_att_mask)/torch.sum(value_pos_mask*flat_att_mask)
+  
     loss_dict = {
         'total': loss,
-        #'accuracy': accuracy
+        'accuracy': accuracy
     }
 
     return loss_dict
