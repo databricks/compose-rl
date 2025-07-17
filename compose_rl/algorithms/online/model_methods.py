@@ -246,9 +246,8 @@ def policy_loss(
         token_entropies = utils.get_token_entropies(
             logits=gen_logits,
         )
-        action_mask = batch['action_mask']
-        assert token_entropies.shape == action_mask.shape, (
-            f'Token entropies shape {token_entropies.shape} does not match action mask shape {action_mask.shape}.',
+        assert token_entropies.shape == batch['action_mask'].shape, (
+            f'Token entropies shape {token_entropies.shape} does not match action mask shape {batch["action_mask"].shape}.',
         )
         seq_entropies = utils.get_sequence_entropies(
             token_entropies=token_entropies,
