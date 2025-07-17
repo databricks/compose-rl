@@ -205,6 +205,8 @@ def finegrained_preference_dataset_collate_fn(
         if mask is None:
             cat_mask = torch.ones_like(cat_labels)
             cat_mask[-pad_len:] = 0
+            assert torch.sum(cat_mask.float() - torch.logical_not(torch.eq(cat_labels,-100)).float()) <= 0.01
+
         else:
             assert mask.shape == text.shape
             # padding zeros to the mask
