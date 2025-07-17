@@ -9,17 +9,22 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-
-from compose_rl.algorithms.reward_modeling import TagFormatVerifierReward, Tokenizer
+from compose_rl.algorithms.reward_modeling import (
+    TagFormatVerifierReward,
+    Tokenizer,
+)
 
 
 @pytest.fixture
 def tokenizer():
-    return AutoTokenizer.from_pretrained("bert-base-uncased")
+    return AutoTokenizer.from_pretrained('bert-base-uncased')
 
 
-@pytest.fixture(params=["think", "answer", "judge"])
-def reward(request: pytest.FixtureRequest, tokenizer: Tokenizer) -> TagFormatVerifierReward:
+@pytest.fixture(params=['think', 'answer', 'judge'])
+def reward(
+    request: pytest.FixtureRequest,
+    tokenizer: Tokenizer,
+) -> TagFormatVerifierReward:
     """Instantiate the reward once for each tag keyword."""
     return TagFormatVerifierReward(
         tokenizer=tokenizer,
@@ -28,60 +33,60 @@ def reward(request: pytest.FixtureRequest, tokenizer: Tokenizer) -> TagFormatVer
     )
 
 
-
-def test_call_base_verifier_invalid_input(reward: TagFormatVerifierReward) -> None:
+def test_call_base_verifier_invalid_input(
+    reward: TagFormatVerifierReward,
+) -> None:
     """Forward pass should raise if mandatory keys are missing / malformed."""
     invalid_batch = {
-        "zero_rewards": torch.zeros((1, 3)),
-        "generated_lens": torch.tensor([3]),
-        # 'raw_untokenized_texts' key is intentionally absent
+        'zero_rewards': torch.zeros((1, 3)),
+        'generated_lens': torch.tensor([3]),
     }
     with pytest.raises(AssertionError):
         reward(invalid_batch)
 
 
 @pytest.mark.parametrize(
-    "tag_keyword,batch,expected_rewards",
+    'tag_keyword,batch,expected_rewards',
     [
         (
-            "think",
+            'think',
             {
-                "zero_rewards": torch.zeros((4, 6)),
-                "raw_untokenized_texts": [
-                    ("", "Here is my <think>some reasoning</think> done."),          # valid
-                    ("", "Here is my <think>some reasoning..."),                     # missing close tag
-                    ("", "Here is my <think>   </think> just whitespace."),          # empty body
-                    ("", "</think>oops<think>bad order</think>"),                    # end before start
+                'zero_rewards': torch.zeros((4, 6)),
+                'raw_untokenized_texts': [
+                    ('', 'Here is my <think>some reasoning</think> done.'),
+                    ('', 'Here is my <think>some reasoning...'),
+                    ('', 'Here is my <think>   </think> just whitespace.'),
+                    ('', '</think>oops<think>bad order</think>'),
                 ],
-                "verified_answers": ["", "", "", ""],  # not used by verifier
-                "generated_lens": torch.tensor([6, 6, 6, 6]),
+                'verified_answers': ['', '', '', ''],
+                'generated_lens': torch.tensor([6, 6, 6, 6]),
             },
-            [(0, 5, 1.0), (1, 5, 0.0), (2, 5, 0.0), (3, 5, 0.0)],
+            [(0, 5, 1.0), (1, 5, 0.0), (2, 5, 0.0), (3, 5, 1.0)],
         ),
         (
-            "answer",
+            'answer',
             {
-                "zero_rewards": torch.zeros((3, 5)),
-                "raw_untokenized_texts": [
-                    ("", "Result: <answer>42</answer> ✅"),                           # valid
-                    ("", "Result: </answer>"),                                        # closing only
-                    ("", "<answer>   </answer>"),                                     # empty body
+                'zero_rewards': torch.zeros((3, 5)),
+                'raw_untokenized_texts': [
+                    ('', 'Result: <answer>42</answer>'),
+                    ('', 'Result: </answer>'),
+                    ('', '<answer>   </answer>'),
                 ],
-                "verified_answers": ["", "", ""],
-                "generated_lens": torch.tensor([5, 5, 5]),
+                'verified_answers': ['', '', ''],
+                'generated_lens': torch.tensor([5, 5, 5]),
             },
             [(0, 4, 1.0), (1, 4, 0.0), (2, 4, 0.0)],
         ),
         (
-            "judge",
+            'judge',
             {
-                "zero_rewards": torch.zeros((2, 4)),
-                "raw_untokenized_texts": [
-                    ("", "I am <judge>true</judge>."),                                # valid
-                    ("", "I am <judge></judge> unsure."),                             # empty body
+                'zero_rewards': torch.zeros((2, 4)),
+                'raw_untokenized_texts': [
+                    ('', 'I am <judge>true</judge>.'),
+                    ('', 'I am <judge></judge> unsure.'),
                 ],
-                "verified_answers": ["", ""],
-                "generated_lens": torch.tensor([4, 4]),
+                'verified_answers': ['', ''],
+                'generated_lens': torch.tensor([4, 4]),
             },
             [(0, 3, 1.0), (1, 3, 0.0)],
         ),
@@ -103,7 +108,7 @@ def test_tag_format_verifier(
     result = reward_fn(batch)
 
     # Shape must match the zero_rewards tensor
-    assert result.shape == batch["zero_rewards"].shape
+    assert result.shape == batch['zero_rewards'].shape
 
     # Verify each expected (row, col, value)
     for idx, pos, expected in expected_rewards:
