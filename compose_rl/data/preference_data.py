@@ -165,7 +165,6 @@ def finegrained_preference_dataset_collate_fn(
     del max_seq_len
     if tokenizer.pad_token_id is None:
         raise ValueError('Tokenizer must have a PAD token.')
-    print(tokenizer.padding_side)
     if tokenizer.padding_side != "right":
         raise ValueError('Tokenizer must use right padding.')
     ref_collate_fn = DataCollatorForLanguageModeling(
@@ -205,7 +204,6 @@ def finegrained_preference_dataset_collate_fn(
         )
         if mask is None:
             cat_mask = torch.ones_like(cat_labels)
-            print(pad_len)
             cat_mask[-pad_len:] = 0
         else:
             assert mask.shape == text.shape
