@@ -340,8 +340,8 @@ def classifier_loss(
         )
         flat_att_mask = batch["attention_mask"].reshape(-1).float()  # attention mask for input padding
         value_pos_mask = batch["mask"].reshape(-1).float()  # attention mask for value
-        print("fraction of ignored labels is {}".format(torch.sum(flat_labels == -100)/(1.*flat_labels.numel())))
-        print("faction of masked labels is {}".format(torch.sum(flat_att_mask) / (1.*flat_att_mask.numel()) ))
+        #print("fraction of ignored labels is {}".format(torch.sum(flat_labels == -100)/(1.*flat_labels.numel())))
+        #print("faction of masked labels is {}".format(torch.sum(flat_att_mask) / (1.*flat_att_mask.numel()) ))
         # mask out padding positions, and mask out positions where no need to compute value
         masked_loss = (token_level_loss * flat_att_mask) #* value_pos_mask
         loss = torch.sum(masked_loss) / torch.sum(flat_att_mask) #torch.sum(flat_att_mask*value_pos_mask)

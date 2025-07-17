@@ -1,7 +1,7 @@
 name: local-value-model-training
 image: mosaicml/dle:nightly-latest
 
-run_name: value_model_training_math
+run_name: value_model_training_openr1
 
 scheduling:
   priority: high
@@ -27,7 +27,7 @@ parameters:
     # name: hf_classifier_rm # for finegrained rewards
     #name: hf_pairwise_rm
     name: hf_classifier_vm
-    pretrained_model_name_or_path: Qwen/Qwen2.5-7B #Qwen/ #meta-llama/Meta-Llama-3.1-8B-Instruct
+    pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B #Qwen/Qwen2.5-7B #Qwen/ #meta-llama/Meta-Llama-3.1-8B-Instruct
     pretrained: true
     loss_type: ce
     use_flash_attention_2: true
@@ -75,7 +75,7 @@ parameters:
     t_warmup: 0.1dur
 
   tokenizer:
-    name: Qwen/Qwen2.5-7B #meta-llama/Meta-Llama-3.1-8B-Instruct
+    name: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B #Qwen/Qwen2.5-7B #meta-llama/Meta-Llama-3.1-8B-Instruct
     kwargs:
       #model_max_length: ${max_seq_len}
       trust_remote_code: true
@@ -99,8 +99,9 @@ parameters:
     cpu_offload: false
     mixed_precision: PURE
     state_dict_type: sharded
-    use_orig_params: true
+    #use_orig_params: true
     forward_prefetch: true
+    limit_all_gathers: true
     backward_prefetch: BACKWARD_PRE
     sharding_strategy: FULL_SHARD
     activation_checkpointing: true
@@ -131,7 +132,8 @@ parameters:
     name: finegrained_preference #pairwise_preference
     dataset:
       split: train
-      remote: dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/v2_value_np_array_data/
+      remote: dbfs:/Volumes/datasets/wensun/data/apo_openr1/DeepSeek-R1-Distill-Qwen-7B/v3_value_np_array_data/
+      #dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/v2_value_np_array_data/
       #dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/v2_value_data/
       #v2_value_np_array_data
       # remote: # TODO: Add remote path here if applicable
@@ -146,7 +148,8 @@ parameters:
     name: finegrained_preference
     dataset:
       split: validation
-      remote: dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/v2_value_np_array_data/
+      remote: dbfs:/Volumes/datasets/wensun/data/apo_openr1/DeepSeek-R1-Distill-Qwen-7B/v3_value_np_array_data/
+      #dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/v2_value_np_array_data/
       shuffle: false
       max_seq_len: ${max_seq_len}
       shuffle_seed: 17
@@ -162,7 +165,7 @@ parameters:
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
   global_train_batch_size: 128     # TODO: update for more realistic batch sizes
-  device_train_microbatch_size: 16
+  device_train_microbatch_size: 4
 
 integrations:
 - integration_type: git_repo
