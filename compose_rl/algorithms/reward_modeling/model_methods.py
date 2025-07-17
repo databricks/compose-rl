@@ -328,20 +328,19 @@ def classifier_loss(
         )
     elif loss_type == ClassifierRewardEnum.CE:  # CE for mult-class classification
         bs, _, n_class = output_scores.size()
-        assert batch["labels"].min() >= 0 and batch["labels"].max() <= n_class
+        assert batch["labels"].min() >= -100 and batch["labels"].max() <= n_class
         flat_output_scores = output_scores.reshape(-1, n_class)
         flat_labels = batch["labels"].reshape(-1)
         token_level_loss = F.cross_entropy(
             flat_output_scores, 
             flat_labels,
-            reduction = "none"
+            reduction = "none"  # compute log loss at token level
         )
-        flat_att_mask = batch["attention_mask"].reshape(-1).float()
-        value_pos_mask = batch["mask"].reshape(-1).float()
+        flat_att_mask = batch["attention_mask"].reshape(-1).float()  # attention mask for input padding
+        value_pos_mask = batch["mask"].reshape(-1).float()  # attention mask for value
         # mask out padding positions, and mask out positions where no need to compute value
         masked_loss = (token_level_loss * flat_att_mask) * value_pos_mask
         loss = torch.sum(masked_loss) / torch.sum(flat_att_mask*value_pos_mask)
-        #loss = F.cross_entropy(output_scores.transpose(1,2), batch["labels"])
     else:
         raise NotImplementedError(f'Loss type: {loss_type} is not supported.')
 
