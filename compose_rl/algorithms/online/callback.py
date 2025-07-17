@@ -41,6 +41,7 @@ from compose_rl.algorithms.online.model import (
     ComposerMPTPolicyLM,
 )
 from compose_rl.algorithms.online.model_methods import (
+    ALGORITHM_TYPE,
     OnPolicyEnum,
 )
 from compose_rl.algorithms.online.reward_manager import (
@@ -400,7 +401,12 @@ class OnPolicyCallback(CallbackWithConfig):
             'device_train_batch_size',
             None,
         )
+        self.global_train_batch_size: int = train_config.get(
+            'global_train_batch_size',
+            None,
+        )
         assert self.device_train_batch_size is not None
+        assert self.global_train_batch_size is not None
 
         # Number of batches to use for a single PPO epoch.
         self.num_batches_per_update = var_config.get(
@@ -413,9 +419,19 @@ class OnPolicyCallback(CallbackWithConfig):
             1,
         )
 
-        if self.num_batches_per_update % self.generations_per_prompt != 0:
+        self.num_unique_prompts_per_iter: int = var_config.get(
+            'num_unique_prompts_per_iter',
+            self.num_batches_per_update * self.global_train_batch_size //
+            self.generations_per_prompt,
+        )
+
+        log.info(
+            f'Per iteration using: {self.num_unique_prompts_per_iter} prompts.',
+        )
+
+        if self.num_unique_prompts_per_iter * self.generations_per_prompt != self.global_train_batch_size * self.num_batches_per_update:
             raise ValueError(
-                f'{self.num_batches_per_update=} must be divisible by {self.generations_per_prompt=}',
+                f'{self.num_unique_prompts_per_iter=} * {self.generations_per_prompt=} must equal {self.global_train_batch_size=} * {self.num_batches_per_update=}',
             )
 
         self.epochs_per_iteration = ensure_time(
@@ -461,7 +477,21 @@ class OnPolicyCallback(CallbackWithConfig):
             'vllm_tensor_parallel_size',
             None,
         )
+        self.vllm_enable_prefix_caching = var_config.get(
+            'vllm_enable_prefix_caching',
+            False,
+        )
         if self.vllm_tensor_parallel_size is not None:
+            # Whether to use `vllm_chat` or `vllm_generate`
+            self.vllm_generate_function = var_config.get(
+                'vllm_generate_function',
+                'generate',
+            )
+            if self.vllm_generate_function not in ['chat', 'generate']:
+                raise ValueError(
+                    'vllm_generate_function needs to be either `generate` or `chat`',
+                )
+
             self.vllm_model_name = train_config['model'][
                 'pretrained_model_name_or_path']
 
@@ -520,8 +550,6 @@ class OnPolicyCallback(CallbackWithConfig):
         if self.device_train_microbatch_size == 'auto':  # type: ignore
             raise ValueError('auto microbatching is not supported for PPO')
 
-        self.iter_batch_size = self.num_batches_per_update * self.device_train_batch_size
-
         # The KL penalty in the reward should only exist if we aren't minimizing
         # the KL directly in the loss.
         kl_penalty_in_reward = True
@@ -537,6 +565,7 @@ class OnPolicyCallback(CallbackWithConfig):
             fsdp_config=self.non_train_fsdp_config,
             precision=state.precision,
             kl_penalty_in_reward=kl_penalty_in_reward,
+            temperature=self.generation_kwargs['temperature'],
         )
 
         # This is needed to ensure PyTorch 2.4 checkpointing doesn't break
@@ -590,6 +619,7 @@ class OnPolicyCallback(CallbackWithConfig):
         del logger  # unused
 
         batch = self._get_next_iter_prompts()
+
         batch = state.device.batch_to_device(batch)
 
         if self.vllm_engines is not None:
@@ -631,7 +661,7 @@ class OnPolicyCallback(CallbackWithConfig):
     def _get_next_iter_prompts(self):
         """Gets the next iteration's batch of prompts."""
         # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
-        n_unique_batches = self.num_batches_per_update // self.generations_per_prompt
+        n_unique_batches = self.num_unique_prompts_per_iter // self.global_train_batch_size
         batches = [
             self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
@@ -649,7 +679,13 @@ class OnPolicyCallback(CallbackWithConfig):
                 # Explode the batch into multiple batches for each generation
                 for _ in range(self.generations_per_prompt):
                     # For keys that do not require additional processing
-                    if key in ['prompt_len', 'verified_answer', 'prompt_id']:
+                    if key in [
+                        'prompt_len',
+                        'verified_answer',
+                        'prompt_id',
+                        'vstar',
+                        'messages',
+                    ]:
                         curr_values.append(batch[key])
                         continue
 
@@ -677,10 +713,9 @@ class OnPolicyCallback(CallbackWithConfig):
             if isinstance(curr_values[0], torch.Tensor):
                 ret_batch[key] = torch.cat(curr_values)
             else:
-                if key == 'verified_answer':
+                if key in ['verified_answer', 'vstar']:
                     ret_batch[key] = list(flatten(curr_values))
                 else:
-                    # this is an edge case that we will not hit currently, but just handling it as needed
                     ret_batch[key] = curr_values
 
         return ret_batch
@@ -709,6 +744,7 @@ class OnPolicyCallback(CallbackWithConfig):
         max_gen_len = self.max_gen_len
         pad_token_id = self.pad_token_idx
         generation_kwargs = self.generation_kwargs
+        bs = batch['prompt_id'].shape[0]
         with get_precision_context(self.precision), torch.no_grad():
             # If vllm engines are available, we use them to generate sequences in one go
             if self.vllm_engines is not None:
@@ -718,13 +754,15 @@ class OnPolicyCallback(CallbackWithConfig):
                     max_gen_len=max_gen_len,
                     generation_kwargs=generation_kwargs,
                     tokenizer=self.tokenizer,  # type: ignore
+                    vllm_generate_function=self.vllm_generate_function,
                 )
             else:
                 # Go the HF policy generate route
                 # Need to explicitly minibatch here to avoid memory issues
                 # Determine the number of generating calls we want to make
                 # We can have the generate size be greater than the device train microbatch size
-                num_gen_calls = self.num_batches_per_update * self.device_train_batch_size // self.device_generate_batch_size
+                # When we hit this function, we should already have all the prompts we need per iteration.
+                num_gen_calls = bs // self.device_generate_batch_size
 
                 gen_batch_partial_outputs = []
                 all_sequences = []
@@ -758,9 +796,6 @@ class OnPolicyCallback(CallbackWithConfig):
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
-        log.debug('Beginning reward computation for the rollout.')
-        start_reward_time = time.time()
-
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore
             reward_manager=self.reward_manager,
@@ -774,12 +809,6 @@ class OnPolicyCallback(CallbackWithConfig):
             kl_clip_range=self.kl_clip_range,
         )
 
-        end_reward_time = time.time()
-        total_reward_time = end_reward_time - start_reward_time
-        log.debug(
-            f'Finished reward computation for the rollout in {total_reward_time:.4f} seconds.',
-        )
-
         self.prompts_and_gens.extend(prompts_and_gens)
 
         gen_batch_partial_outputs = (env_outputs, ref_outputs, all_rewards_dict)
@@ -790,8 +819,13 @@ class OnPolicyCallback(CallbackWithConfig):
             gen_batch_partial_outputs,
         )
 
+        # Delete Non-tensor keys for training batch
+        for key in ['verified_answer', 'messages']:
+            if key in resolved_outputs.keys():
+                del resolved_outputs[key]
+
         # We need to split the resolved outputs into minibatches
-        for idx in range(self.iter_batch_size // self.device_train_batch_size):
+        for idx in range(bs // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
                 resolved_outputs,
                 idx,
@@ -871,110 +905,108 @@ class OnPolicyCallback(CallbackWithConfig):
         env_outs['right_padded_attn_mask'] = torch.logical_not(
             torch.eq(env_outs['obs'], self.pad_token_idx),  # type: ignore
         )
+        if self.actor_critic.loss_type not in ALGORITHM_TYPE.REGRESSION:
+            # Now that rewards are resolved, we can compute advantages
+            if self.actor_critic.loss_type == OnPolicyEnum.PPO:
+                env_outs['advantages'] = compute_advantages(
+                    rewards=env_outs['rewards'],
+                    values=env_outs['values'],
+                    gamma=self.gamma,
+                    lambda_gae=self.lambda_gae,
+                )
+            elif self.actor_critic.loss_type == OnPolicyEnum.GRPO:
+                # compute GRPO advantages
+                prompt_id = env_outs['prompt_id']
+                rewards = env_outs['rewards']
 
-        # Now that rewards are resolved, we can compute advantages
-        if self.actor_critic.loss_type == OnPolicyEnum.PPO:
-            env_outs['advantages'] = compute_advantages(
-                rewards=env_outs['rewards'],
-                values=env_outs['values'],
-                gamma=self.gamma,
-                lambda_gae=self.lambda_gae,
-            )
-        elif self.actor_critic.loss_type == OnPolicyEnum.GRPO:
-            # compute GRPO advantages
-            prompt_id = env_outs['prompt_id']
-            rewards = env_outs['rewards']
+                # Flatten the rewards by summing on sequence length/action_mask
+                flat_rewards = masked_sum(
+                    rewards,
+                    env_outs['action_mask'],
+                    dim=-1,
+                )
 
-            # Flatten the rewards by summing on sequence length/action_mask
-            flat_rewards = masked_sum(
-                rewards,
+                # Get unique prompt IDs and their indices
+                unique_prompt_ids, inverse_indices = torch.unique(
+                    prompt_id,
+                    return_inverse=True,
+                )
+
+                # Use scatter to compute means and standard deviations
+                # First, we'll create a tensor to track counts, sums, and sum of squares
+                n_unique = len(unique_prompt_ids)
+                counts = torch.zeros(n_unique, device=prompt_id.device)
+                sums = torch.zeros(n_unique, device=prompt_id.device)
+                sum_squares = torch.zeros(n_unique, device=prompt_id.device)
+
+                # Use scatter_add to accumulate values
+                counts.scatter_add_(
+                    0,
+                    inverse_indices,
+                    torch.ones_like(flat_rewards),
+                )
+                sums.scatter_add_(0, inverse_indices, flat_rewards)
+                sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
+
+                # Compute means and standard deviations
+                means = sums / counts
+                variances = (sum_squares / counts) - (means**2)
+                stds = torch.sqrt(variances)
+
+                # Map back to original tensor shape
+                mean_rewards = means[inverse_indices]
+                std_rewards = stds[inverse_indices]
+
+                # Calculate GRPO advantage
+                grpo_advantage = (flat_rewards - mean_rewards)
+                # Only normalize the advantage if flag is set
+                if self.actor_critic.normalize_advantage:
+                    grpo_advantage /= (std_rewards + 1e-4)
+
+                # Create advantages of the same shape as original rewards
+                advantages = torch.zeros_like(rewards)
+                # Copy the flat grpo_advantage according to action_mask
+                expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
+                    env_outs['action_mask'],
+                )
+                advantages = torch.where(
+                    env_outs['action_mask'].bool(),
+                    expanded_advantages,
+                    advantages,
+                )
+                env_outs['advantages'] = advantages
+            else:
+                raise ValueError(
+                    f'Invalid loss type: {self.actor_critic.loss_type}. ' +
+                    'Valid options are: ppo, grpo.',
+                )
+
+            batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
+                env_outs['advantages'],
                 env_outs['action_mask'],
-                dim=-1,
             )
 
-            # Get unique prompt IDs and their indices
-            unique_prompt_ids, inverse_indices = torch.unique(
-                prompt_id,
-                return_inverse=True,
-            )
-
-            # Use scatter to compute means and standard deviations
-            # First, we'll create a tensor to track counts, sums, and sum of squares
-            n_unique = len(unique_prompt_ids)
-            counts = torch.zeros(n_unique, device=prompt_id.device)
-            sums = torch.zeros(n_unique, device=prompt_id.device)
-            sum_squares = torch.zeros(n_unique, device=prompt_id.device)
-
-            # Use scatter_add to accumulate values
-            counts.scatter_add_(
-                0,
-                inverse_indices,
-                torch.ones_like(flat_rewards),
-            )
-            sums.scatter_add_(0, inverse_indices, flat_rewards)
-            sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
-
-            # Compute means and standard deviations
-            means = sums / counts
-            variances = (sum_squares / counts) - (means**2)
-            stds = torch.sqrt(variances)
-
-            # Map back to original tensor shape
-            mean_rewards = means[inverse_indices]
-            std_rewards = stds[inverse_indices]
-
-            # Calculate GRPO advantage
-            grpo_advantage = (flat_rewards - mean_rewards)
-            # Only normalize the advantage if flag is set
-            if self.actor_critic.normalize_advantage:
-                grpo_advantage /= (std_rewards + 1e-4)
-
-            # Create advantages of the same shape as original rewards
-            advantages = torch.zeros_like(rewards)
-            # Copy the flat grpo_advantage according to action_mask
-            expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
-                env_outs['action_mask'],
-            )
-            advantages = torch.where(
-                env_outs['action_mask'].bool(),
-                expanded_advantages,
-                advantages,
-            )
-            env_outs['advantages'] = advantages
-        else:
-            raise ValueError(
-                f'Invalid loss type: {self.actor_critic.loss_type}. ' +
-                'Valid options are: ppo, grpo.',
-            )
-
-        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            env_outs['advantages'],
-            env_outs['action_mask'],
-        )
+            bs = iter_batch['prompt_id'].shape[0]
+            iter_batch.update({
+                'adv_masked_mean': torch.ones(bs) * batch_adv_mean.cpu(),
+                'adv_masked_var': torch.ones(bs) * batch_adv_var.cpu(),
+            })
 
         mean_ift = masked_mean(
             env_outs['ift_kl'],
             env_outs['action_mask'],
         )
+
         self.kl_ift.append(mean_ift.cpu())
 
         iter_batch.update(env_outs)
 
+        bs = iter_batch['prompt_id'].shape[0]
         iter_batch.update({
-            'max_gen_len':
-                torch.ones(self.iter_batch_size).to(torch.int32) *
-                self.max_gen_len,
-            'adv_masked_mean':
-                torch.ones(self.iter_batch_size) * batch_adv_mean.cpu(),
-            'adv_masked_var':
-                torch.ones(self.iter_batch_size) * batch_adv_var.cpu(),
-            'ift_kl_scalar':
-                torch.ones(self.iter_batch_size) * self.kl_ctl.value,
-            'reward_std':
-                torch.ones(self.iter_batch_size) *
-                env_outs['rewards'].std().to('cpu'),
+            'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,
+            'ift_kl_scalar': torch.ones(bs) * self.kl_ctl.value,
+            'reward_std': torch.ones(bs) * env_outs['rewards'].std().to('cpu'),
         })
-
         # Moving minibatches to CPU to not take additional GPU memory
         for k, v in iter_batch.items():
             if hasattr(v, 'cpu'):
@@ -1075,7 +1107,7 @@ class OnPolicyCallback(CallbackWithConfig):
                 pretrain=self.vllm_model_name,
                 revision=None,
                 seed=1,
-                enable_prefix_caching=False,
+                enable_prefix_caching=self.vllm_enable_prefix_caching,
                 max_model_len=self.max_seq_len,
             )
             log.info('After creating vLLM engines.')
@@ -1114,12 +1146,12 @@ class OnPolicyCallback(CallbackWithConfig):
         log.info('Before broadcast to vLLM')
         assert self.vllm_engines is not None
         broadcast_to_vllm(
-            self.actor_critic,
-            self.vllm_engines,
-            self.model_update_group,
-            batch,
-            #loss_type=self.actor_critic.loss_type.value,  # type: ignore
+            model=self.actor_critic,
+            vllm_engines=self.vllm_engines,
+            model_update_group=self.model_update_group,
+            batch=batch,
             loss_type=self.actor_critic.loss_type,  # type: ignore
+            enable_prefix_caching=self.vllm_enable_prefix_caching,
         )
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')

@@ -91,3 +91,30 @@ class VerifiablePromptDataset(Dataset):
             'prompt_id': torch.Tensor([index]).int(),
             'verified_answer': '1',
         }
+
+
+class VerifiableMessagesDataset(Dataset):
+
+    def __init__(self, size: int = 8, prompt_len: int = 5):
+        self.size = size
+        self.prompt_len = prompt_len
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, index: int):
+        messages = [{
+            'role': 'user',
+            'content': 'F' * self.prompt_len,
+        }]  # bit of a hack, but it works
+        mock_prompt = torch.ones((len(messages[0]['content']),)).int()
+        return {
+            'messages':
+                messages,
+            'prompt':
+                mock_prompt,
+            'prompt_len':
+                torch.Tensor([len(messages[0]['content'])]).to(torch.int64),
+            'verified_answer':
+                'Paris',
+        }

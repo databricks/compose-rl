@@ -10,6 +10,10 @@ from streaming import Stream, StreamingDataLoader, StreamingDataset
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer
 
+from compose_rl.data.messages_data import (
+    MessagesStreamingDataset,
+    messages_dataset_collate_fn,
+)
 from compose_rl.data.preference_data import (
     FinegrainedPreferenceStreamingDataset,
     PairwisePreferenceStreamingDataset,
@@ -25,6 +29,7 @@ __all__ = [
     'build_finegrained_preference_dataloader',
     'build_pairwise_preference_dataloader',
     'build_prompt_dataloader',
+    'build_messages_dataloader',
 ]
 
 
@@ -71,10 +76,15 @@ def generate_dataloader_builder(
         streams = None
         if streams_dict is not None:
             streams = [Stream(**stream) for stream in streams_dict.values()]
+        if issubclass(
+            dataset_cls,
+            MessagesStreamingDataset,
+        ) and 'tokenizer' not in dataset_cfg:
+            dataset_cfg['tokenizer'] = tokenizer
 
         streaming_dataset = dataset_cls(
-            streams=streams,
-            batch_size=device_batch_size,
+            streams=streams,  # type: ignore
+            batch_size=device_batch_size,  # type: ignore
             **dataset_cfg,
         )
 
@@ -110,4 +120,9 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
 build_prompt_dataloader = generate_dataloader_builder(
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
+)
+
+build_messages_dataloader = generate_dataloader_builder(
+    MessagesStreamingDataset,
+    messages_dataset_collate_fn,
 )

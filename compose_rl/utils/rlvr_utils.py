@@ -218,3 +218,13 @@ def prepare_math_prompt(sample: Any) -> str:
     _instruction = " Let's think step by step and output the final answer within \\boxed{}."
     final_prompt = f'Question: {prompt} ' + _instruction
     return final_prompt
+
+
+def extract_verified_answer(sample: Any) -> str:
+    """Extract the ground truth from the answer column."""
+    return sample['verified_answer'].strip()
+
+
+def prepare_prompt(sample: Any) -> str:
+    """Prepare the prompt for STEM dataset."""
+    return sample['prompt'].strip()
