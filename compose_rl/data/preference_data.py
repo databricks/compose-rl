@@ -186,8 +186,6 @@ def finegrained_preference_dataset_collate_fn(
     for sample in data:
         text = sample["text"]  # get raw text (not padded)
         labels = sample["labels"]  # get raw label
-        print(text.size())
-        print(labels.size())
         text_len = int(sample["text_len"].item())
         assert text.shape == labels.shape and text.size(0) == text_len
         # mask: maskes out positions where we don't need to predict values
@@ -204,19 +202,10 @@ def finegrained_preference_dataset_collate_fn(
             ],
             dim = -1, 
         )
-        print("pad_len is {}, max_len is {}, text_len is {}".format(pad_len, max_len, text_len))
-        print(cat_labels[-10:])
         if mask is None:
             cat_mask = torch.ones_like(cat_labels)
-            print("before cat_mask {}".format(cat_mask[-10:]))
-            cat_mask[-pad_len:] = 0
-            tmp = torch.logical_not(torch.eq(cat_labels,-100)).float()
-            print("########################")
-            print("after cat_mask {}".format(cat_mask[-10:]))
-            print("tmp {}".format(tmp[-10:]))
-            print("cat_labels {}".format(cat_labels[-10:]))
-            print("########################")
-            assert (torch.sum(cat_mask.float() - tmp))**2 <= 0.01
+            if pad_len > 1:
+                cat_mask[-pad_len:] = 0      
         else:
             assert mask.shape == text.shape
             # padding zeros to the mask
