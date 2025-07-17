@@ -494,6 +494,7 @@ class TagFormatVerifierReward(BaseVerifierReward):
         super().__init__(tokenizer=tokenizer, reward=reward)
         self.start_tag = f'<{tag_keyword}>'
         self.end_tag = f'</{tag_keyword}>'
+        self._start_len = len(self.start_tag)
 
     def needs_extraction(self) -> bool:
         """Indicate that this verifier doesn't need extraction."""
@@ -507,11 +508,14 @@ class TagFormatVerifierReward(BaseVerifierReward):
         thinking process and the <answer>...</answer> tag to indicate its final
         answer.
         """
-        start_pos = answer.find(self.start_tag)
-        end_pos = answer.find(self.end_tag)
+        start = answer.find(self.start_tag)
+        if start == -1:
+            return 0.0
 
-        # Check if both tags exist and end tag comes after start tag
-        has_proper_format = (
-            start_pos != -1 and end_pos != -1 and end_pos > start_pos
-        )
-        return self.reward if has_proper_format else 0.0
+        start += self._start_len  # jump just after `<tag>`
+        end = answer.find(self.end_tag, start)  # search forward only
+        if end == -1:
+            return 0.0
+
+        # Require at least one non‑space visible char between tags
+        return self.reward if answer[start:end].strip() else 0.0
