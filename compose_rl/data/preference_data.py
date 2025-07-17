@@ -202,7 +202,7 @@ def finegrained_preference_dataset_collate_fn(
             ],
             dim = -1, 
         )
-        print("pad_len is {}".format(pad_len))
+        print("pad_len is {}, max_len is {}, text_len is {}".format(pad_len, max_len, text_len))
         print(cat_labels[-10:])
         if mask is None:
             cat_mask = torch.ones_like(cat_labels)
