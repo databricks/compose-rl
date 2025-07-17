@@ -82,6 +82,25 @@ class ReferencePolicyCallback(CallbackWithConfig):
                 assert self.reference_model is not None
                 reference_outputs = self.reference_model(state.batch)
                 state.batch.update({
+                    'ref_logp': reference_outputs['policy_logp'],
+                })
+
+
+class PairwiseReferencePolicyCallback(ReferencePolicyCallback):
+    """Callback to run reference policy in pairwise offline RL.
+
+    Args:
+        train_config (dict): Training config passed to callback via foundry train.py as
+            callback is registered under callbacks_with_config registry.
+    """
+
+    def before_forward(self, state: State, logger: Logger) -> Optional[int]:
+        # Before every batch we need to do a forwards pass over the reference model
+        with get_precision_context(state.precision):
+            with torch.no_grad():
+                assert self.reference_model is not None
+                reference_outputs = self.reference_model(state.batch)
+                state.batch.update({
                     'ref_chosen': reference_outputs['policy_chosen_logp'],
                     'ref_rejected': reference_outputs['policy_rejected_logp'],
                 })
