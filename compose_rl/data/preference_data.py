@@ -177,7 +177,6 @@ def finegrained_preference_dataset_collate_fn(
     batch['attention_mask'] = torch.logical_not(
         torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
     )
-    print("############## batch[text] size is {}".format(batch['text'].shape))
     bs, max_len = batch['text'].size()
 
     all_padded_labels = []
@@ -186,15 +185,13 @@ def finegrained_preference_dataset_collate_fn(
         text = sample["text"]
         labels = sample["labels"]
         text_len = sample["text_len"]
-        print("text size is {}".format(text.size()))
-        print("labels size is {}".format(labels.size()))
-        mask = sample.get('mask', None)
-
         assert text.size(0) == labels.size(0) and text.size(0) == text_len
+        # mask: maskes out positions where we don't need to predict values
+        mask = sample.get('mask', None)   
 
         pad_len = max_len - text_len
-        assert pad_len >= 0
-        #pad the labels with right padding and label = -100
+        assert pad_len >= 0 
+        # pad the labels with right padding and label = -100
         cat_labels = torch.cat(
             [
                 labels, 
@@ -207,6 +204,7 @@ def finegrained_preference_dataset_collate_fn(
             cat_mask = torch.ones_like(cat_labels)
         else:
             assert mask.size(0) == text_len
+            # padding zeros to the mask
             cat_mask = torch.cat(
                 mask, 
                 torch.zeros(pad_len, dtype = mask.dtype)*0
@@ -217,37 +215,8 @@ def finegrained_preference_dataset_collate_fn(
 
     batch["labels"] = torch.stack(all_padded_labels, dim = 0)
     batch['mask'] = torch.stack(all_masks, dim = 0)
-    assert batch['text'].size(0) == batch['labels'].size(0)
-    
-
-    '''
-    keys = data[0].keys()
-    batch = {}
-    for key in keys:
-        cur_values = [item[key] for item in data]
-        if key == 'prompt_mask':
-            max_len = max([len(val) for val in cur_values])
-            mask = torch.stack([
-                torch.cat([torch.Tensor(val),
-                           torch.ones(max_len - len(val))])
-                for val in cur_values
-            ])
-            mask = ~mask.to(torch.bool)
-            batch[key] = mask.to(torch.int8)
-            continue
-        elif key in ['prompt_len', 'text_len']:
-            batch[key] = torch.stack(cur_values).squeeze(dim=1)
-            continue
-        elif key in ['label']:
-            cur_values = [a.unsqueeze(0) for a in cur_values]
-            batch[key] = torch.cat(cur_values, dim=0)
-            continue
-
-        batch[key] = ref_collate_fn(cur_values)['input_ids']
-    batch['attention_mask'] = torch.logical_not(
-        torch.eq(batch['text'], tokenizer.pad_token_id),  # type: ignore
-    )
-    '''
+    # text and label should have the same shape: bs x max_len
+    assert batch['text'].shape == batch['labels'].shape 
     
     return batch
 
@@ -343,7 +312,7 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
 
     def _read_binary_tokenized_sample(self, sample: dict[str, Any], key: str):
         self.num_read += 1
-        temp_sample = torch.from_numpy(np.frombuffer(sample[key]))
+        temp_sample = torch.from_numpy(np.frombuffer(sample[key], dtype=np.int64))
         if len(temp_sample) > self.max_seq_len:
             log.info(
                 f'Truncating sample {self.num_read}. Number truncated: {self.num_truncated}.',
@@ -371,19 +340,13 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
             idx (int): the index where we fetch the data in the StreamingDataset.
         """
         sample = super().__getitem__(idx)
+        # truncated by max_seq_len and convert bytes to int64
         text = self._read_binary_tokenized_sample(sample, 'input')
         label =self._read_binary_tokenized_sample(sample, 'label')
-        #text =  torch.from_numpy(np.frombuffer(sample['input'], dtype=np.int64).copy())
-        #label = torch.from_numpy(np.frombuffer(sample['label'], dtype=np.int64).copy())
-        # This needs to be a float tensor for BCE
-        #label = label.to(torch.float32)
-
 
         text_len = len(text)
-        if 'mask' in sample:
-            mask = torch.from_numpy(
-                np.frombuffer(sample['mask'], dtype=np.uint8)
-            )
+        if 'mask' in sample: # mask is for masking out positions where we do need to predict value
+            mask = self._read_binary_tokenized_sample(sample, 'mask') #truncate and 
             return {
                 'text': text,
                 'labels': label,
