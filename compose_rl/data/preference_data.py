@@ -186,7 +186,7 @@ def finegrained_preference_dataset_collate_fn(
     for sample in data:
         text = sample["text"]  # get raw text (not padded)
         labels = sample["labels"]  # get raw label
-        text_len = sample["text_len"]
+        text_len = int(sample["text_len"].item())
         assert text.shape == labels.shape and text.size(0) == text_len
         # mask: maskes out positions where we don't need to predict values
         mask = sample.get('mask', None)    
