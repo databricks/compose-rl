@@ -184,7 +184,7 @@ def classifier_forward(
     return_lm_logits: bool = False,
 ) -> dict[str, torch.Tensor]:
 
-    print("inside forward, the size of input is {}".format(batch['text'].shape))
+    #print("inside forward, the size of input is {}".format(batch['text'].shape))
     model_output = model(
         batch['text'],
         attention_mask=batch['attention_mask'],
