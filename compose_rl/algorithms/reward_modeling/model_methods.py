@@ -341,8 +341,8 @@ def classifier_loss(
         value_pos_mask = batch["mask"].reshape(-1).float()  # attention mask for value
     
         # mask out padding positions, and mask out positions where no need to compute value
-        masked_loss = (token_level_loss * flat_att_mask) * value_pos_mask
-        loss = torch.sum(masked_loss) / torch.sum(flat_att_mask*value_pos_mask)
+        masked_loss = (token_level_loss * flat_att_mask) #* value_pos_mask
+        loss = torch.sum(masked_loss) / torch.sum(flat_att_mask) #torch.sum(flat_att_mask*value_pos_mask)
     else:
         raise NotImplementedError(f'Loss type: {loss_type} is not supported.')
 
