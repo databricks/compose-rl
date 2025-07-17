@@ -166,7 +166,7 @@ def finegrained_preference_dataset_collate_fn(
     if tokenizer.pad_token_id is None:
         raise ValueError('Tokenizer must have a PAD token.')
     print(tokenizer.padding_side)
-    if tokenizer.padding_side is not "right":
+    if tokenizer.padding_side != "right":
         raise ValueError('Tokenizer must use right padding.')
     ref_collate_fn = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
