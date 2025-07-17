@@ -19,6 +19,11 @@ def test_get_num_tokens_with_action_mask_and_prompt_len():
                 [1, 1, 1, 0, 0],  # 3 valid generated tokens
                 [1, 1, 0, 0, 0],  # 2 valid generated tokens
             ]),
+        'sequences':
+            torch.tensor([
+                [1, 2, 3, 4, 5, 6, 7, 0, 0],  # Sample sequence tokens
+                [1, 2, 3, 4, 5, 6, 0, 0, 0],  # Sample sequence tokens
+            ]),
     }
 
     result = get_num_tokens_in_batch_online(batch)
