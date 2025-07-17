@@ -160,4 +160,5 @@ build_prompt_dataloader = generate_dataloader_builder(
 build_messages_dataloader = generate_dataloader_builder(
     MessagesStreamingDataset,
     messages_dataset_collate_fn,
+    get_num_tokens_in_batch_online,
 )
