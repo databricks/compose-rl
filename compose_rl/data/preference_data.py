@@ -353,7 +353,6 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
                 'text_len': torch.Tensor([text_len]).to(torch.int64),
                 'mask': torch.tensor(mask).to(torch.int64),
             }
-
         else:
             return {
                 'text': text,
