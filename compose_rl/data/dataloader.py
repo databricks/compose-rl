@@ -146,9 +146,9 @@ def get_num_tokens_in_batch_online(
     else:
         log.warning(
             'No action_mask/prompt_len in batch. ' +
-            'Using default value of 100 for num_tokens_in_batch.',
+            'Using default value of 0 for num_tokens_in_batch.',
         )
-        return 100
+        return 0
 
 
 build_prompt_dataloader = generate_dataloader_builder(
