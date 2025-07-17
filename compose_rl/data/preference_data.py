@@ -197,7 +197,7 @@ def finegrained_preference_dataset_collate_fn(
         cat_labels = torch.cat(
             [
                 labels, 
-                torch.ones(pad_len, dtype = labels.dtype)*
+                torch.ones(int(pad_len.item()), dtype = labels.dtype)*
                 (-100)
             ],
             dim = -1, 
