@@ -79,7 +79,7 @@ parameters:
       #pad_token: <|endoftext|>
       #truncation: true
       #padding_side: left
-      padding_side: left
+      padding_side: right
 
   algorithms:
     gradient_clipping:
