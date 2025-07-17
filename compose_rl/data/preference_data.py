@@ -223,7 +223,8 @@ def finegrained_preference_dataset_collate_fn(
     assert batch['text'].shape == batch['labels'].shape
     assert batch["text"].shape == batch["mask"].shape
     assert batch["text"].shape == batch["attention_mask"].shape
-    
+
+
     return batch
 
 
@@ -359,7 +360,7 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
             if isinstance(sample['mask'], bytes):
                 mask = self._read_binary_tokenized_sample(sample, 'mask') #truncate and 
             elif isinstance(sample['mask'], np.ndarray):
-                mask = sample['mask'][:self.max_seq_len]
+                mask = torch.from_numpy(sample['mask'][:self.max_seq_len]).to(torch.int64)
             return {
                 'text': text,
                 'labels': label,
