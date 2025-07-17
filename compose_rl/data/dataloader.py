@@ -109,10 +109,7 @@ def generate_dataloader_builder(
         )
         data_spec_kwargs = {}
         if token_counter_fn is not None:
-            data_spec_kwargs['get_num_tokens_in_batch'] = partial(
-                token_counter_fn,
-                pad_token_id=tokenizer.pad_token_id,
-            )
+            data_spec_kwargs['get_num_tokens_in_batch'] = token_counter_fn
         return DataSpec(dataloader=dataloader, **data_spec_kwargs)
 
     return build_preference_dataloader
@@ -131,7 +128,6 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
 
 def get_num_tokens_in_batch_online(
     batch: dict[str, Any],
-    pad_token_id: int,
 ) -> int:
     """Get the number of tokens in batch including prompt + generated tokens.
 

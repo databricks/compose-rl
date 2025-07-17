@@ -21,7 +21,7 @@ def test_get_num_tokens_with_action_mask_and_prompt_len():
             ]),
     }
 
-    result = get_num_tokens_in_batch_online(batch, pad_token_id=0)
+    result = get_num_tokens_in_batch_online(batch)
     expected = 4 + 4 + 3 + 2  # prompt_tokens + generated_tokens
     assert result == expected
 
@@ -32,5 +32,5 @@ def test_get_num_tokens_without_action_mask_and_prompt_len():
     Verifies default value of 100 is returned.
     """
     batch = {}
-    result = get_num_tokens_in_batch_online(batch, pad_token_id=0)
+    result = get_num_tokens_in_batch_online(batch)
     assert result == 100
