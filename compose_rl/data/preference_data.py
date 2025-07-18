@@ -187,6 +187,7 @@ def finegrained_preference_dataset_collate_fn(
         text = sample["text"]  # get raw text (not padded)
         labels = sample["labels"]  # get raw label
         text_len = int(sample["text_len"].item())
+        prompt_len = int(sample["prompt_len"].item())
         assert text.shape == labels.shape and text.size(0) == text_len
         # mask: maskes out positions where we don't need to predict values
         mask = sample.get('mask', None)    
@@ -202,6 +203,9 @@ def finegrained_preference_dataset_collate_fn(
             ],
             dim = -1, 
         )
+        #mask out the prompt by converting labels to -100 at tokens in the prompt
+        cat_labels[:prompt_len] = -100
+
         if mask is None:
             cat_mask = torch.ones_like(cat_labels)
             if pad_len > 1:
@@ -356,6 +360,7 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
             label = torch.from_numpy(sample['label'][:self.max_seq_len]).to(torch.int64)
 
         text_len = len(text)
+        prompt_len = sample['prompt_len']
         if 'mask' in sample: # mask is for masking out positions where we do need to predict value
             if isinstance(sample['mask'], bytes):
                 mask = self._read_binary_tokenized_sample(sample, 'mask') #truncate and 
@@ -364,6 +369,7 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
             return {
                 'text': text,
                 'labels': label,
+                'prompt_len': torch.Tensor([prompt_len]).to(torch.int64), 
                 'text_len': torch.Tensor([text_len]).to(torch.int64),
                 'mask': torch.tensor(mask).to(torch.int64),
             }
@@ -371,5 +377,6 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
             return {
                 'text': text,
                 'labels': label,
+                'prompt_len': torch.Tensor([prompt_len]).to(torch.int64),
                 'text_len': torch.Tensor([text_len]).to(torch.int64),
             }
