@@ -790,7 +790,7 @@ def _setup_fsdp_test_environment(
 
     # Create model
     if model is None:
-        model = ComposerMPTPairwiseOfflinePolicyLM(**model_config)
+        model = ComposerMPTPairwiseOfflinePolicyLM(**model_config).to('cuda')
 
     # Enable FSDP
     fsdp_config = {}
@@ -801,7 +801,7 @@ def _setup_fsdp_test_environment(
         max_duration='1ba',
     )
 
-    return trainer, trainer.state.model
+    return trainer, model
 
 
 @pytest.mark.gpu
@@ -929,7 +929,8 @@ def test_summon_full_params_tied_weights_behavior(
 ):
     """Test summon_full_params with tied weights behavior verification."""
     del world_size
-    model = PartialWeightTiedModel(num_features=2)
+    model = PartialWeightTiedModel(num_features=2).to('cuda')
+    model.add_fsdp_wrap_attribute_to_children()
 
     trainer, fsdp_model = _setup_fsdp_test_environment(
         tiny_gpt2_tokenizer,
@@ -939,6 +940,8 @@ def test_summon_full_params_tied_weights_behavior(
 
     # fill the tied weights with 999.0
     fsdp_model.module[0].net[0].weight.data.fill_(999.0)  # type: ignore
+    # assert weight tying
+    assert torch.all(fsdp_model.module[0].net[-1].weight.data == 999.0)  # type: ignore
 
     # Test writeback=False
     with summon_full_params(fsdp_model, writeback=False):
@@ -996,7 +999,7 @@ def test_get_params_to_summon_fsdp2(
     """Test _get_params_to_summon_fsdp2 function with nested FSDP structure."""
     del world_size
 
-    model = NestedFSDPModel(num_features=2)
+    model = NestedFSDPModel(num_features=2).to('cuda')
     model.add_fsdp_wrap_attribute_to_children()
     
     _, fsdp_model = _setup_fsdp_test_environment(

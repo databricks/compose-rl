@@ -107,12 +107,13 @@ class PartialWeightTiedModel(ComposerClassifier):
         # since we don't want to create duplicate references to the same module since that
         # will break mixed init.
         mlp.net[0].weight = mlp.net[-1].weight
+        mlp.net[0]._fsdp_wrap = False
+        mlp.net[-1]._fsdp_wrap = False
 
     def add_fsdp_wrap_attribute_to_children(self):
-        for child in self.children():
-            child._fsdp_wrap = False  # type: ignore
-        for child in self.module.children():
-            child._fsdp_wrap = True  # type: ignore
+        for module in self.module.modules():
+            if not hasattr(module, '_fsdp_wrap'):
+                module._fsdp_wrap = True
 
     def param_init_fn(self, module: torch.nn.Module):
         init_fn = partial(torch.nn.init.normal_, mean=0.0, std=0.1)

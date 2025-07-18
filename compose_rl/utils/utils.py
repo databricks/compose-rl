@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 from composer.utils import dist
 from kubernetes import client, config
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import FSDPModule
 from torch.distributed.tensor import DTensor
 from torch.utils.data import DataLoader
@@ -1423,7 +1424,6 @@ def summon_full_params(
 
     def is_fsdp2(model: torch.nn.Module) -> bool:
         try:
-            from torch.distributed.fsdp import FSDPModule
             for module in model.modules():
                 if isinstance(module, FSDPModule):
                     return True
@@ -1439,7 +1439,6 @@ def summon_full_params(
         ):
             yield
     else:
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
         with FSDP.summon_full_params(
             model,
             writeback=writeback,
@@ -1447,3 +1446,12 @@ def summon_full_params(
             rank0_only=rank0_only,
         ):
             yield
+
+def is_model_fsdp(model: torch.nn.Module) -> bool:
+    """Whether model has FSDP1/FSDP2 wrapped modules."""
+    if isinstance(model, (FSDP, FSDPModule)):
+        return True
+    for module in model.modules():
+        if isinstance(module, (FSDP, FSDPModule)):
+            return True
+    return False

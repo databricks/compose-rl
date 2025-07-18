@@ -471,10 +471,7 @@ def broadcast_to_vllm(
         model(dummy_batch)
     start_time = time.time()
     update_time = 0
-    _params_considered = 0
 
-    # Working FSDP1 Run: compose-rl-grpo-test-FIeoi7
-    # Working FSDP2 Run: TODO
     for module_name, module in model.named_modules():
         # Skip non-FSDP modules
         if not isinstance(module, (FSDP, FSDPModule)):
@@ -491,14 +488,17 @@ def broadcast_to_vllm(
         seen_fsdp_modules.add(module)
 
         # Materializes parameters for this specific FSDP module specifically.
-        # Don't materialize the entire model to avoid potential OOM.
+        # Note that this also materializes params for all submodules that are
+        # not FSDP-wrapped themselves. We don't want to materialize the entire
+        # model to avoid potential OOM.
         with summon_full_params(
             module,
             writeback=False,
             rank0_only=True,
             recurse=False,
         ):
-            # Note: We have to recurse=True since the following case is possible:
+            # Note: For the following module.named_parameters(), we have to use recurse=True
+            # since the following case is possible:
             # FSDP_Module
             #   |- direct_param (found with recurse=False)
             #   |- NonFSDP_Child
@@ -510,21 +510,19 @@ def broadcast_to_vllm(
 
                 # Skip DTensor params at this level since they were not summoned
                 # and we only want to broadcast the summoned parameters.
-                # Encountering this implies nested FSDPModules and a later module,
-                # when summoned, will convert this DTensor to a regular tensor.
-                # TODO: Validate this understanding: It seems that for FSDP1,
-                # summon_full_params takes control of all parameters within it's
-                # scope, including any parameters from the submodules that are not
-                # FSDP-wrapped themselves.
+                # Encountering this conditional implies that a FSDP-wrapped submodule
+                # exists and will later be summoned to materialize this parameter.
+                #
+                # It seems that for FSDP1, summon_full_params takes control of all parameters
+                # within its scope, including any parameters from submodules that are not
+                # FSDP-wrapped themselves. View NestedFSDPModel in tests/common/models.py
+                # as an example.
                 if isinstance(param, DTensor):
                     continue
 
                 full_name = get_path_to_param(model, param)
                 parsed_name = simplify_param_path(full_name)
-                print(f"[RICKY] Valid tensor found: {parsed_name}")
-                _params_considered += 1
 
-                # We've already updated this module before,
                 if parsed_name in seen_updated_parsed_names:
                     continue
 
@@ -542,8 +540,6 @@ def broadcast_to_vllm(
 
                 if not update:
                     continue
-
-                print(f"Updating: {parsed_name}")
 
                 start_update_time = time.time()
                 seen_updated_parsed_names.add(parsed_name)
@@ -567,9 +563,6 @@ def broadcast_to_vllm(
                 )
                 update_time += time.time() - start_update_time
 
-    print(f"[RICKY] Number of parameters considered: {_params_considered}")
-    print(f"[RICKY] Number of parameters updated: {count}")
-    print(f"[RICKY] Number of parameters in the model: {num_params}")
     # Issue (#67): Note this code will likely need to be updated for PEFT for efficiency reasons.
     if dist.get_global_rank() == 0:
         # Check if the number of parameters updated is equal to the number of parameters
