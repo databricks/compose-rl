@@ -194,7 +194,7 @@ def finegrained_preference_dataset_collate_fn(
         mask = sample.get('mask', None)    
 
         pad_len = max_len - text_len
-        assert pad_len >= 0  
+        assert pad_len >= 0 and prompt_len >= 0
         # pad the labels with right padding and label = -100, right padding
         cat_labels = torch.cat(
             [
