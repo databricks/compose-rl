@@ -9,7 +9,7 @@ from typing import Any, MutableMapping, Optional, Union
 
 import torch
 from composer.models import HuggingFaceModel
-from composer.utils import dist, is_model_fsdp
+from composer.utils import dist
 from llmfoundry.models import ComposerHFCausalLM
 from transformers import (
     PreTrainedTokenizer,
@@ -28,7 +28,7 @@ from compose_rl.utils import (
     clear_mb_load_balancing_loss,
     get_mb_load_balancing_loss,
 )
-from compose_rl.utils.utils import summon_full_params
+from compose_rl.utils.utils import is_model_fsdp, summon_full_params
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
