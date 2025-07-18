@@ -331,7 +331,7 @@ def classifier_loss(
         bs, _, n_class = output_scores.size()
         assert batch["labels"].min() >= -100 and batch["labels"].max() <= n_class
         loss = F.cross_entropy(
-            output_scores.tranpose(1,2),
+            output_scores.transpose(1,2),
             batch["labels"],
             reduction = "mean"
         )
