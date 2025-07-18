@@ -14,8 +14,8 @@ import torch
 import torch.nn.functional as F
 from composer.utils import dist
 from kubernetes import client, config
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import FSDPModule
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.tensor import DTensor
 from torch.utils.data import DataLoader
 from transformers import PretrainedConfig
@@ -1255,8 +1255,7 @@ def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
 
 
 def _get_params_to_summon_fsdp2(module: torch.nn.Module, recurse: bool = True):
-    """
-    Gets the DTensors to materialize for an FSDP2 model based on recurse.
+    """Gets the DTensors to materialize for an FSDP2 model based on recurse.
 
     If recurse=False, we can encounter the following state:
     FSDPModule_1
@@ -1278,11 +1277,15 @@ def _get_params_to_summon_fsdp2(module: torch.nn.Module, recurse: bool = True):
             module.named_parameters(recurse=True, remove_duplicate=False)
             if isinstance(param, DTensor)
         }
-    
+
     dtensor_params = {}
+
     def _dfs(module: torch.nn.Module, prefix: str = ''):
         # Add all DTensors within this (FSDP)module
-        for name, param in module.named_parameters(recurse=False, remove_duplicate=False):
+        for name, param in module.named_parameters(
+            recurse=False,
+            remove_duplicate=False,
+        ):
             if isinstance(param, DTensor):
                 full_name = f'{prefix}.{name}' if prefix else name
                 dtensor_params[full_name] = param
@@ -1291,6 +1294,7 @@ def _get_params_to_summon_fsdp2(module: torch.nn.Module, recurse: bool = True):
                 continue
             full_name = f'{prefix}.{child_name}' if prefix else child_name
             _dfs(child, full_name)
+
     _dfs(module, '')
     return dtensor_params
 
@@ -1446,6 +1450,7 @@ def summon_full_params(
             rank0_only=rank0_only,
         ):
             yield
+
 
 def is_model_fsdp(model: torch.nn.Module) -> bool:
     """Whether model has FSDP1/FSDP2 wrapped modules."""
