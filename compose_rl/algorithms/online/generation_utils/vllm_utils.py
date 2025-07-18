@@ -44,7 +44,6 @@ from torch.distributed.distributed_c10d import (
 )
 from torch.distributed.fsdp import FSDPModule
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-# DTensor debugging imports
 from torch.distributed.tensor import DTensor
 
 from compose_rl.algorithms.online.generation_utils.vllm_actor import LLMRayActor
@@ -280,33 +279,6 @@ def create_vllm_engines(
     return vllm_engines
 
 
-def build_param_fullnames(top_module: nn.Module) -> dict:
-    """Builds a mapping of parameter objects to their fully-qualified names.
-
-    Traverses the entire model from the top level and map each parameter
-    object to its fully-qualified name (e.g.,
-    "lm_backbone.layer1.mlp.down_proj.weight").
-
-    Args:
-        top_module (nn.Module): The top-level module to traverse.
-    """
-    param2fullname = {}
-
-    def _dfs(current_module: nn.Module, prefix: str = ''):
-        # Get local parameters (without recursing into children).
-        for local_name, param in current_module.named_parameters(recurse=False):
-            full_name = f'{prefix}.{local_name}' if prefix else local_name
-            param2fullname[param] = full_name
-
-        # Recurse on child modules.
-        for child_name, child_module in current_module.named_children():
-            child_prefix = f'{prefix}.{child_name}' if prefix else child_name
-            _dfs(child_module, prefix=child_prefix)
-
-    _dfs(top_module)
-    return param2fullname
-
-
 def simplify_param_path(path: str) -> str:
     """Simplifies the parameter path by removing unnecessary parts.
 
@@ -315,7 +287,6 @@ def simplify_param_path(path: str) -> str:
     """
     # Parts we want to remove
     remove_parts = [
-        '_wrapped_module',
         '_fsdp_wrapped_module',
         '_checkpoint_wrapped_module',
         'lm_backbone',
@@ -412,7 +383,7 @@ def broadcast_to_vllm(
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to `ppo`.
         enable_prefix_caching (bool): Whether to enable prefix caching. Defaults to `False`.
     """
-    # To avoid OOM
+    # avoid OOM
     torch.cuda.empty_cache()
     if loss_type == OnPolicyEnum.PPO:
         # Extract the lm_backbone params from the model
@@ -486,10 +457,11 @@ def broadcast_to_vllm(
             continue
         seen_fsdp_modules.add(module)
 
-        # Materializes parameters for this specific FSDP module specifically.
-        # Note that this also materializes params for all submodules that are
-        # not FSDP-wrapped themselves. We don't want to materialize the entire
-        # model to avoid potential OOM.
+        # Materializes parameters for this specific FSDP module only BUT THIS
+        # INCLUDES any parameters from submodules that are not FSDP-wrapped themselves.
+        # We don't want to materialize the entire model to avoid potential OOM.
+        # View NestedFSDPModel in tests/common/models.py and the related test in
+        # test_utils.py for an example.
         with summon_full_params(
             module,
             writeback=False,
@@ -511,11 +483,6 @@ def broadcast_to_vllm(
                 # and we only want to broadcast the summoned parameters.
                 # Encountering this conditional implies that a FSDP-wrapped submodule
                 # exists and will later be summoned to materialize this parameter.
-                #
-                # It seems that for FSDP1, summon_full_params takes control of all parameters
-                # within its scope, including any parameters from submodules that are not
-                # FSDP-wrapped themselves. View NestedFSDPModel in tests/common/models.py
-                # as an example.
                 if isinstance(param, DTensor):
                     continue
 
