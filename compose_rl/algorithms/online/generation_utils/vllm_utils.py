@@ -471,9 +471,11 @@ def broadcast_to_vllm(
         model(dummy_batch)
     start_time = time.time()
     update_time = 0
+    _params_considered = 0
 
     for module_name, module in model.named_modules():
         # Skip non-FSDP modules
+        print(f"module_name: {module_name}")
         if not isinstance(module, (FSDP, FSDPModule)):
             continue
 
@@ -500,7 +502,7 @@ def broadcast_to_vllm(
             #   |- direct_param (found with recurse=False)
             #   |- NonFSDP_Child
             #   |   |- child_param (missed with recurse=False)
-            for _, param in module.named_parameters(recurse=True):
+            for _param_name, param in module.named_parameters(recurse=True):
                 # Only distribute on rank 0
                 if not dist.get_global_rank() == 0:
                     continue
@@ -511,10 +513,13 @@ def broadcast_to_vllm(
                 # when summoned, will convert this DTensor to a regular tensor.
                 # TODO: Investigate why this isn't an issue for FSDP1.
                 if isinstance(param, DTensor):
+                    print(f"DTensor found: {_param_name}, skipping.")
                     continue
 
                 full_name = get_path_to_param(model, param)
                 parsed_name = simplify_param_path(full_name)
+                print(f"Valid tensor found: {parsed_name}")
+                _params_considered += 1
 
                 # We've already updated this module before,
                 if parsed_name in seen_updated_parsed_names:
@@ -534,6 +539,8 @@ def broadcast_to_vllm(
 
                 if not update:
                     continue
+
+                print(f"Updating: {parsed_name}")
 
                 start_update_time = time.time()
                 seen_updated_parsed_names.add(parsed_name)
@@ -557,6 +564,9 @@ def broadcast_to_vllm(
                 )
                 update_time += time.time() - start_update_time
 
+    print(f"Number of parameters considered: {_params_considered}")
+    print(f"Number of parameters updated: {count}")
+    print(f"Number of parameters in the model: {num_params}")
     # Issue (#67): Note this code will likely need to be updated for PEFT for efficiency reasons.
     if dist.get_global_rank() == 0:
         # Check if the number of parameters updated is equal to the number of parameters
