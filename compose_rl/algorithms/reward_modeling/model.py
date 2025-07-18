@@ -9,7 +9,6 @@ from functools import partial
 from typing import Any, Mapping, MutableMapping, Optional, Union
 
 import torch
-from composer.utils import is_model_fsdp
 from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 
 from compose_rl.algorithms.reward_modeling.base_reward import (
@@ -31,6 +30,7 @@ from compose_rl.algorithms.reward_modeling.modeling_hf import \
     ComposerHFSequenceClassification
 from compose_rl.algorithms.reward_modeling.modeling_mpt import \
     MPTForSequenceClassification
+from compose_rl.utils.utils import is_model_fsdp, summon_full_params
 
 log = logging.getLogger(__name__)
 
@@ -241,7 +241,6 @@ class ComposerMPTPairwiseRewardModel(ComposerMPTCausalLM, RewardModel):
 
 
 class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
-
     default_train_metrics: tuple = ()
     default_eval_metrics: tuple = ()
 
@@ -292,9 +291,8 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
 
         context_manager = nullcontext
         if is_model_fsdp(self.model):
-            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
             context_manager = partial(
-                FSDP.summon_full_params,
+                summon_full_params,
                 self.model,
                 writeback=True,
                 recurse=False,
