@@ -35,7 +35,7 @@ parameters:
     return_lm_logits: false
     use_auth_token: true
     #init_device: mixed
-    #n_labels: 2
+    n_labels: 2
     #additional_train_metrics:
     #- pairwise_rm_accuracy
     #additional_eval_metrics:
@@ -52,11 +52,12 @@ parameters:
     speed_monitor:
       window_size: 10
     memory_monitor: {}
-    hf_checkpointer:
-      overwrite: true
-      precision: bfloat16
-      save_folder: s3://data-force-one-datasets/mosaicml-internal-checkpoints/wensun/models/{run_name}
-      save_interval: 1ep
+    
+    #hf_checkpointer:
+    #  overwrite: true
+    #  precision: bfloat16
+    #  save_folder: s3://data-force-one-datasets/mosaicml-internal-checkpoints/wensun/models/{run_name}
+    #  save_interval: 1ep
 
   optimizer:
     lr: 1.0e-06
@@ -110,22 +111,10 @@ parameters:
 
 
   max_seq_len: 16384 #4096
-  save_folder: /tmp/reward_model    # TODO: insert proper save_folder
-  dist_timeout: 1200
-  max_duration: 5ep
+  dist_timeout: 3600
+  max_duration: 1ep
   progress_bar: false
 
-  # eval_loader:
-  # - name: pairwise_preference
-  #   label: val
-  #   dataset:
-  #     remote: # Add val path here if applicable
-  #     split: val
-  #     shuffle: false
-  #     max_seq_len: ${max_seq_len}
-  #     shuffle_seed: 17
-  #   drop_last: true
-  #   num_workers: 8
 
   train_loader:
     # name: finegrained_preference # For finegrained rewards
@@ -136,7 +125,6 @@ parameters:
       #dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/v2_value_np_array_data/
       #dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/v2_value_data/
       #v2_value_np_array_data
-      # remote: # TODO: Add remote path here if applicable
       # local: # TODO: Add the local path of the training ataloader
       shuffle: true
       max_seq_len: ${max_seq_len}
@@ -149,7 +137,6 @@ parameters:
     dataset:
       split: validation
       remote: dbfs:/Volumes/datasets/wensun/data/apo_openr1/DeepSeek-R1-Distill-Qwen-7B/v3_value_np_array_data/
-      #dbfs:/Volumes/datasets/wensun/data/apo_math/Qwen2.5-7B/v2_value_np_array_data/
       shuffle: false
       max_seq_len: ${max_seq_len}
       shuffle_seed: 17
@@ -157,7 +144,8 @@ parameters:
     num_workers: 8
   
 
-
+  save_folder: s3://data-force-one-datasets/mosaicml-internal-checkpoints/wensun/models/mpt/{run_name}    # TODO: insert proper save_folder
+  save_overwrite: True
   eval_interval: 100ba    # TODO: change if an eval loader is specified
   save_interval: 1ep
   log_to_console: true
@@ -165,7 +153,7 @@ parameters:
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
   global_train_batch_size: 128     # TODO: update for more realistic batch sizes
-  device_train_microbatch_size: 4
+  device_train_microbatch_size: 8
 
 integrations:
 - integration_type: git_repo

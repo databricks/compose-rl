@@ -222,9 +222,6 @@ class ComposerHFClassifierValueModel(
             return_last=self.return_last, #default false: return sequence
             return_lm_logits=self.return_lm_logits,
         )
-
-        #print("made past forward")
-
         return ret_val
 
     def eval_forward(
