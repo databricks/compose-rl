@@ -603,6 +603,10 @@ class JudgementScoreVerifierReward(BaseVerifierReward):
         if answer is None:
             # we likely could not extract a score from the response. so fail.
             return 0.0
+        if not np.isfinite(answer):
+            # if the answer is NaN, our reward would be NaN (bad), so let's avoid this, shall we?
+            # seems smart to avoid infinite values as well
+            return 0.0
         # if the target is an integer, we need to convert it to a boolean
         if isinstance(label, int) and label in [0, 1]:
             label = bool(label)
