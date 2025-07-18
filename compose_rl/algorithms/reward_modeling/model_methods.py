@@ -354,7 +354,7 @@ def classifier_loss(
 
     predictions = torch.argmax(output_scores, dim = -1).detach()  # prediction is argmax (bs, seq_len)
     labels_mask = torch.logical_not(batch['labels'] == -100) # 0 at position where -100, 1 otherwise, (bs, seq_len) 
-    accuracy = (predictions == batch["labels"])*labels_mask / torch.sum(labels_mask)
+    accuracy = torch.sum((predictions == batch["labels"])*labels_mask) / torch.sum(labels_mask)
 
     #flat_predicted_label = torch.argmax(output_scores.reshape(-1, n_class), dim = -1).detach()
     #flat_labels_mask = torch.logical_not(batch["labels"].reshape(-1) == -100) # 0 at -100, 1 otherwise
