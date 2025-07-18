@@ -120,6 +120,7 @@ class ComposerHFSequenceClassification(BaseHuggingFaceModel):
             additional_train_metrics=additional_train_metrics,
             additional_eval_metrics=additional_eval_metrics,
             should_save_peft_only=should_save_peft_only,
+            n_labels = n_labels,
         )
         #self.n_labels = n_labels
         self.model.config.pretrained = False  # type: ignore
