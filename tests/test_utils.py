@@ -17,9 +17,11 @@ from compose_rl.utils.utils import (
     masked_mean,
     sample_wise_masked_mean,
     summon_full_params,
+    _get_params_to_summon_fsdp2,
 )
 from tests.common.markers import world_size
-from tests.common.models import PartialWeightTiedModel
+from tests.common.models import NestedFSDPModel, PartialWeightTiedModel
+from torch.distributed.tensor import DTensor
 
 
 def test_mask_eos_basic_functionality():
@@ -982,4 +984,40 @@ def test_summon_full_params_tied_weights_behavior(
     assert last_weight_changed, 'Second tied weight should keep modified value with writeback=True'
 
     trainer.close()
+    os.environ['FSDP_VERSION'] = '1'
+
+
+@pytest.mark.gpu
+@world_size(2)
+def test_get_params_to_summon_fsdp2(
+    tiny_gpt2_tokenizer: PreTrainedTokenizer,
+    world_size: int,
+):
+    """Test _get_params_to_summon_fsdp2 function with nested FSDP structure."""
+    del world_size
+
+    model = NestedFSDPModel(num_features=2)
+    model.add_fsdp_wrap_attribute_to_children()
+    
+    _, fsdp_model = _setup_fsdp_test_environment(
+        tiny_gpt2_tokenizer,
+        fsdp_version=2,
+        model=model,
+    )
+
+    dtensor_params_recurse = _get_params_to_summon_fsdp2(fsdp_model.module, recurse=True)
+    dtensor_params_no_recurse = _get_params_to_summon_fsdp2(fsdp_model.module, recurse=False)
+
+    # Assert all are DTensors
+    for param in dtensor_params_recurse.values():
+        assert isinstance(param, DTensor), f"Parameter {param.name} should be a DTensor"
+    for param in dtensor_params_no_recurse.values():
+        assert isinstance(param, DTensor), f"Parameter {param.name} should be a DTensor"
+
+    assert len(dtensor_params_recurse) == 4, "Should have 4 DTensors"
+    for (name, param), value in zip(dtensor_params_recurse.items(), [1.0, 2.0, 3.0, 4.0]):
+        assert torch.all(param.data == value), f"Parameter {name} should have value {value}"
+    assert len(dtensor_params_no_recurse) == 2, "Should have 2 DTensors"
+    for (name, param), value in zip(dtensor_params_no_recurse.items(), [1.0, 3.0]):
+        assert torch.all(param.data == value), f"Parameter {name} should have value {value}"
     os.environ['FSDP_VERSION'] = '1'
