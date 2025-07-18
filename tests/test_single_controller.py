@@ -68,8 +68,8 @@ class DistributedGPUActor:
         if rank == 0 and (master_addr is None or master_port is None):
             self._allocate_master_address()
 
-        os.environ['MASTER_ADDR'] = self.master_addr
-        os.environ['MASTER_PORT'] = str(self.master_port)
+        os.environ['MASTER_ADDR'] = self.master_addr  # type: ignore
+        os.environ['MASTER_PORT'] = str(self.master_port)  # type: ignore
 
         self.model = None
         self.model_update_group = None
@@ -121,7 +121,7 @@ class DistributedGPUActor:
         # to ensure name mapping is correct
         for name, p in self.model.named_parameters():
             refs = [
-                engine.update_weight.remote(
+                engine.update_weight.remote(  # type: ignore
                     name,
                     p.dtype,
                     p.shape,
@@ -189,7 +189,7 @@ def test_distributed_ray_actors(
             master_addr, _ = address.split(':')
 
             logger.info(
-                f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ==="
+                f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===",
             )
             num_train_actors = world_size // 2
             # Create actors - rank 0 will allocate master address/port
@@ -199,10 +199,10 @@ def test_distributed_ray_actors(
             train_actors.append(master_actor)
 
             # Get master address from rank 0 actor
-            master_info = ray.get(master_actor.get_master_address.remote())
+            master_info = ray.get(master_actor.get_master_address.remote())  # type: ignore
             master_addr, master_port = master_info
             logger.info(
-                f"Master address allocated: {master_addr}:{master_port}"
+                f"Master address allocated: {master_addr}:{master_port}",
             )
 
             # Create remaining actors with the master address/port
@@ -217,14 +217,14 @@ def test_distributed_ray_actors(
 
             # Initialize process groups for all actors
             init_tasks = [
-                actor.init_train_process_group.remote()
+                actor.init_train_process_group.remote()  # type: ignore
                 for actor in train_actors
             ]
             ray.get(init_tasks)
 
             # Perform tensor all_reduce on all actors
             reduce_tasks = [
-                actor.tensor_all_reduce.remote() for actor in train_actors
+                actor.tensor_all_reduce.remote() for actor in train_actors  # type: ignore
             ]
             results = ray.get(reduce_tasks)
             assert results == [num_train_actors] * num_train_actors
@@ -250,7 +250,7 @@ def test_distributed_ray_actors(
                 },
             )
 
-            new_port = ray.get(master_actor.get_free_port.remote())
+            new_port = ray.get(master_actor.get_free_port.remote())  # type: ignore
             logger.info(f'new_port to init vllm process group: {new_port}')
             # init_process_group of the engine calls vLLM's collective_rpc
             # which calls the init_process_group on every tp rank of the engine
@@ -258,7 +258,7 @@ def test_distributed_ray_actors(
             # and the rank is head rank of each engine in the world_size and collective_rpc adds proper rank offset
             # to its tp ranks
             refs = [
-                engine.init_process_group.remote(
+                engine.init_process_group.remote(  # type: ignore
                     master_addr,
                     new_port,
                     i * vllm_tensor_parallel_size + 1,
@@ -268,7 +268,7 @@ def test_distributed_ray_actors(
                 ) for i, engine in enumerate(vllm_engines)
             ]
             refs.append(
-                master_actor.init_vllm_process_group.remote(
+                master_actor.init_vllm_process_group.remote(  # type: ignore
                     backend='nccl',
                     master_addr=master_addr,
                     master_port=new_port,
@@ -283,20 +283,20 @@ def test_distributed_ray_actors(
             logger.info('init vllm process group done')
 
             refs = [
-                actor.init_model.remote(local_save_path)
+                actor.init_model.remote(local_save_path)  # type: ignore
                 for actor in train_actors
             ]
             ray.get(refs)
             logger.info('Trainer init model done')
 
-            ray.get(master_actor.sync_weights.remote(vllm_engines))
+            ray.get(master_actor.sync_weights.remote(vllm_engines))  # type: ignore
             logger.info('sync weights done')
 
-            ref = vllm_engines[0].generate.remote(prompts)
+            ref = vllm_engines[0].generate.remote(prompts)  # type: ignore
             gen_results = ray.get(ref)
             for output in gen_results:
                 prompt = output.prompt
                 generated_text = output.outputs[0].text
                 logger.info(
-                    f"Prompt: {prompt!r}, Generated text: {generated_text!r}"
+                    f"Prompt: {prompt!r}, Generated text: {generated_text!r}",
                 )

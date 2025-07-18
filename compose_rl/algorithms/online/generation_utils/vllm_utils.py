@@ -204,7 +204,8 @@ def create_vllm_engines(
         enable_prefix_caching (bool): Whether to enable prefix caching
         max_model_len (int): Maximum model length
         vllm_gpu_memory_utilization (float): GPU memory utilization for vllm
-        load_format (str): Load format for the model, defaults to 'dummy'
+        load_format (str): Load format for the model, defaults to 'dummy',
+        device_bundle (dict): configurable device bundle for the model, defaults to None
     """
     bundle = {
         'GPU': 1,
