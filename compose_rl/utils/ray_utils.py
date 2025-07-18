@@ -112,6 +112,8 @@ def start_ray_server():
         # NOTE we have to keep all the MCT orchestrator started processes alive with this barrier
         # until the ray cluster is stopped, otherwise the MCT orchestrator will reclaim the resources
         # once the processes on a node exit
+        # this may time out too quick for a real world run, if so we might need to reuse the original
+        # SyncActor based approach
         dist.barrier()
     finally:
         if dist.get_rank() == 0:
