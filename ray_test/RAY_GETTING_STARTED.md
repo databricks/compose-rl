@@ -9,10 +9,10 @@ Welcome to Ray GPU management! This guide provides everything you need to learn 
 ```
 Step 1: Setup & Verification
     ↓
-Step 2: Interactive Learning (Basics)  
+Step 2: Interactive Learning (Basics)
     ↓
 Step 3: Single Server Multi-GPU Patterns
-    ↓  
+    ↓
 Step 4: Distributed Simulation
     ↓
 Step 5: Real-World Applications
@@ -31,7 +31,7 @@ Step 5: Real-World Applications
 # 1. Verify your setup
 python check_gpu_setup.py
 
-# 2. Learn interactively  
+# 2. Learn interactively
 python ray_learning_guide.py
 
 # 3. Try advanced patterns
@@ -49,7 +49,7 @@ python check_gpu_setup.py
 ```
 
 This checks:
-- ✅ CUDA availability in PyTorch  
+- ✅ CUDA availability in PyTorch
 - ✅ nvidia-smi functionality
 - ✅ Ray GPU detection
 - ✅ Basic GPU operations
@@ -67,7 +67,7 @@ python ray_learning_guide.py
 **What you'll learn:**
 - Ray basic concepts (remote functions, actors)
 - GPU resource allocation (full vs fractional)
-- Tasks vs Actors differences  
+- Tasks vs Actors differences
 - Resource monitoring
 
 **Duration:** 10-15 minutes (interactive)
@@ -88,7 +88,7 @@ python ray_single_server_multi_gpu.py
 
 **Duration:** 5-10 minutes (automated demos)
 
-### Step 4: Distributed Simulation  
+### Step 4: Distributed Simulation
 
 Simulate multi-server setup on localhost:
 
@@ -114,7 +114,7 @@ While running examples, monitor GPU usage:
 # Terminal 1: Run your Ray script
 python ray_learning_guide.py
 
-# Terminal 2: Monitor GPUs  
+# Terminal 2: Monitor GPUs
 watch -n 1 nvidia-smi
 ```
 
@@ -155,12 +155,12 @@ def light_gpu_task():
 def process_data(data):
     return result
 
-# ACTOR: Stateful class  
+# ACTOR: Stateful class
 @ray.remote(num_gpus=1)
 class DataProcessor:
     def __init__(self):
         self.model = load_model()
-    
+
     def process(self, data):
         return self.model(data)
 ```
@@ -191,7 +191,7 @@ def train_model(config):
     pass
 
 # Train multiple models in parallel
-configs = [config1, config2]  
+configs = [config1, config2]
 futures = [train_model.remote(c) for c in configs]
 results = ray.get(futures)
 ```
@@ -202,7 +202,7 @@ results = ray.get(futures)
 cpu_tasks = [preprocess.remote(data) for data in dataset]
 processed_data = ray.get(cpu_tasks)
 
-gpu_tasks = [train.remote(data) for data in processed_data]  
+gpu_tasks = [train.remote(data) for data in processed_data]
 models = ray.get(gpu_tasks)
 ```
 
@@ -212,7 +212,7 @@ models = ray.get(gpu_tasks)
 def preprocess(data):
     return cleaned_data
 
-@ray.remote(num_gpus=0.5)  
+@ray.remote(num_gpus=0.5)
 def inference(data):
     return predictions
 
@@ -269,7 +269,7 @@ After completing this guide, explore:
 
 ### Advanced Ray Features
 - **Ray Tune:** Hyperparameter optimization
-- **Ray Train:** Distributed training  
+- **Ray Train:** Distributed training
 - **Ray Serve:** Model serving
 - **Ray Data:** Large-scale data processing
 
@@ -280,7 +280,7 @@ Once comfortable with localhost simulation:
 # Server 1 (head node)
 ray start --head --port=10001 --num-gpus=2
 
-# Server 2 (worker node) 
+# Server 2 (worker node)
 ray start --address=192.168.1.100:10001 --num-gpus=1
 ```
 
@@ -293,10 +293,10 @@ ray start --address=192.168.1.100:10001 --num-gpus=1
 ## 📁 Files in This Learning Package
 
 | File | Purpose | When to Use |
-|------|---------|-------------|  
+|------|---------|-------------|
 | `check_gpu_setup.py` | Verify system setup | **Start here** - before anything else |
 | `ray_learning_guide.py` | Interactive beginner tutorial | **Step 2** - core concepts |
-| `ray_single_server_multi_gpu.py` | Advanced single-server patterns | **Step 3** - practical patterns |  
+| `ray_single_server_multi_gpu.py` | Advanced single-server patterns | **Step 3** - practical patterns |
 | `ray_distributed_simulation.py` | Localhost distributed simulation | **Step 4** - distributed concepts |
 | `ray_gpu_basic.py` | Simple working example | Reference/quick test |
 | `RAY_GPU_EXAMPLES.md` | Original documentation | Additional reference |
@@ -305,7 +305,7 @@ ray start --address=192.168.1.100:10001 --num-gpus=1
 
 You'll know you've mastered Ray GPU management when you can:
 
-✅ Set up Ray clusters (single and distributed)  
+✅ Set up Ray clusters (single and distributed)
 ✅ Choose between tasks and actors appropriately
 ✅ Allocate GPU resources efficiently (full vs fractional)
 ✅ Monitor and debug resource usage
@@ -315,10 +315,10 @@ You'll know you've mastered Ray GPU management when you can:
 ## 🆘 Getting Help
 
 - 📖 [Official Ray Documentation](https://docs.ray.io/)
-- 💬 [Ray Discourse Forum](https://discuss.ray.io/)  
+- 💬 [Ray Discourse Forum](https://discuss.ray.io/)
 - 🐛 [Ray GitHub Issues](https://github.com/ray-project/ray/issues)
 - 📺 [Ray YouTube Tutorials](https://www.youtube.com/c/RayProjectIO)
 
 ---
 
-**Happy learning!** 🚀 Start with `python ray_learning_guide.py` and work your way through the examples. 
+**Happy learning!** 🚀 Start with `python ray_learning_guide.py` and work your way through the examples.

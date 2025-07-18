@@ -536,8 +536,10 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
             )
 
     def round_trip_to_inference_engines(
-        self, device: Any, vllm_engines: list[Any],
-        model_update_group: dist.ProcessGroup
+        self,
+        device: Any,
+        vllm_engines: list[Any],
+        model_update_group: dist.ProcessGroup,
     ):
         """Round trip to inference engines.
 
@@ -656,7 +658,9 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
             return next(self.train_prompt_loader_iter)
 
     def _interact_with_env(
-        self, batch: dict[str, torch.Tensor], vllm_engines: list[Any]
+        self,
+        batch: dict[str, torch.Tensor],
+        vllm_engines: list[Any],
     ):
         """Have the policy interact with the environment.
 
@@ -977,8 +981,10 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
         self.iter_num += 1
 
     def _update_inference_model(
-        self, batch: dict[str, torch.Tensor], vllm_engines: list[Any],
-        model_update_group: dist.ProcessGroup
+        self,
+        batch: dict[str, torch.Tensor],
+        vllm_engines: list[Any],
+        model_update_group: dist.ProcessGroup,
     ):
         start_time = time.time()
         log.info('Before broadcast to vLLM')

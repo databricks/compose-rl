@@ -1,5 +1,9 @@
-import ray
+# Copyright 2024 MosaicML ComposeRL authors
+# SPDX-License-Identifier: Apache-2.0
+
 import subprocess
+
+import ray
 
 
 def ray_start():
@@ -9,12 +13,14 @@ def ray_start():
 def ray_stop():
     subprocess.run(['ray', 'stop'], check=True)
 
+
 def ray_init():
     ray.init()
 
 
 def ray_shutdown():
     ray.shutdown()
+
 
 if __name__ == '__main__':
     ray_start()

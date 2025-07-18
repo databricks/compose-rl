@@ -18,24 +18,24 @@ logger = logging.getLogger(__name__)
 def init_ray_with_torch_distributed(timeout_seconds: int = 30):
     """
     Initialize Ray cluster in a distributed PyTorch environment.
-    
+
     This function sets up a Ray cluster where the master node (rank 0) starts the head node,
     and other nodes connect to it. It handles the coordination between PyTorch distributed
     training and Ray cluster initialization. It assumes torch.distributed
     is already initialized on all ranks and all the associated nodes are joining the ray cluster.
-    
+
     The function:
     1. Starts Ray head node on rank 0
     2. Broadcasts the Ray address to all other ranks
     3. Connects worker nodes to the head node
     4. Waits for all GPUs to be available before proceeding
-    
+
     Args:
         timeout_seconds (int): Maximum time to wait for GPUs to become available (default: 30)
-        
+
     Returns:
         str: The Ray cluster address (GCS address) that can be used by other processes
-        
+
     Raises:
         RuntimeError: If the required number of GPUs are not available within the timeout period
         subprocess.CalledProcessError: If Ray start/stop commands fail
@@ -67,16 +67,16 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
             elapsed_time = time.time() - start_time
             if elapsed_time > timeout_seconds:
                 raise RuntimeError(
-                    f'Timeout after {timeout_seconds}s: Failed to start {dist.get_world_size()} GPUs. Only {num_gpus} GPUs available.'
+                    f'Timeout after {timeout_seconds}s: Failed to start {dist.get_world_size()} GPUs. Only {num_gpus} GPUs available.',
                 )
-            
+
             logger.info(
-                f'Waiting for {dist.get_world_size() - num_gpus} GPUs to be available (elapsed: {elapsed_time:.1f}s, timeout: {timeout_seconds}s)'
+                f'Waiting for {dist.get_world_size() - num_gpus} GPUs to be available (elapsed: {elapsed_time:.1f}s, timeout: {timeout_seconds}s)',
             )
             num_gpus = int(ray.cluster_resources()['GPU'])
             # sleep ad-hoc 5s to avoid busy waiting
             time.sleep(5)
-        
+
         logger.info(f'Total available GPUs: {ray.available_resources()}')
     return address
 
@@ -85,19 +85,19 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
 def start_ray_server():
     """
     Context manager for starting and stopping a Ray server in a torch distributed environment.
-    
+
     This context manager handles the complete lifecycle of a Ray cluster:
     - Initializes PyTorch distributed process group if not already initialized
     - Starts the Ray cluster using init_ray_with_torch_distributed()
     - Provides the Ray address to the context
     - Ensures proper cleanup of Ray and distributed resources
-    
+
     The context manager ensures that Ray is properly shut down and the distributed
     process group is destroyed even if an exception occurs.
-    
+
     Yields:
         str: The Ray cluster address (GCS address)
-        
+
     Example:
         >>> with start_ray_server() as ray_address:
         ...     # Use Ray cluster here
@@ -127,10 +127,10 @@ def start_ray_server():
 def get_node_ip():
     """
     Get the IP address of the current Ray node.
-    
+
     Returns:
         str: The IP address of the current node, with any brackets removed
-        
+
     Example:
         >>> ip = get_node_ip()
         >>> print(f"Current node IP: {ip}")
@@ -142,17 +142,17 @@ def get_node_ip():
 def get_free_port():
     """
     Get a free port number that can be used for binding a socket.
-    
+
     This function creates a temporary socket, binds it to port 0 (which tells the OS
     to assign any available port), and returns the assigned port number. The socket
     is automatically closed when the context manager exits.
 
     NOTE there is a low risk that the port is recollected by the system after the context manager exits
     and before current process use it
-    
+
     Returns:
         int: A free port number that can be used for network services
-        
+
     Example:
         >>> port = get_free_port()
         >>> print(f"Available port: {port}")
@@ -166,14 +166,15 @@ def get_free_port():
 def is_cuda_visible_devices_set():
     """
     Check if CUDA_VISIBLE_DEVICES environment variable is being set by Ray.
-    
+
     Ray can automatically set the CUDA_VISIBLE_DEVICES environment variable to
     control which GPUs are visible to processes. This function checks whether
     this behavior is enabled or disabled.
-    
+
     Returns:
         bool: True if Ray is setting CUDA_VISIBLE_DEVICES, False otherwise
     """
     return os.environ.get(
-        'RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES', '0'
+        'RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES',
+        '0',
     ) == '0'
