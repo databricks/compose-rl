@@ -3,9 +3,11 @@
 
 """Dataloader builders."""
 
+import logging
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Optional, Union
 
+from composer.core.data_spec import DataSpec
 from streaming import Stream, StreamingDataLoader, StreamingDataset
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer
@@ -32,10 +34,13 @@ __all__ = [
     'build_messages_dataloader',
 ]
 
+log = logging.getLogger(__name__)
+
 
 def generate_dataloader_builder(
     dataset_cls: type[StreamingDataset],
     collate_fn: Callable,
+    token_counter_fn: Optional[Callable] = None,
 ) -> Callable:
     """Generates dataloader builder for a given dataset_cls and collate_fn."""
 
@@ -49,7 +54,7 @@ def generate_dataloader_builder(
         prefetch_factor: int = 2,
         persistent_workers: bool = True,
         timeout: int = 0,
-    ) -> DataLoader:
+    ) -> Union[DataLoader, DataSpec]:
         """Builds a dataloader for prompt data.
 
         Args:
@@ -102,7 +107,10 @@ def generate_dataloader_builder(
             persistent_workers=persistent_workers,
             timeout=timeout,
         )
-        return dataloader
+        data_spec_kwargs = {}
+        if token_counter_fn is not None:
+            data_spec_kwargs['get_num_tokens_in_batch'] = token_counter_fn
+        return DataSpec(dataloader=dataloader, **data_spec_kwargs)
 
     return build_preference_dataloader
 
@@ -117,12 +125,40 @@ build_finegrained_preference_dataloader = generate_dataloader_builder(
     finegrained_preference_dataset_collate_fn,
 )
 
+
+def get_num_tokens_in_batch_online(
+    batch: dict[str, Any],
+) -> int:
+    """Get the number of tokens in batch including prompt + generated tokens.
+
+    Uses action_mask and prompt_len for precise counting when available. Uses
+    sequences for getting the right number of padding tokens.
+    """
+    if 'action_mask' in batch and 'prompt_len' in batch and 'sequences' in batch:
+        prompt_len_tokens = batch['prompt_len'].sum().item()
+        generated_items = batch['action_mask'].sum().item()
+        relevant_tokens = prompt_len_tokens + generated_items
+        padding_tokens = batch['sequences'].numel() - relevant_tokens
+        log.info(f'prompt tokens in batch: {prompt_len_tokens}')
+        log.info(f'generated tokens in batch: {generated_items}')
+        log.info(f'padding tokens in batch: {padding_tokens}')
+        return int(relevant_tokens)
+    else:
+        log.warning(
+            'No action_mask/prompt_len/sequences in batch. ' +
+            'Using default value of 0 for num_tokens_in_batch.',
+        )
+        return 0
+
+
 build_prompt_dataloader = generate_dataloader_builder(
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
+    get_num_tokens_in_batch_online,
 )
 
 build_messages_dataloader = generate_dataloader_builder(
     MessagesStreamingDataset,
     messages_dataset_collate_fn,
+    get_num_tokens_in_batch_online,
 )
