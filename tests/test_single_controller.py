@@ -217,6 +217,11 @@ def test_distributed_ray_actors(
                 seed=1,
                 enable_prefix_caching=False,
                 max_model_len=512,
+                device_bundle={
+                    'GPU': 1,
+                    'CPU': 1,
+                    'worker_node': 0,
+                }
             )
 
             new_port = ray.get(master_actor.get_free_port.remote())
