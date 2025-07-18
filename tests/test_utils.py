@@ -7,21 +7,21 @@ from typing import Optional
 import pytest
 import torch
 import torch.nn.functional as F
+from torch.distributed.tensor import DTensor
 from transformers import PreTrainedTokenizer
 
 from compose_rl.utils import mask_eos
 from compose_rl.utils.utils import (
+    _get_params_to_summon_fsdp2,
     get_entropies,
     get_sequence_entropies,
     get_token_entropies,
     masked_mean,
     sample_wise_masked_mean,
     summon_full_params,
-    _get_params_to_summon_fsdp2,
 )
 from tests.common.markers import world_size
 from tests.common.models import NestedFSDPModel, PartialWeightTiedModel
-from torch.distributed.tensor import DTensor
 
 
 def test_mask_eos_basic_functionality():
@@ -823,7 +823,7 @@ def test_summon_full_params(
         total_size = 0
         for param in model.parameters():
             if hasattr(param, 'to_local'):
-                param = param.to_local()
+                param = param.to_local()  # type: ignore
             if param.data is not None:
                 total_size += param.data.numel()
         return total_size
@@ -941,7 +941,9 @@ def test_summon_full_params_tied_weights_behavior(
     # fill the tied weights with 999.0
     fsdp_model.module[0].net[0].weight.data.fill_(999.0)  # type: ignore
     # assert weight tying
-    assert torch.all(fsdp_model.module[0].net[-1].weight.data == 999.0)  # type: ignore
+    assert torch.all(
+        fsdp_model.module[0].net[-1].weight.data == 999.0,  # type: ignore
+    )  # type: ignore
 
     # Test writeback=False
     with summon_full_params(fsdp_model, writeback=False):
@@ -1001,26 +1003,46 @@ def test_get_params_to_summon_fsdp2(
 
     model = NestedFSDPModel(num_features=2).to('cuda')
     model.add_fsdp_wrap_attribute_to_children()
-    
+
     _, fsdp_model = _setup_fsdp_test_environment(
         tiny_gpt2_tokenizer,
         fsdp_version=2,
         model=model,
     )
 
-    dtensor_params_recurse = _get_params_to_summon_fsdp2(fsdp_model.module, recurse=True)
-    dtensor_params_no_recurse = _get_params_to_summon_fsdp2(fsdp_model.module, recurse=False)
+    dtensor_params_recurse = _get_params_to_summon_fsdp2(
+        fsdp_model.module,  # type: ignore
+        recurse=True,
+    )
+    dtensor_params_no_recurse = _get_params_to_summon_fsdp2(
+        fsdp_model.module,  # type: ignore
+        recurse=False,
+    )
 
     # Assert all are DTensors
     for param in dtensor_params_recurse.values():
-        assert isinstance(param, DTensor), f"Parameter {param.name} should be a DTensor"
+        assert isinstance(
+            param,
+            DTensor,
+        ), f"Parameter {param.name} should be a DTensor"
     for param in dtensor_params_no_recurse.values():
-        assert isinstance(param, DTensor), f"Parameter {param.name} should be a DTensor"
+        assert isinstance(
+            param,
+            DTensor,
+        ), f"Parameter {param.name} should be a DTensor"
 
-    assert len(dtensor_params_recurse) == 4, "Should have 4 DTensors"
-    for (name, param), value in zip(dtensor_params_recurse.items(), [1.0, 2.0, 3.0, 4.0]):
-        assert torch.all(param.data == value), f"Parameter {name} should have value {value}"
-    assert len(dtensor_params_no_recurse) == 2, "Should have 2 DTensors"
-    for (name, param), value in zip(dtensor_params_no_recurse.items(), [1.0, 3.0]):
-        assert torch.all(param.data == value), f"Parameter {name} should have value {value}"
+    assert len(dtensor_params_recurse) == 4, 'Should have 4 DTensors'
+    for (
+        name,
+        param,
+    ), value in zip(dtensor_params_recurse.items(), [1.0, 2.0, 3.0, 4.0]):
+        assert torch.all(
+            param.data == value,
+        ), f"Parameter {name} should have value {value}"
+    assert len(dtensor_params_no_recurse) == 2, 'Should have 2 DTensors'
+    for (name,
+         param), value in zip(dtensor_params_no_recurse.items(), [1.0, 3.0]):
+        assert torch.all(
+            param.data == value,
+        ), f"Parameter {name} should have value {value}"
     os.environ['FSDP_VERSION'] = '1'
