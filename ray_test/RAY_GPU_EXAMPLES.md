@@ -199,4 +199,4 @@ ray dashboard
 ray stop
 ```
 
-Happy learning with Ray! 🚀 
+Happy learning with Ray! 🚀
