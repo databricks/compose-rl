@@ -1,6 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
+from compose_rl.utils import ray_utils
 from compose_rl.utils.rlvr_utils import (
     extract_gsm8k_answer,
     extract_math_answer,
@@ -51,8 +52,6 @@ from compose_rl.utils.utils import (
     split_text_to_subsentences,
     switch_left_to_right_padding,
 )
-
-from compose_rl.utils import ray_utils
 
 __all__ = [
     'get_mb_load_balancing_loss',

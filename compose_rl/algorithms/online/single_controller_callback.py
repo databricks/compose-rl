@@ -450,7 +450,6 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
 
         self.batch_rollouts = None
 
-
     def init(self, state: State, logger: Logger):
         self.pad_token_idx = state.model.tokenizer.pad_token_id  # type: ignore
         self.actor_critic = state.model
@@ -502,7 +501,6 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
             return_attention_mask=True,
         )
 
-
     def before_load(self, state: State, logger: Logger):
         del logger
         self.train_prompt_loader = state.train_dataloader
@@ -537,9 +535,12 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
                 self.train_prompt_loader_state_dict,
             )
 
-    def round_trip_to_inference_engines(self, device: Any, vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+    def round_trip_to_inference_engines(
+        self, device: Any, vllm_engines: list[Any],
+        model_update_group: dist.ProcessGroup
+    ):
         """Round trip to inference engines.
-        
+
         Args:
             vllm_engines (list[Any]): The vllm engines to round trip to.
         """
@@ -654,7 +655,9 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
             # Get the first sample from the dataloader
             return next(self.train_prompt_loader_iter)
 
-    def _interact_with_env(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any]):
+    def _interact_with_env(
+        self, batch: dict[str, torch.Tensor], vllm_engines: list[Any]
+    ):
         """Have the policy interact with the environment.
 
         Here, we redo microbatching, and run generate appropriately. We add the environment
@@ -973,7 +976,10 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
     def _increment_rl_iter(self):
         self.iter_num += 1
 
-    def _update_inference_model(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+    def _update_inference_model(
+        self, batch: dict[str, torch.Tensor], vllm_engines: list[Any],
+        model_update_group: dist.ProcessGroup
+    ):
         start_time = time.time()
         log.info('Before broadcast to vLLM')
         broadcast_to_vllm(
