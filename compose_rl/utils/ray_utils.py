@@ -45,7 +45,8 @@ def init_ray():
 
 @contextmanager
 def start_ray_server():
-    dist.init_process_group(backend='gloo')
+    if not dist.is_initialized():
+        dist.init_process_group(backend='gloo')
     address = init_ray()
     try:
         yield address

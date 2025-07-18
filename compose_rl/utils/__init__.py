@@ -52,6 +52,8 @@ from compose_rl.utils.utils import (
     switch_left_to_right_padding,
 )
 
+from compose_rl.utils import ray_utils
+
 __all__ = [
     'get_mb_load_balancing_loss',
     'clear_mb_load_balancing_loss',
@@ -99,4 +101,5 @@ __all__ = [
     'prepare_gsm8k_prompt',
     'prepare_math_prompt',
     'remove_boxed',
+    'ray_utils',
 ]

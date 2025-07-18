@@ -2,12 +2,16 @@ import ray
 import torch
 import torch.distributed as dist
 import os
+import pathlib
+import pytest
 
 from typing import Optional, Tuple
 import argparse
 from datetime import timedelta
 
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, PreTrainedModel, PreTrainedTokenizerBase
+
+from tests.common import world_size
 
 
 from compose_rl.algorithms.online.generation_utils import init_process_group, create_vllm_engines
@@ -106,13 +110,110 @@ class DistributedGPUActor:
         return dist.get_world_size(self.model_update_group)
 
 
+@pytest.mark.gpu
+@world_size(4)
+def test_distributed_ray_actors(world_size: int, tiny_gpt2_model: PreTrainedModel, tiny_gpt2_tokenizer: PreTrainedTokenizerBase, tmp_path: pathlib.Path, tp_size: int = 8):
+    """Test distributed training with Ray actors using the tiny_gpt2_model fixture."""
+    prompts = [
+        "what is RAY?",
+        "what is vLLM?",
+    ]
+    
+    # Save the model and tokenizer to a temporary directory
+    local_save_path = str(tmp_path / 'tiny_gpt2_model')
+    tiny_gpt2_model.save_pretrained(local_save_path)
+    tiny_gpt2_tokenizer.save_pretrained(local_save_path)
+    
+    with start_ray_server() as address:
+        if dist.get_rank() == 0:
+            master_addr, _ = address.split(':')
+            
+            print(f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===")
+            num_train_actors = world_size // 2
+            # Create actors - rank 0 will allocate master address/port
+            train_actors = []
+
+            # master actor will allocate master_addr and master_port
+            master_actor = DistributedGPUActor.remote(0, num_train_actors)
+            train_actors.append(master_actor)
+            
+            # Get master address from rank 0 actor
+            master_info = ray.get(master_actor.get_master_address.remote())
+            master_addr, master_port = master_info
+            print(f"Master address allocated: {master_addr}:{master_port}")
+            
+            # Create remaining actors with the master address/port
+            for i in range(1, num_train_actors):
+                actor = DistributedGPUActor.remote(i, num_train_actors, master_addr, master_port)
+                train_actors.append(actor)
+            
+            # Initialize process groups for all actors
+            init_tasks = [actor.init_default_process_group.remote() for actor in train_actors]
+            ray.get(init_tasks)
+            
+            # Perform tensor all_reduce on all actors
+            reduce_tasks = [actor.tensor_all_reduce.remote() for actor in train_actors]
+            results = ray.get(reduce_tasks)
+            print(f"All-reduce results: {results}")
+
+
+            vllm_tensor_parallel_size = min(tp_size, world_size - num_train_actors)
+            num_vllm_engines = world_size // 2 // vllm_tensor_parallel_size
+            print(f'num_vllm_engines: {num_vllm_engines}')
+            vllm_engines = create_vllm_engines(
+                num_engines=num_vllm_engines,
+                tensor_parallel_size=vllm_tensor_parallel_size,
+                enforce_eager=True,
+                pretrain=local_save_path,
+                revision=None,
+                seed=1,
+                enable_prefix_caching=False,
+                max_model_len=512,
+            )
+
+            new_port = ray.get(master_actor.get_free_port.remote())
+            print(f'new_port: {new_port}')
+            refs = [
+                engine.init_process_group.remote(
+                    master_addr,
+                    new_port,
+                    i * vllm_tensor_parallel_size + 1,
+                    world_size // 2 + 1,
+                    'weight-update',
+                    backend='nccl',
+                ) for i, engine in enumerate(vllm_engines)
+            ]
+            refs.append(master_actor.init_vllm_process_group.remote(
+                backend='nccl',
+                master_addr=master_addr,
+                master_port=new_port,
+                world_size=world_size // 2 + 1,
+                rank=0,
+                group_name='weight-update',
+            ))
+
+            refs = [actor.init_model.remote(local_save_path) for actor in train_actors]
+            ray.get(refs)
+            print('init model done')
+
+            ray.get(master_actor.sync_weights.remote(vllm_engines))
+            print('sync weights done')
+
+            ref = vllm_engines[0].generate.remote(prompts)
+            gen_results = ray.get(ref)
+            for output in gen_results:
+                prompt = output.prompt
+                generated_text = output.outputs[0].text
+                print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+
+
 def run(tp_size: int = 8):
     prompts = [
         "what is RAY?",
         "what is vLLM?",
     ]
-    # pretrain_model_name = 'gpt2'
-    pretrain_model_name = 'meta-llama/Llama-3.2-1B-Instruct'
+    pretrain_model_name = os.path.expanduser('~/.cache/huggingface/hub/models--gpt2/snapshots/607a30d783dfa663caf39e06633721c8d4cfcd7e')
+    # pretrain_model_name = 'meta-llama/Llama-3.2-1B-Instruct'
     with start_ray_server() as address:
         if dist.get_rank() == 0:
             master_addr, _ = address.split(':')
