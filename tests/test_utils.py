@@ -1024,12 +1024,12 @@ def test_get_params_to_summon_fsdp2(
         assert isinstance(
             param,
             DTensor,
-        ), f"Parameter {param.name} should be a DTensor"
+        ), f'Parameter {param.name} should be a DTensor'
     for param in dtensor_params_no_recurse.values():
         assert isinstance(
             param,
             DTensor,
-        ), f"Parameter {param.name} should be a DTensor"
+        ), f'Parameter {param.name} should be a DTensor'
 
     assert len(dtensor_params_recurse) == 4, 'Should have 4 DTensors'
     for (
@@ -1038,11 +1038,11 @@ def test_get_params_to_summon_fsdp2(
     ), value in zip(dtensor_params_recurse.items(), [1.0, 2.0, 3.0, 4.0]):
         assert torch.all(
             param.data == value,
-        ), f"Parameter {name} should have value {value}"
+        ), f'Parameter {name} should have value {value}'
     assert len(dtensor_params_no_recurse) == 2, 'Should have 2 DTensors'
     for (name,
          param), value in zip(dtensor_params_no_recurse.items(), [1.0, 3.0]):
         assert torch.all(
             param.data == value,
-        ), f"Parameter {name} should have value {value}"
+        ), f'Parameter {name} should have value {value}'
     os.environ['FSDP_VERSION'] = '1'
