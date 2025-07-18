@@ -330,26 +330,37 @@ def classifier_loss(
     elif loss_type == ClassifierRewardEnum.CE:  # CE for mult-class classification
         bs, _, n_class = output_scores.size()
         assert batch["labels"].min() >= -100 and batch["labels"].max() <= n_class
-        flat_output_scores = output_scores.reshape(-1, n_class)
-        flat_labels = batch["labels"].reshape(-1)
-        token_level_loss = F.cross_entropy(
-            flat_output_scores, 
-            flat_labels,
-            reduction = "none"  # compute log loss at token level
+        loss = F.cross_entropy(
+            output_scores.tranpose(1,2),
+            batch["labels"],
+            reduction = "mean"
         )
-        flat_att_mask = batch["attention_mask"].reshape(-1).float()  # attention mask for input padding
-        value_pos_mask = batch["mask"].reshape(-1).float()  # attention mask for value
+        #flat_output_scores = output_scores.reshape(-1, n_class)
+        #flat_labels = batch["labels"].reshape(-1)
+        #token_level_loss = F.cross_entropy(
+        #    flat_output_scores, 
+        #    flat_labels,
+        #    reduction = "none"  # compute log loss at token level
+        #)
+        #flat_att_mask = batch["attention_mask"].reshape(-1).float()  # attention mask for input padding
+        #value_pos_mask = batch["mask"].reshape(-1).float()  # attention mask for value
         #print("fraction of ignored labels is {}".format(torch.sum(flat_labels == -100)/(1.*flat_labels.numel())))
         #print("faction of masked labels is {}".format(torch.sum(flat_att_mask) / (1.*flat_att_mask.numel()) ))
         # mask out padding positions, and mask out positions where no need to compute value
-        masked_loss = (token_level_loss * flat_att_mask) #* value_pos_mask
-        loss = torch.sum(masked_loss) / torch.sum(flat_att_mask) #torch.sum(flat_att_mask*value_pos_mask)
+        #masked_loss = (token_level_loss * flat_att_mask) #* value_pos_mask
+        #loss = torch.sum(masked_loss) / torch.sum(flat_att_mask) #torch.sum(flat_att_mask*value_pos_mask)
     else:
         raise NotImplementedError(f'Loss type: {loss_type} is not supported.')
 
-    flat_predicted_label = torch.argmax(output_scores.reshape(-1, n_class), dim = -1).detach()
-    token_level_correct = (flat_predicted_label == batch["labels"].reshape(-1))
-    accuracy = torch.sum(token_level_correct*value_pos_mask*flat_att_mask)/torch.sum(value_pos_mask*flat_att_mask)
+    predictions = torch.argmax(output_scores, dim = -1).detach()  # prediction is argmax (bs, seq_len)
+    labels_mask = torch.logical_not(batch['labels'] == -100) # 0 at position where -100, 1 otherwise, (bs, seq_len) 
+    accuracy = (predictions == batch["labels"])*labels_mask / torch.sum(labels_mask)
+
+    #flat_predicted_label = torch.argmax(output_scores.reshape(-1, n_class), dim = -1).detach()
+    #flat_labels_mask = torch.logical_not(batch["labels"].reshape(-1) == -100) # 0 at -100, 1 otherwise
+    #token_level_correct = (flat_predicted_label == batch["labels"].reshape(-1))
+    #accuracy = ((flat_predicted_label == batch["labels"].reshape(-1))*flat_labels_mask) / torch.sum(flat_labels_mask)
+    #accuracy = torch.sum(token_level_correct*value_pos_mask*flat_att_mask)/torch.sum(value_pos_mask*flat_att_mask)
   
     loss_dict = {
         'total': loss,

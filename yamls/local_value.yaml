@@ -1,4 +1,4 @@
-name: local-value-model-training
+name: local-value-model-training_mask_prompt
 image: mosaicml/dle:nightly-latest
 
 run_name: value_model_training_openr1

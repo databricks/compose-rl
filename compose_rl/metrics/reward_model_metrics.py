@@ -87,8 +87,12 @@ class BinaryRewardClassificationAccuracy(Metric):
         """
         del output_logits
         logits = batch['output_scores']
-        targets = batch['labels'].squeeze(-1)
-        assert logits.shape[0] == targets.shape[0], 'Batch sizes must match'
+        targets = batch['labels']
+        prompt_lens = batch['prompt_len']
+        targets_mask = torch.logical_not(targets == -100)  # 0 at places where target label = -100, 1 otherwise
+
+        assert logits.shape[0] == targets.shape[0] #'Batch sizes must match'
+        assert logits.shape[1] == targets.shape[1] # seq length should match
 
         # TODO (raj): Handle multi-class classification with logging
         n_class = logits.size(-1)
@@ -98,8 +102,10 @@ class BinaryRewardClassificationAccuracy(Metric):
             probs = torch.sigmoid(logits.squeeze())
             predictions = (probs > self.threshold).long()
 
-        self.correct += ((predictions == targets)*batch['attention_mask']).sum().detach().cpu()
-        self.total += torch.sum(batch["attention_mask"])
+        self.correct += ((predictions == targets) * targets_mask).sum().detach().cpu()
+        self.total += torch.sum(targets_mask)
+        #self.correct += ((predictions == targets)*batch['attention_mask']).sum().detach().cpu()
+        #self.total += torch.sum(batch["attention_mask"])
         #((predictions == targets)*batch['attention_mask']).numel() #targets.shape[0]
 
     def compute(self):

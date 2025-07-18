@@ -183,6 +183,7 @@ def finegrained_preference_dataset_collate_fn(
 
     all_padded_labels = []
     all_masks = []
+    all_prompt_len = []
     for sample in data:
         text = sample["text"]  # get raw text (not padded)
         labels = sample["labels"]  # get raw label
@@ -220,9 +221,11 @@ def finegrained_preference_dataset_collate_fn(
 
         all_padded_labels.append(cat_labels)
         all_masks.append(cat_mask)
+        all_prompt_len.append(prompt_len)
 
     batch["labels"] = torch.stack(all_padded_labels, dim = 0)
     batch['mask'] = torch.stack(all_masks, dim = 0)
+    batch['prompt_len'] = torch.tensor(all_prompt_len).to(torch.int64)
     # text, label, mask, attention_mask should have the same shape: bs x max_len
     assert batch['text'].shape == batch['labels'].shape
     assert batch["text"].shape == batch["mask"].shape

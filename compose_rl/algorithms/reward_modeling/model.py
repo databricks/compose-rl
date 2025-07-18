@@ -234,6 +234,7 @@ class ComposerHFClassifierValueModel(
         else:
             outputs = self.forward(batch)
             outputs['labels'] = batch['labels'].to(torch.int)
+            outputs['prompt_len'] = batch['prompt_len']
             return outputs
 
 
