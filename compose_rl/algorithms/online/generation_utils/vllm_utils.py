@@ -190,6 +190,7 @@ def create_vllm_engines(
     max_model_len: int,
     vllm_gpu_memory_utilization: float = 0.9,
     load_format: str = 'dummy',
+    device_bundle: Optional[dict[str, int]] = None,
 ):
     """Creates vllm engines.
 
@@ -205,11 +206,12 @@ def create_vllm_engines(
         vllm_gpu_memory_utilization (float): GPU memory utilization for vllm
         load_format (str): Load format for the model, defaults to 'dummy'
     """
-    bundles = [{
+    bundle = {
         'GPU': 1,
         'CPU': 1,
-        # 'worker_node': 1,
-    }] * tensor_parallel_size * num_engines
+        'worker_node': 0,
+    } if device_bundle is None else device_bundle
+    bundles = [bundle] * tensor_parallel_size * num_engines
     pg = placement_group(bundles, strategy='PACK')  # type: ignore
 
     try:

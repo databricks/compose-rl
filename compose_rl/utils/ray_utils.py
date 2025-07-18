@@ -16,8 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def init_ray_with_torch_distributed(timeout_seconds: int = 30):
-    """
-    Initialize Ray cluster in a distributed PyTorch environment.
+    """Initialize Ray cluster in a distributed PyTorch environment.
 
     This function sets up a Ray cluster where the master node (rank 0) starts the head node,
     and other nodes connect to it. It handles the coordination between PyTorch distributed
@@ -83,8 +82,7 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
 
 @contextmanager
 def start_ray_server():
-    """
-    Context manager for starting and stopping a Ray server in a torch distributed environment.
+    """Context manager for starting and stopping a Ray server in a torch distributed environment.
 
     This context manager handles the complete lifecycle of a Ray cluster:
     - Initializes PyTorch distributed process group if not already initialized
@@ -125,8 +123,7 @@ def start_ray_server():
 
 
 def get_node_ip():
-    """
-    Get the IP address of the current Ray node.
+    """Get the IP address of the current Ray node.
 
     Returns:
         str: The IP address of the current node, with any brackets removed
@@ -140,8 +137,7 @@ def get_node_ip():
 
 
 def get_free_port():
-    """
-    Get a free port number that can be used for binding a socket.
+    """Get a free port number that can be used for binding a socket.
 
     This function creates a temporary socket, binds it to port 0 (which tells the OS
     to assign any available port), and returns the assigned port number. The socket
@@ -164,8 +160,7 @@ def get_free_port():
 
 
 def is_cuda_visible_devices_set():
-    """
-    Check if CUDA_VISIBLE_DEVICES environment variable is being set by Ray.
+    """Check if CUDA_VISIBLE_DEVICES environment variable is being set by Ray.
 
     Ray can automatically set the CUDA_VISIBLE_DEVICES environment variable to
     control which GPUs are visible to processes. This function checks whether
