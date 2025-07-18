@@ -21,7 +21,8 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
     
     This function sets up a Ray cluster where the master node (rank 0) starts the head node,
     and other nodes connect to it. It handles the coordination between PyTorch distributed
-    training and Ray cluster initialization.
+    training and Ray cluster initialization. It assumes torch.distributed
+    is already initialized on all ranks and all the associated nodes are joining the ray cluster.
     
     The function:
     1. Starts Ray head node on rank 0
@@ -73,6 +74,7 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
                 f'Waiting for {dist.get_world_size() - num_gpus} GPUs to be available (elapsed: {elapsed_time:.1f}s, timeout: {timeout_seconds}s)'
             )
             num_gpus = int(ray.cluster_resources()['GPU'])
+            # sleep ad-hoc 5s to avoid busy waiting
             time.sleep(5)
         
         logger.info(f'Total available GPUs: {ray.available_resources()}')
@@ -82,7 +84,7 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
 @contextmanager
 def start_ray_server():
     """
-    Context manager for starting and stopping a Ray server in a distributed environment.
+    Context manager for starting and stopping a Ray server in a torch distributed environment.
     
     This context manager handles the complete lifecycle of a Ray cluster:
     - Initializes PyTorch distributed process group if not already initialized
@@ -109,6 +111,9 @@ def start_ray_server():
     address = init_ray_with_torch_distributed()
     try:
         yield address
+        # NOTE we have to keep all the MCT orchestrator started processes alive with this barrier
+        # until the ray cluster is stopped, otherwise the MCT orchestrator will reclaim the resources
+        # once the processes on a node exit
         dist.barrier()
     finally:
         if dist.get_rank() == 0:
