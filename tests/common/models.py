@@ -106,14 +106,14 @@ class PartialWeightTiedModel(ComposerClassifier):
         # Adding mlp.fc1.weight = mlp.fc2.weight without assignment to self.fc1 and self.fc2
         # since we don't want to create duplicate references to the same module since that
         # will break mixed init.
-        mlp.net[0].weight = mlp.net[-1].weight
-        mlp.net[0]._fsdp_wrap = False
-        mlp.net[-1]._fsdp_wrap = False
+        mlp.net[0].weight = mlp.net[-1].weight  # type: ignore
+        mlp.net[0]._fsdp_wrap = False  # type: ignore
+        mlp.net[-1]._fsdp_wrap = False  # type: ignore
 
     def add_fsdp_wrap_attribute_to_children(self):
         for module in self.module.modules():
             if not hasattr(module, '_fsdp_wrap'):
-                module._fsdp_wrap = True
+                module._fsdp_wrap = True  # type: ignore
 
     def param_init_fn(self, module: torch.nn.Module):
         init_fn = partial(torch.nn.init.normal_, mean=0.0, std=0.1)
@@ -126,7 +126,7 @@ class PartialWeightTiedModel(ComposerClassifier):
 
 class NestedFSDPModel(ComposerClassifier):
     """Model to test nested FSDP structure for _get_params_to_summon_fsdp2.
-    
+
     Creates the following structure:
     FSDPModule_1 (root)
       |- weight (DTensor)                       <- 1s
@@ -144,25 +144,45 @@ class NestedFSDPModel(ComposerClassifier):
 
     def __init__(self, num_features: int = 2, device: str = 'cpu') -> None:
         # Root level linear layer (will be FSDPModule_1)
-        root_linear = torch.nn.Linear(num_features, num_features, device=device, bias=False)
+        root_linear = torch.nn.Linear(
+            num_features,
+            num_features,
+            device=device,
+            bias=False,
+        )
         root_linear.weight.data.fill_(1.0)  # All 1s
-        
+
         # Nested FSDP module (FSDPModule_2)
-        nested_fsdp_linear = torch.nn.Linear(num_features, num_features, device=device, bias=False)
+        nested_fsdp_linear = torch.nn.Linear(
+            num_features,
+            num_features,
+            device=device,
+            bias=False,
+        )
         nested_fsdp_linear.weight.data.fill_(2.0)  # All 2s
-        
+
         # Regular module containing a linear layer and nested FSDP
-        regular_linear = torch.nn.Linear(num_features, num_features, device=device, bias=False)
+        regular_linear = torch.nn.Linear(
+            num_features,
+            num_features,
+            device=device,
+            bias=False,
+        )
         regular_linear.weight.data.fill_(3.0)  # All 3s
-        nested_fsdp_in_regular = torch.nn.Linear(num_features, num_features, device=device, bias=False)
+        nested_fsdp_in_regular = torch.nn.Linear(
+            num_features,
+            num_features,
+            device=device,
+            bias=False,
+        )
         nested_fsdp_in_regular.weight.data.fill_(4.0)  # All 4s
-        
+
         # Create the nested structure
         regular_module = torch.nn.Sequential(
             regular_linear,
             nested_fsdp_in_regular,
         )
-        
+
         # Main network structure
         net = torch.nn.Sequential(
             root_linear,
@@ -175,11 +195,11 @@ class NestedFSDPModel(ComposerClassifier):
         self.module.param_init_fn = self.param_init_fn  # pyright: ignore[reportGeneralTypeIssues]
 
     def add_fsdp_wrap_attribute_to_children(self):
-        self.module[0]._fsdp_wrap = False
-        self.module[1]._fsdp_wrap = True
-        self.module[2]._fsdp_wrap = False
-        self.module[2][0]._fsdp_wrap = False
-        self.module[2][1]._fsdp_wrap = True
+        self.module[0]._fsdp_wrap = False  # type: ignore
+        self.module[1]._fsdp_wrap = True  # type: ignore
+        self.module[2]._fsdp_wrap = False  # type: ignore
+        self.module[2][0]._fsdp_wrap = False  # type: ignore
+        self.module[2][1]._fsdp_wrap = True  # type: ignore
 
     def param_init_fn(self, module: torch.nn.Module):
         init_fn = partial(torch.nn.init.normal_, mean=0.0, std=0.1)
