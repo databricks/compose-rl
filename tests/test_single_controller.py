@@ -11,14 +11,22 @@ import pytest
 import ray
 import torch
 import torch.distributed as dist
-from transformers import (AutoModelForCausalLM, PreTrainedModel,
-                          PreTrainedTokenizerBase,)
+from transformers import (
+    AutoModelForCausalLM,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+)
 
-from compose_rl.algorithms.online.generation_utils import (create_vllm_engines,
-                                                           init_process_group,)
-from compose_rl.utils.ray_utils import (get_free_port, get_node_ip,
-                                        is_cuda_visible_devices_set,
-                                        start_ray_server,)
+from compose_rl.algorithms.online.generation_utils import (
+    create_vllm_engines,
+    init_process_group,
+)
+from compose_rl.utils.ray_utils import (
+    get_free_port,
+    get_node_ip,
+    is_cuda_visible_devices_set,
+    start_ray_server,
+)
 from tests.common import world_size
 
 # Set up logging
@@ -33,7 +41,7 @@ class DistributedGPUActor:
         rank: int,
         world_size: int,
         master_addr: Optional[str] = None,
-        master_port: Optional[int] = None
+        master_port: Optional[int] = None,
     ):
         """Initialize the distributed GPU actor.
 
@@ -102,7 +110,8 @@ class DistributedGPUActor:
     def init_model(self, model_name: str):
         """Initialize the model."""
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_name, torch_dtype='auto'
+            model_name,
+            torch_dtype='auto',
         )
         self.model.to('cuda')
 
@@ -113,7 +122,10 @@ class DistributedGPUActor:
         for name, p in self.model.named_parameters():
             refs = [
                 engine.update_weight.remote(
-                    name, p.dtype, p.shape, empty_cache=False
+                    name,
+                    p.dtype,
+                    p.shape,
+                    empty_cache=False,
                 ) for engine in vllm_engines
             ]
             # broadcast by default is blocking, we have to kick it off
@@ -131,8 +143,13 @@ class DistributedGPUActor:
         return x.item()
 
     def init_vllm_process_group(
-        self, backend: str, master_addr: str, master_port: int, world_size: int,
-        rank: int, group_name: str
+        self,
+        backend: str,
+        master_addr: str,
+        master_port: int,
+        world_size: int,
+        rank: int,
+        group_name: str,
     ):
         """Initialize the vLLM process group on trainer rank 0 and vllm engines."""
         self.model_update_group = init_process_group(
@@ -140,7 +157,7 @@ class DistributedGPUActor:
             init_method=f'tcp://{master_addr}:{master_port}',
             world_size=world_size,
             rank=rank,
-            group_name=group_name
+            group_name=group_name,
         )
 
 
@@ -155,7 +172,7 @@ def test_distributed_ray_actors(
     """Test distributed training with Ray actors using the tiny_gpt2_model fixture."""
     # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend takes too long to jit compile
     os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
-    
+
     prompts = [
         'what is RAY?',
         'what is vLLM?',
@@ -171,7 +188,9 @@ def test_distributed_ray_actors(
             # rank 0 is the ray client
             master_addr, _ = address.split(':')
 
-            logger.info(f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===")
+            logger.info(
+                f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ==="
+            )
             num_train_actors = world_size // 2
             # Create actors - rank 0 will allocate master address/port
             train_actors = []
@@ -182,12 +201,17 @@ def test_distributed_ray_actors(
             # Get master address from rank 0 actor
             master_info = ray.get(master_actor.get_master_address.remote())
             master_addr, master_port = master_info
-            logger.info(f"Master address allocated: {master_addr}:{master_port}")
+            logger.info(
+                f"Master address allocated: {master_addr}:{master_port}"
+            )
 
             # Create remaining actors with the master address/port
             for i in range(1, num_train_actors):
                 actor = DistributedGPUActor.remote(
-                    i, num_train_actors, master_addr, master_port
+                    i,
+                    num_train_actors,
+                    master_addr,
+                    master_port,
                 )
                 train_actors.append(actor)
 
@@ -206,7 +230,9 @@ def test_distributed_ray_actors(
             assert results == [num_train_actors] * num_train_actors
 
             vllm_tensor_parallel_size = world_size - num_train_actors
-            num_vllm_engines = (world_size - num_train_actors) // vllm_tensor_parallel_size
+            num_vllm_engines = (
+                world_size - num_train_actors
+            ) // vllm_tensor_parallel_size
             logger.info(f'num_vllm_engines: {num_vllm_engines}')
             vllm_engines = create_vllm_engines(
                 num_engines=num_vllm_engines,
@@ -221,7 +247,7 @@ def test_distributed_ray_actors(
                     'GPU': 1,
                     'CPU': 1,
                     'worker_node': 0,
-                }
+                },
             )
 
             new_port = ray.get(master_actor.get_free_port.remote())
@@ -249,7 +275,7 @@ def test_distributed_ray_actors(
                     world_size=world_size - num_train_actors + 1,
                     rank=0,
                     group_name='weight-update',
-                )
+                ),
             )
             # get refs must be called after all the remote calls are initialized
             # otherwise it hangs
@@ -271,4 +297,6 @@ def test_distributed_ray_actors(
             for output in gen_results:
                 prompt = output.prompt
                 generated_text = output.outputs[0].text
-                logger.info(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+                logger.info(
+                    f"Prompt: {prompt!r}, Generated text: {generated_text!r}"
+                )
