@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from composer.utils import dist
 from kubernetes import client, config
 from torch.distributed.fsdp import FSDPModule
+from torch.distributed.tensor import DTensor
 from torch.utils.data import DataLoader
 from transformers import PretrainedConfig
 
@@ -1252,6 +1253,47 @@ def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
             yield i
 
 
+def _get_params_to_summon_fsdp2(module: torch.nn.Module, recurse: bool = True):
+    """
+    Gets the DTensors to materialize for an FSDP2 model based on recurse.
+
+    If recurse=False, we can encounter the following state:
+    FSDPModule_1
+      |- weight (DTensor)
+      |- FSDPModule_2
+      |   |- weight (DTensor)
+      |- RegularModule_1
+      |   |- weight (DTensor)
+      |   |- FSDPModule_3
+      |   |   |- weight (DTensor)
+    Where summon_full_params(FSDPModule_1) should materialize RegularModule_1.weight
+    alongside the original FSDPModule_1.weight. Therefore, we use a dfs traversal
+    to get all DTensors not owned by downstream FSDPModules.
+    """
+    if recurse:
+        return {
+            name: param
+            for name, param in
+            module.named_parameters(recurse=True, remove_duplicate=False)
+            if isinstance(param, DTensor)
+        }
+    
+    dtensor_params = {}
+    def _dfs(module: torch.nn.Module, prefix: str = ''):
+        # Add all DTensors within this (FSDP)module
+        for name, param in module.named_parameters(recurse=False, remove_duplicate=False):
+            if isinstance(param, DTensor):
+                full_name = f'{prefix}.{name}' if prefix else name
+                dtensor_params[full_name] = param
+        for child_name, child in module.named_children():
+            if isinstance(child, FSDPModule):
+                continue
+            full_name = f'{prefix}.{child_name}' if prefix else child_name
+            _dfs(child, full_name)
+    _dfs(module, '')
+    return dtensor_params
+
+
 @contextmanager
 def _summon_full_params_fsdp2(
     model: torch.nn.Module,
@@ -1265,14 +1307,9 @@ def _summon_full_params_fsdp2(
     that uses DTensor APIs to materialize the full parameters. We currently don't support
     rank0_only
     """
-    from torch.distributed.tensor import DTensor, Replicate, distribute_tensor
+    from torch.distributed.tensor import Replicate, distribute_tensor
 
-    dtensor_params = {
-        name: param
-        for name, param in
-        model.named_parameters(recurse=recurse, remove_duplicate=False)
-        if isinstance(param, DTensor)
-    }
+    dtensor_params = _get_params_to_summon_fsdp2(model, recurse=recurse)
 
     if not dtensor_params:
         yield
