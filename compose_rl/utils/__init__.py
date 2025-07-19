@@ -1,6 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
+from compose_rl.utils import ray_utils
 from compose_rl.utils.rlvr_utils import (
     extract_gsm8k_answer,
     extract_math_answer,
@@ -99,4 +100,5 @@ __all__ = [
     'prepare_gsm8k_prompt',
     'prepare_math_prompt',
     'remove_boxed',
+    'ray_utils',
 ]
