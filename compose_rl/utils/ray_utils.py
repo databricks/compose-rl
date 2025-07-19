@@ -82,7 +82,7 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
 
 @contextmanager
 def start_ray_server():
-    """Context manager for starting and stopping a Ray server in a torch distributed environment.
+    """Context manager for Ray server in a torch distributed environment.
 
     This context manager handles the complete lifecycle of a Ray cluster:
     - Initializes PyTorch distributed process group if not already initialized
