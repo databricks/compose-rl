@@ -951,7 +951,9 @@ class OnPolicyCallback(CallbackWithConfig):
 
                 # Compute means and standard deviations
                 means = sums / counts
-                variances = (sum_squares / counts) - (means**2)
+                variances = torch.clamp(
+                    (sum_squares / counts) - (means**2), min=1e-8
+                )
                 stds = torch.sqrt(variances)
 
                 # Map back to original tensor shape
