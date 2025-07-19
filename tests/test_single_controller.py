@@ -151,7 +151,7 @@ class DistributedGPUActor:
         rank: int,
         group_name: str,
     ):
-        """Initialize the vLLM process group on trainer rank 0 and vllm engines."""
+        """Initialize the process group on trainer rank 0 and vllm engines."""
         self.model_update_group = init_process_group(
             backend=backend,
             init_method=f'tcp://{master_addr}:{master_port}',
@@ -169,7 +169,7 @@ def test_distributed_ray_actors(
     tiny_gpt2_tokenizer: PreTrainedTokenizerBase,
     tmp_path: pathlib.Path,
 ):
-    """Test distributed training with Ray actors using the tiny_gpt2_model fixture."""
+    """Test basic single contrller with Ray."""
     # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend takes too long to jit compile
     os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
 
@@ -214,7 +214,7 @@ def test_distributed_ray_actors(
                     num_train_actors,
                     master_addr,
                     master_port,
-                )
+                )  # type: ignore
                 train_actors.append(actor)
 
             # Initialize process groups for all actors
