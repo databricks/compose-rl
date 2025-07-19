@@ -189,7 +189,7 @@ def test_distributed_ray_actors(
             master_addr, _ = address.split(':')
 
             logger.info(
-                f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===",
+                f'\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===',
             )
             num_train_actors = world_size // 2
             # Create actors - rank 0 will allocate master address/port
@@ -204,7 +204,7 @@ def test_distributed_ray_actors(
             )
             master_addr, master_port = master_info
             logger.info(
-                f"Master address allocated: {master_addr}:{master_port}",
+                f'Master address allocated: {master_addr}:{master_port}',
             )
 
             # Create remaining actors with the master address/port
@@ -212,9 +212,9 @@ def test_distributed_ray_actors(
                 actor = DistributedGPUActor.remote(
                     i,
                     num_train_actors,
-                    master_addr,
+                    master_addr,  # type: ignore
                     master_port,
-                )  # type: ignore
+                )
                 train_actors.append(actor)
 
             # Initialize process groups for all actors
@@ -305,5 +305,5 @@ def test_distributed_ray_actors(
                 prompt = output.prompt
                 generated_text = output.outputs[0].text
                 logger.info(
-                    f"Prompt: {prompt!r}, Generated text: {generated_text!r}",
+                    f'Prompt: {prompt!r}, Generated text: {generated_text!r}',
                 )
