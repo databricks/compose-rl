@@ -81,8 +81,10 @@ class ReferencePolicyCallback(CallbackWithConfig):
             with torch.no_grad():
                 assert self.reference_model is not None
                 reference_outputs = self.reference_model(state.batch)
+                print(reference_outputs.keys())
                 state.batch.update({
                     'ref_logp': reference_outputs['policy_logp'],
+                    #'raw_ref_logits': reference_outputs.logits,
                 })
 
 
