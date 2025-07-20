@@ -78,6 +78,13 @@ def offline_dataset_collate_fn(
         prompt_len = sample['prompt_len']
         sequence_len = sample['sequence_len']
 
+        # for multi-turn tool-use, which contains masks that mask out non-assistant turns
+        # it contains 1 at the token positions from the assistant turns, and 0 otherwise
+        has_mask = 'mask' in sample.keys()
+        if has_mask:
+            mask = sample['mask'] # torch tensor array
+            assert mask.shape == input_ids.shape
+        
         is_multimodal = 'pixel_values' in sample.keys()
         if is_multimodal:
             pixel_vals = sample['pixel_values']
@@ -119,6 +126,7 @@ def offline_dataset_collate_fn(
             pad_len = max_seq_len - sequence_len
 
         if pad_len > 0:
+            # right padding with padding token
             input_ids = torch.cat(
                 [
                     input_ids,
@@ -142,10 +150,15 @@ def offline_dataset_collate_fn(
         attention_mask = torch.logical_not(
             torch.eq(input_ids, tokenizer.pad_token_id),  # type: ignore
         )
+        if has_mask:  # combine the two masks together so that we can forget about mask and only use attention_mask inside algorithm
+            if len(mask) <= len(attention_mask):  # this happens when we padded input_ids
+                attention_mask[0:len(mask)] *= mask  # zero out the token positions that do not belong to the assistant turns
+            else:  # this happens when we truncate input_id
+                attention_mask *= mask[0:len(attention_mask)]
 
         batch_input_ids.append(input_ids)
         attention_masks.append(attention_mask)
-        sequence_lens.append(sequence_len)
+        sequence_lens.append(sequence_len)  # TODO: this sequence_len is out of dated? 
         prompt_lens.append(prompt_len)
         if 'reward' in sample:
             rewards.append(sample['reward'])
@@ -157,6 +170,7 @@ def offline_dataset_collate_fn(
         if is_multimodal:
             batch_token_type_ids.append(token_type_ids)  # type: ignore
             pixel_values.append(pixel_vals)
+        
 
     batch_input_ids = ref_collate_fn(batch_input_ids)['input_ids']
     attention_masks = torch.stack(attention_masks)
@@ -228,30 +242,48 @@ class OfflineStreamingDataset(StreamingDataset):
         sample = super().__getitem__(idx)
 
         # Read Samples
-        input_ids, prompt = [], []
-        if isinstance(sample['prompt'], bytes):
-            sample['input_ids'] = sample['prompt'] + sample['response']
-            input_ids = self._read_binary_tokenized_sample(sample, 'input_ids')
-            prompt = self._read_binary_tokenized_sample(sample, 'prompt')
-        elif isinstance(sample['prompt'], np.ndarray):
-            input_ids = np.concatenate([sample['prompt'], sample['response']])
-            input_ids = torch.from_numpy(input_ids[:self.max_seq_len])
-            prompt = torch.from_numpy(sample['prompt'])
-        else:
-            token_type = type(sample['input_ids'])
-            raise ValueError(
-                f'Expect prompt and response to be bytes or numpy.ndarray type, but got {token_type}',
-            )
+        if 'prompt' in sample:
+            input_ids, prompt = [], []
+            if isinstance(sample['prompt'], bytes):
+                sample['input_ids'] = sample['prompt'] + sample['response']
+                input_ids = self._read_binary_tokenized_sample(sample, 'input_ids')
+                prompt = self._read_binary_tokenized_sample(sample, 'prompt')
+            elif isinstance(sample['prompt'], np.ndarray):
+                input_ids = np.concatenate([sample['prompt'], sample['response']])
+                input_ids = torch.from_numpy(input_ids[:self.max_seq_len])
+                prompt = torch.from_numpy(sample['prompt'])
+            else:
+                token_type = type(sample['input_ids'])
+                raise ValueError(
+                    f'Expect prompt and response to be bytes or numpy.ndarray type, but got {token_type}',
+                )
+                # Get Lenghts
+            prompt_len = len(prompt)
+            sequence_len = len(input_ids)
 
-        # Get Lenghts
-        prompt_len = len(prompt)
-        sequence_len = len(input_ids)
-
+        elif 'input' in sample and 'mask' in sample:  # input already combines prompt and reponse (e.g., used in the tool call setup)
+            input_ids, mask = [],[]
+            if isinstance(sample['input'], bytes):
+                input_ids = self._read_binary_tokenized_sample(sample, 'input')
+                mask = self._read_binary_tokenized_sample(sample, 'mask')
+            elif isinstance(sample['input'], np.ndarray):
+                input_ids = torch.from_numpy(sample['input'], dtype = torch.int64)
+                mask = torch.from_numpy(sample['mask'], dtype=torch.int64)
+            else:
+                token_type = type(sample['input'])
+                raise ValueError(
+                    f'Expect prompt and response to be bytes or numpy.ndarray type, but got {token_type}',
+                )
+        
         return_dict = {
             'input_ids': input_ids,
-            'sequence_len': torch.Tensor([sequence_len]).to(torch.int64),
-            'prompt_len': torch.Tensor([prompt_len]).to(torch.int64),
+            'sequence_len': torch.Tensor([len(input_ids)]).to(torch.int64),
+            'prompt_len': torch.Tensor([0]).to(torch.int64)
         }
+
+        if 'mask' in sample and 'input' in sample:
+            return_dict['mask'] = mask
+
         # If rewards are given, add them to the return dict
         if 'reward' in sample:
             return_dict['reward'] = torch.Tensor([sample['reward']])
