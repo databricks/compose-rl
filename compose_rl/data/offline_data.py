@@ -290,7 +290,7 @@ class OfflineStreamingDataset(StreamingDataset):
         
         return_dict = {
             'input_ids': input_ids,
-            'sequence_len': torch.Tensor([len(sequence_len)]).to(torch.int64),
+            'sequence_len': torch.Tensor([sequence_len]).to(torch.int64),
             'prompt_len': torch.Tensor([prompt_len]).to(torch.int64)
         }
 
