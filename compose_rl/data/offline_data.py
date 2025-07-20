@@ -69,6 +69,9 @@ def offline_dataset_collate_fn(
     vstars = []
     vstar_rewards = []
 
+    # for multi-turn
+    masks = []
+
     # For VLMs
     batch_token_type_ids = []
     pixel_values = []
@@ -151,15 +154,19 @@ def offline_dataset_collate_fn(
             torch.eq(input_ids, tokenizer.pad_token_id),  # type: ignore
         )
         if has_mask:  # combine the two masks together so that we can forget about mask and only use attention_mask inside algorithm
-            if len(mask) <= len(attention_mask):  # this happens when we padded input_ids
-                attention_mask[0:len(mask)] *= mask  # zero out the token positions that do not belong to the assistant turns
-            else:  # this happens when we truncate input_id
-                attention_mask *= mask[0:len(attention_mask)]
+            if len(mask) <= len(attention_mask):  # this happens when we padded input_ids, so we should pad mask
+                mask = torch.cat([mask, torch.zeros(len(attention_mask)-len(mask), dtype=token_type_ids.dtype)],dim =-1)
+            else:  # this happens when we truncate input_id, so we truncate mask
+                mask = mask[0: len(attention_mask)]
+            assert mask.shape == attention_mask.shape and mask.shape == input_ids.shape
 
         batch_input_ids.append(input_ids)
         attention_masks.append(attention_mask)
         sequence_lens.append(sequence_len)  # TODO: this sequence_len is out of dated? 
         prompt_lens.append(prompt_len)
+        
+        if has_mask:
+            masks.append(mask) 
         if 'reward' in sample:
             rewards.append(sample['reward'])
         if 'vstar' in sample:
@@ -183,6 +190,10 @@ def offline_dataset_collate_fn(
         'input_ids': batch_input_ids,
         'attention_mask': attention_masks,
     }
+    if len(masks) > 0:
+        masks = torch.stack(masks)
+        assert masks.shape == attention_masks.shape
+        return_dict['mask'] = masks
     if len(rewards) > 0:
         rewards = torch.cat(rewards)
         return_dict['reward'] = rewards
@@ -274,11 +285,13 @@ class OfflineStreamingDataset(StreamingDataset):
                 raise ValueError(
                     f'Expect prompt and response to be bytes or numpy.ndarray type, but got {token_type}',
                 )
+            prompt_len = 0
+            sequence_len = len(input_ids)
         
         return_dict = {
             'input_ids': input_ids,
-            'sequence_len': torch.Tensor([len(input_ids)]).to(torch.int64),
-            'prompt_len': torch.Tensor([0]).to(torch.int64)
+            'sequence_len': torch.Tensor([len(sequence_len)]).to(torch.int64),
+            'prompt_len': torch.Tensor([prompt_len]).to(torch.int64)
         }
 
         if 'mask' in sample and 'input' in sample:
