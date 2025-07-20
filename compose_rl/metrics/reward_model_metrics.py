@@ -104,9 +104,6 @@ class BinaryRewardClassificationAccuracy(Metric):
 
         self.correct += ((predictions == targets) * targets_mask).sum().detach().cpu()
         self.total += torch.sum(targets_mask)
-        #self.correct += ((predictions == targets)*batch['attention_mask']).sum().detach().cpu()
-        #self.total += torch.sum(batch["attention_mask"])
-        #((predictions == targets)*batch['attention_mask']).numel() #targets.shape[0]
 
     def compute(self):
         """Compute the accuracy."""
