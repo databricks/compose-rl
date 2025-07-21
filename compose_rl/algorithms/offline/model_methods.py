@@ -91,14 +91,10 @@ def offline_forward(
             temperature=temperature,
         )
     else:
-        print("has mask...")
         token_policy_logps = get_log_probs_from_logits(
             output_logits[:,:-1], 
             batch['input_ids'][:,1:]
         )
-        print(torch.sum(batch['mask']))
-        print(torch.sum(batch['attention_mask']))
-        
         # apply attention_mask and mask explicitly
         token_policy_logps *= batch['attention_mask'][:,1:]
         token_policy_logps *= batch['mask'][:,1:]
