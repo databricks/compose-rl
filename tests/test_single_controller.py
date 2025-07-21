@@ -111,7 +111,6 @@ class DistributedGPUActor:
         """Initialize the model."""
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype='auto',
         )
         self.model.to('cuda')
 
