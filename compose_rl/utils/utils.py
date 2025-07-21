@@ -1270,16 +1270,7 @@ def _get_params_to_summon_fsdp2(module: torch.nn.Module, recurse: bool = True):
     alongside the original FSDPModule_1.weight. Therefore, we use a dfs traversal
     to get all DTensors not owned by downstream FSDPModules.
     """
-    if recurse:
-        return {
-            name: param
-            for name, param in
-            module.named_parameters(recurse=True, remove_duplicate=False)
-            if isinstance(param, DTensor)
-        }
-
     dtensor_params = {}
-
     def _dfs(module: torch.nn.Module, prefix: str = ''):
         # Add all DTensors within this (FSDP)module
         for name, param in module.named_parameters(
@@ -1290,7 +1281,7 @@ def _get_params_to_summon_fsdp2(module: torch.nn.Module, recurse: bool = True):
                 full_name = f'{prefix}.{name}' if prefix else name
                 dtensor_params[full_name] = param
         for child_name, child in module.named_children():
-            if isinstance(child, FSDPModule):
+            if isinstance(child, FSDPModule) and not recurse:
                 continue
             full_name = f'{prefix}.{child_name}' if prefix else child_name
             _dfs(child, full_name)
