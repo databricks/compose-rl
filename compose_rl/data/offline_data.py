@@ -155,7 +155,7 @@ def offline_dataset_collate_fn(
         )
         if has_mask:  # combine the two masks together so that we can forget about mask and only use attention_mask inside algorithm
             if len(mask) < len(attention_mask):  # this happens when we padded input_ids, so we should pad mask
-                mask = torch.cat([mask, torch.zeros(len(attention_mask)-len(mask), dtype=token_type_ids.dtype)],dim =-1)
+                mask = torch.cat([mask, torch.zeros(len(attention_mask)-len(mask), dtype=mask.dtype)],dim =-1)
             else:  # this happens when we truncate input_id, so we truncate mask
                 mask = mask[0: len(attention_mask)]
             assert mask.shape == attention_mask.shape and mask.shape == input_ids.shape
