@@ -278,8 +278,8 @@ class OfflineStreamingDataset(StreamingDataset):
                 input_ids = self._read_binary_tokenized_sample(sample, 'input')
                 mask = self._read_binary_tokenized_sample(sample, 'mask')
             elif isinstance(sample['input'], np.ndarray):
-                input_ids = torch.from_numpy(sample['input'], dtype = torch.int64)
-                mask = torch.from_numpy(sample['mask'], dtype=torch.int64)
+                input_ids = torch.from_numpy(sample['input']).to(torch.int64)
+                mask = torch.from_numpy(sample['mask']).to(torch.int64)
             else:
                 token_type = type(sample['input'])
                 raise ValueError(
