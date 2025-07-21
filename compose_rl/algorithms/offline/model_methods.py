@@ -59,6 +59,7 @@ def offline_forward(
         policy_model_config: Policy model config.
     """
     is_multimodal = 'pixel_values' in batch.keys()
+    has_mask = 'mask' in batch.keys()
 
     if policy_model_config is not None and hasattr(model, 'transformer'):
         clear_mb_load_balancing_loss(
@@ -80,20 +81,28 @@ def offline_forward(
 
     output_logits = model(**inputs).logits
 
-    logps = get_batch_logp(
-        batch['input_ids'],
-        output_logits,
-        batch['prompt_len'],
-        batch['sequence_len'],
-        average_log_prob,
-        temperature=temperature,
-    )
+    if has_mask is False:
+        logps = get_batch_logp(
+            batch['input_ids'],
+            output_logits,
+            batch['prompt_len'],
+            batch['sequence_len'],
+            average_log_prob,
+            temperature=temperature,
+        )
+    else:
+        token_policy_logps = get_log_probs_from_logits(
+            output_logits[:,:-1], 
+            batch['input_ids'][:,1:]
+        )
+        # apply attention_mask and mask explicitly
+        token_policy_logps *= batch['attention_mask'][:,1:]
+        token_policy_logps *= batch['mask'][:,1:]
+        logps = torch.sum(token_policy_logps, dim = -1)  # (bs, )
 
     outputs: dict[str, torch.Tensor] = {
         'policy_logp': logps,
     }
-
-    outputs["raw_logits"] = output_logits  # raw logits (bs, seq_len, vocab_size)
 
     if policy_model_config is not None and hasattr(model, 'transformer'):
         lbl = get_mb_load_balancing_loss(
@@ -116,33 +125,12 @@ def offline_loss(
     bce: bool = False, 
 ):
     
-    has_mask = 'mask' in batch  # handling mask explicitly
-    if has_mask:
-        raw_policy_logits = outputs['raw_logits'][:,:-1]
-        assert 'raw_ref_logits' in batch
-        raw_ref_logits = batch['raw_ref_logits'][:,:-1]
-        assert raw_policy_logits.shape == raw_ref_logits.shape
-        policy_logps = get_log_probs_from_logits(raw_policy_logits, batch['input_ids'][:,1:])
-        ref_logps = get_log_probs_from_logits(raw_ref_logits, batch['input_ids'][:,1:])
+    policy_logp = outputs['policy_logp']  # (batch_size, )
 
-        # apply masks
-        # first apply attention mask
-        policy_logps *= batch["attention_mask"][:,1:] # shift right by 1.
-        ref_logps *= batch["attention_mask"][:,1:]
-        # apply position mask
-        policy_logps *= batch['mask'][:,1:]
-        ref_logps *= batch['mask'][:,1:]
-
-        policy_logp = torch.sum(policy_logps, dim = -1)
-        ref_logp = torch.sum(ref_logps, dim = -1)
-    else:
-        policy_logp = outputs['policy_logp']  # (batch_size, )
-
-        ref_logp = batch.get(
-            'ref_logp',
-            torch.zeros_like(policy_logp),
-        )
-
+    ref_logp = batch.get(
+        'ref_logp',
+        torch.zeros_like(policy_logp),
+    )
 
     if loss_type == RegressionOfflineEnum.APO:
         # Reproducing the APO loss from APO paper: https://arxiv.org/pdf/2505.20686 on page 3

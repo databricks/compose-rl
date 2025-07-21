@@ -83,7 +83,6 @@ class ReferencePolicyCallback(CallbackWithConfig):
                 reference_outputs = self.reference_model(state.batch)
                 state.batch.update({
                     'ref_logp': reference_outputs['policy_logp'],
-                    'raw_ref_logits': reference_outputs['raw_logits'],
                 })
 
 
