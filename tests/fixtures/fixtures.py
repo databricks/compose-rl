@@ -33,7 +33,7 @@ def tiny_gpt2_config_helper():
         'layer_norm_epsilon': 1e-05,
         'model_type': 'gpt2',
         'n_ctx': 1024,
-        'n_embd': 2,
+        'n_embd': 64,
         'n_head': 2,
         'n_layer': 2,
         'n_positions': 1024,
