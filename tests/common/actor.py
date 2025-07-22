@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import Optional
 
 import ray
-import torch
 import torch.distributed as dist
 
 from compose_rl.algorithms.online.generation_utils import init_process_group
@@ -75,15 +74,6 @@ class BaseDistributedGPUActor:
         """Initialize the distributed process group."""
         # Initialize process group
         dist.init_process_group(timeout=timedelta(seconds=30))
-
-    def test_tensor_all_reduce(self) -> float:
-        """Perform a simple tensor all_reduce operation."""
-        # Create a tensor on the GPU and perform all_reduce
-        device = torch.device('cuda')
-        x = torch.ones(1, device=device, dtype=torch.int32)
-        dist.all_reduce(x)
-
-        return x.item()
 
     def add_process_group(
         self,

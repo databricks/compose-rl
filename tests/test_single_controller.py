@@ -7,6 +7,7 @@ import pathlib
 
 import pytest
 import ray
+import torch
 import torch.distributed as dist
 from transformers import (
     AutoModelForCausalLM,
@@ -52,6 +53,15 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             # after the remote calls are initialized above
             dist.broadcast(p, src=0, group=self.model_update_group)
             ray.get(refs)
+
+    def test_tensor_all_reduce(self) -> float:
+        """Perform a simple tensor all_reduce operation."""
+        # Create a tensor on the GPU and perform all_reduce
+        device = torch.device('cuda')
+        x = torch.ones(1, device=device, dtype=torch.int32)
+        dist.all_reduce(x)
+
+        return x.item()
 
 
 @pytest.mark.gpu
