@@ -17,6 +17,7 @@ from compose_rl.data.messages_data import (
 from compose_rl.data.offline_data import (
     OfflineStreamingDataset,
     offline_dataset_collate_fn,
+    offline_dataset_collate_fn_test,
 )
 from compose_rl.data.preference_data import (
     FinegrainedPreferenceStreamingDataset,
@@ -134,5 +135,5 @@ build_messages_dataloader = generate_dataloader_builder(
 
 build_offline_dataloader = generate_dataloader_builder(
     OfflineStreamingDataset,
-    offline_dataset_collate_fn,
+    offline_dataset_collate_fn_test,
 )

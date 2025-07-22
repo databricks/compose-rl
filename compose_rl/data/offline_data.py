@@ -211,6 +211,90 @@ def offline_dataset_collate_fn(
 
     return return_dict
 
+def offline_dataset_collate_fn_test(
+    tokenizer: PreTrainedTokenizer,
+    max_seq_len: int,
+    data: list[dict[str, torch.Tensor]],
+) -> dict[str, Any]:
+    """Collator for offline data.
+
+    Args:
+        tokenizer (Tokenizer): The model's tokenizer.
+        max_seq_len (int): The maximum sequence length of the model.
+        data (list[dict[str, torch.Tensor]]): The preference data to collate.
+    """
+    if tokenizer.eos_token_id is None:
+        raise ValueError('Tokenizer must have an EOS token.')
+    if tokenizer.pad_token_id is None:
+        raise ValueError('Tokenizer must have a PAD token.')
+    
+    tokenizer.padding_side = 'right' # right
+
+    ref_collate_fn = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,
+        mlm_probability=0.0,
+    )
+
+    list_input_ids = [item['input_ids'] for item in data]
+    ret = ref_collate_fn(list_input_ids)
+    batch_input_ids = ret['input_ids']
+    attention_masks = torch.logical_not(
+        torch.eq(batch_input_ids, tokenizer.eos_token_id)
+    ).to(torch.int64)
+
+    batch_max_seq_len = batch_input_ids.shape[1]
+    if batch_max_seq_len > max_seq_len: # truncate both input_ids and attenion_mask
+        batch_input_ids = batch_input_ids[:,:max_seq_len]
+        attention_masks = attention_masks[:,:max_seq_len]
+
+    for i in range(batch_input_ids.shape[0]):
+        if batch_input_ids[i,-1] != tokenizer.eos_token_id and batch_input_ids[i,-1] != tokenizer.pad_token_id: 
+            batch_input_ids[i,-1] = tokenizer.eos_token_id
+    
+    sequence_lens = torch.sum(attention_masks, dim = -1) # sum of all 1 in attention mask, row-wise
+    prompt_lens = torch.cat([item['prompt_len'] for item in data])
+    
+    masks, rewards, vstars, vstar_rewards = [], [],[],[]
+
+    if 'reward' in data[0].keys():
+        rewards = torch.cat([item['reward'] for item in data])
+    if 'vstar' in data[0].keys():
+        vstars = torch.cat([item['vstar'] for item in data])
+    if 'vstar_rewards' in data[0].keys():
+        vstar_rewards = torch.stack([item['vstar_rewards'] for item in data])
+    
+    has_mask = 'mask' in data[0].keys()
+    if has_mask:
+        for i in range(len(batch_input_ids.shape[0])):
+            mask_i = data[i]['mask']
+            if len(mask_i) < len(batch_input_ids[i]): # right padded
+                all_zeros = torch.zeros(len(batch_input_ids[i]))
+                all_zeros[0:len(mask_i)] = mask_i
+                mask_i = all_zeros
+            else: # truncated
+                mask_i = mask_i[0:len(batch_input_ids[i])]
+            masks.append(mask_i)
+    masks = torch.stack(masks)
+
+    return_dict = {
+        'sequence_len': sequence_lens,
+        'prompt_len': prompt_lens,
+        'input_ids': batch_input_ids,
+        'attention_mask': attention_masks,
+    }
+    if len(masks) > 0:
+        assert masks.shape == attention_masks.shape
+        return_dict['mask'] = masks
+    if len(rewards) > 0:
+        return_dict['reward'] = rewards
+    if len(vstars) > 0:
+        return_dict['vstar'] = vstars
+    if len(vstar_rewards) > 0:
+        return_dict['vstar_rewards'] = vstar_rewards
+
+    return return_dict
+
 
 class OfflineStreamingDataset(StreamingDataset):
     """Dataloader for streaming in preference data."""

@@ -16,6 +16,7 @@ from compose_rl.data.messages_data import messages_dataset_collate_fn
 from compose_rl.data.offline_data import (
     OfflineStreamingDataset,
     offline_dataset_collate_fn,
+    offline_dataset_collate_fn_test,
 )
 from compose_rl.data.preference_data import (
     finegrained_preference_dataset_collate_fn,
@@ -33,6 +34,7 @@ __all__ = [
     'finegrained_preference_dataset_collate_fn',
     'MinibatchRolloutBuffer',
     'offline_dataset_collate_fn',
+    'offline_dataset_collate_fn_test',
     'OfflineStreamingDataset',
     'pairwise_preference_dataset_collate_fn',
     'prompt_dataset_collate_fn',
