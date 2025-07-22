@@ -188,6 +188,7 @@ save_folder: /tmp/ppo_models   # TODO: fill in with an appropriate value
 save_interval: 2iter
 save_overwrite: True
 python_log_level: debug
+accumulate_train_batch_on_tokens: false
 
 # loggers:
 #   mlflow:
