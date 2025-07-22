@@ -237,7 +237,7 @@ def offline_dataset_collate_fn_test(
     )
 
     list_input_ids = [item['input_ids'] for item in data]
-    ret = ref_collate_fn(list_input_ids)
+    ret = ref_collate_fn(list_input_ids)  # right padded based on the longest sequence in the batch
     batch_input_ids = ret['input_ids']
     attention_masks = torch.logical_not(
         torch.eq(batch_input_ids, tokenizer.eos_token_id)
@@ -247,8 +247,10 @@ def offline_dataset_collate_fn_test(
     if batch_max_seq_len > max_seq_len: # truncate both input_ids and attenion_mask
         batch_input_ids = batch_input_ids[:,:max_seq_len]
         attention_masks = attention_masks[:,:max_seq_len]
-
+    
+    # pad eos token on the sequence that is truncated 
     for i in range(batch_input_ids.shape[0]):
+        # check if this sequence is truncated 
         if batch_input_ids[i,-1] != tokenizer.eos_token_id and batch_input_ids[i,-1] != tokenizer.pad_token_id: 
             batch_input_ids[i,-1] = tokenizer.eos_token_id
     

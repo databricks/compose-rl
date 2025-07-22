@@ -135,5 +135,5 @@ build_messages_dataloader = generate_dataloader_builder(
 
 build_offline_dataloader = generate_dataloader_builder(
     OfflineStreamingDataset,
-    offline_dataset_collate_fn_test,
+    offline_dataset_collate_fn,
 )
