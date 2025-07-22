@@ -124,9 +124,9 @@ def offline_dataset_collate_fn(
                 # NOTE: GEMMA specific: 0 == text token
                 token_type_ids[-1] = 0
 
-            sequence_len = torch.tensor([len(sequence_len)])
+            #sequence_len = torch.tensor([len(sequence_len)]) # TODO: check this line of code, len(sequence_len) should be one??
 
-            pad_len = max_seq_len - sequence_len
+            #pad_len = max_seq_len - sequence_len
 
         if pad_len > 0:
             # right padding with padding token
