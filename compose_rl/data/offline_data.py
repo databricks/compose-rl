@@ -266,7 +266,7 @@ def offline_dataset_collate_fn_test(
     
     has_mask = 'mask' in data[0].keys()
     if has_mask:
-        for i in range(len(batch_input_ids.shape[0])):
+        for i in range(batch_input_ids.shape[0]):
             mask_i = data[i]['mask']
             if len(mask_i) < len(batch_input_ids[i]): # right padded
                 all_zeros = torch.zeros(len(batch_input_ids[i]))
