@@ -9,8 +9,10 @@ from tests.common.datasets import (
     VerifiablePromptDataset,
 )
 from tests.common.markers import device, world_size
+from tests.common.actor import BaseDistributedGPUActor
 
 __all__ = [
+    'BaseDistributedGPUActor',
     'PairwisePreference',
     'FineGrainedPreference',
     'PromptDataset',
