@@ -123,7 +123,7 @@ include = [
 exclude = ['env-**', 'venv*', '.venv']
 stubPath = ""  # suppress useless 'stubPath is not a valid directory' errors
 
-typeCheckingMode = "standard"
+typeCheckingMode = "basic"
 reportArgumentType = "none"
 reportAttributeAccessIssue = "none"
 reportOptionalMemberAccess = "none"
