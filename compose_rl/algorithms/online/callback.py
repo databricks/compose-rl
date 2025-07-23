@@ -764,7 +764,6 @@ class OnPolicyCallback(CallbackWithConfig):
                 # When we hit this function, we should already have all the prompts we need per iteration.
                 num_gen_calls = bs // self.device_generate_batch_size
 
-                gen_batch_partial_outputs = []
                 all_sequences = []
                 for i in range(num_gen_calls):
                     gen_batch = self._extract_minibatch(
@@ -796,6 +795,15 @@ class OnPolicyCallback(CallbackWithConfig):
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
 
+        # Compute rewards and populate buffer
+        self._get_reward(batch)
+
+    def _get_reward(self, batch: dict[str, torch.Tensor]):
+        """Compute rewards for a batch of generated sequences.
+        
+        Args:
+            batch (dict): The batch containing generated sequences to compute rewards for.
+        """
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore
             reward_manager=self.reward_manager,
@@ -825,7 +833,7 @@ class OnPolicyCallback(CallbackWithConfig):
                 del resolved_outputs[key]
 
         # We need to split the resolved outputs into minibatches
-        for idx in range(bs // self.device_train_batch_size):
+        for idx in range(batch['prompt_id'].shape[0] // self.device_train_batch_size):
             minibatch = self._extract_minibatch(
                 resolved_outputs,
                 idx,
@@ -834,7 +842,7 @@ class OnPolicyCallback(CallbackWithConfig):
             self.buffer.add(minibatch)
 
         # Making sure we correctly parsed the minibatches
-        assert len(self.buffer) == self.num_batches_per_update
+        assert len(self.buffer) == self.num_batches_per_update, f'{len(self.buffer)} != {self.num_batches_per_update}'
 
         self.actor_critic.train()
 

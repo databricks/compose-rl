@@ -57,6 +57,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ppo_callback = None
         self.ppo_trainer: Trainer = None
 
+        self.device_train_batch_size = 4
+        self.num_batches_per_update = 2
+
     def build_dataloader(self):
         max_seq_len = 32
         prompt_len = 10
@@ -70,7 +73,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 max_seq_len,
             ),
             sampler=composer_dist.get_sampler(dataset),
-            batch_size=4,
+            batch_size=self.device_train_batch_size,
         )
         # We need to mock this method, since our dataset isn't a StreamingDataset
         dataloader.state_dict = lambda: {}
@@ -137,7 +140,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             parallelism_config={'fsdp': self.fsdp_config},
             save_folder=tmp_ref_path,
             save_weights_only=True,
-            device_train_microbatch_size=2,
+            device_train_microbatch_size=self.device_train_microbatch_size,
         )
 
         temp_trainer.fit()
@@ -155,15 +158,13 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
 
-        num_batches_per_update = 2
-
         # ref_model_config = copy.deepcopy(self.model_config)
         ref_model_config = {**self.model_config, 'name': 'hf_causal_lm'}
 
         variables = {
             'buffer': {
                 'name': 'MinibatchRolloutBuffer',
-                'max_buffer_size': num_batches_per_update,
+                'max_buffer_size': self.num_batches_per_update,
             },
             'max_gen_len': 8,
             'gamma': 0.99,
@@ -171,6 +172,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'generation_kwargs': {
                 'use_cache': True,
                 'do_sample': False,
+                'temperature': 1.0,
             },
             'kl_controller': {
                 'init_kl_coef': 0.2,
@@ -184,9 +186,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 'load_path': self.ref_path,
                 'non_train_fsdp_config': self.fsdp_config,
             },
-            'device_generate_batch_size': 2,
             'epoch_per_iteration': 1,
-            'num_batches_per_update': num_batches_per_update,
+            'num_batches_per_update': self.num_batches_per_update,
             'rewards': {
                 'output_length': {
                     'reward_type': 'output_length',
@@ -201,9 +202,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'precision': precision,
             'variables': variables,
             'max_seq_len': max_seq_len,
-            'global_train_batch_size': 2,
-            'device_train_batch_size': 2,
-            'device_train_microbatch_size': 1,
+            'global_train_batch_size': self.device_train_batch_size * self.world_size,
+            'device_train_batch_size': self.device_train_batch_size,
+            'device_train_microbatch_size': self.device_train_batch_size,
         }
 
         self.ppo_callback = SingleControllerOnPolicyCallback(train_config=train_config)
