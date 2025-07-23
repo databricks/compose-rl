@@ -121,9 +121,11 @@ def offline_loss(
     loss_type: RegressionOfflineEnum,
     beta1: float,
     beta2: float,
+    gamma: float = 0.1, 
     multistep: bool = False,
     bce: bool = False, 
 ):
+    # gamma: r + gamma * bonus (bonus can be used to model things like tool use)
     
     policy_logp = outputs['policy_logp']  # (batch_size, )
 
@@ -153,10 +155,13 @@ def offline_loss(
 
             assert vstar.shape == batch['reward'].shape
 
+        bonuses = batch.get('bonus', None)
+        if bonuses is None:
+            bonuses = torch.zeros_like(batch['reward'])
         if bce == False:
             losses = (
                 beta2 * (policy_logp - ref_logp) -
-                (batch['reward'] - vstar)
+                (batch['reward'] + gamma * bonuses - vstar)
             )**2
         elif bce == True:
             predicted_prob = F.sigmoid(beta2 * (policy_logp - ref_logp))

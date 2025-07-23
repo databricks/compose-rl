@@ -257,10 +257,12 @@ def offline_dataset_collate_fn_test(
     sequence_lens = torch.sum(attention_masks, dim = -1) # sum of all 1 in attention mask, row-wise
     prompt_lens = torch.cat([item['prompt_len'] for item in data])
     
-    masks, rewards, vstars, vstar_rewards = [], [],[],[]
+    masks, rewards, vstars, vstar_rewards, bonuses = [], [],[],[], []
 
     if 'reward' in data[0].keys():
         rewards = torch.cat([item['reward'] for item in data])
+    if 'bonus' in data[0].keys():
+        bonuses = torch.cat([item['bonus'] for item in data])
     if 'vstar' in data[0].keys():
         vstars = torch.cat([item['vstar'] for item in data])
     if 'vstar_rewards' in data[0].keys():
@@ -290,6 +292,8 @@ def offline_dataset_collate_fn_test(
         return_dict['mask'] = masks
     if len(rewards) > 0:
         return_dict['reward'] = rewards
+    if len(bonuses) > 0:
+        return_dict['bonus'] = bonuses
     if len(vstars) > 0:
         return_dict['vstar'] = vstars
     if len(vstar_rewards) > 0:
@@ -385,6 +389,9 @@ class OfflineStreamingDataset(StreamingDataset):
         # If rewards are given, add them to the return dict
         if 'reward' in sample:
             return_dict['reward'] = torch.Tensor([sample['reward']])
+        
+        if 'bonus' in sample:
+            return_dict['bonus'] = torch.Tensor([sample['bonus']])
 
         if 'vstar' in sample:
             assert 'vstar_rewards' not in sample
