@@ -125,7 +125,7 @@ def offline_loss(
     multistep: bool = False,
     bce: bool = False, 
 ):
-    # gamma: r + gamma * bonus (bonus can be used to model things like tool use)
+    # eta: r + eta * bonus (bonus can be used to model things like tool use)
     
     policy_logp = outputs['policy_logp']  # (batch_size, )
 
@@ -140,6 +140,7 @@ def offline_loss(
         # Similar to REBEL, we assume each response has a reward in the batch.
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
         #
+        print("eta{}".format(eta))
         vstar = batch.get('vstar', None)
         if vstar is None:
             vstar_rewards = batch.get('vstar_rewards', None)
@@ -152,7 +153,7 @@ def offline_loss(
                 exponentiated_mean = torch.mean(torch.exp((vstar_rewards+eta*added_vstar_bonus) / beta1), dim=-1)
                 print("vstar reward: {}".format(vstar_rewards))
                 print(eta)
-                print("combined: {}".format(vstar_rewards.to(torch.float)+eta*added_vstar_bonus.to(torch.float)))
+                print("combined: {}".format(vstar_rewards+eta*added_vstar_bonus))
                 print("1. {}".format(torch.max(vstar_rewards+eta*added_vstar_bonus)))
             else:
                 exponentiated_mean = torch.mean(
