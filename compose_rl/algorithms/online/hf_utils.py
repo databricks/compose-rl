@@ -22,7 +22,8 @@ from compose_rl.algorithms.online.model_methods import (
 )
 from compose_rl.algorithms.online.policy_configuration import HFPolicyConfig
 from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
-from compose_rl.utils.utils import is_model_fsdp, summon_full_params
+from composer.distributed.shared_utils import get_summon_params_fn
+from composer.utils import is_model_fsdp
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
@@ -98,6 +99,7 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
             # are in the root FSDP module, and are summoned by the below context manager. See https://github.com/pytorch/pytorch/issues/100069
             # for more info.
             # Note: We use recurse=False here so that we only summon full params for the LM head, not the entire model.
+            summon_full_params = get_summon_params_fn(self.lm_backbone)
             with summon_full_params(
                 self.lm_backbone,
                 writeback=False,
