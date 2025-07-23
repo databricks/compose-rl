@@ -151,6 +151,7 @@ def offline_loss(
             if not multistep: 
                 exponentiated_mean = torch.mean(torch.exp((vstar_rewards+gamma*added_vstar_bonus) / beta1), dim=-1)
                 print("vstar reward: {}".format(vstar_rewards))
+                print(gamma)
                 print("combined: {}".format(vstar_rewards+gamma*added_vstar_bonus))
                 print("1. {}".format(torch.max(vstar_rewards+gamma*added_vstar_bonus)))
             else:
