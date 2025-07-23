@@ -7,6 +7,8 @@ from typing import Any, Optional, Union
 
 import torch
 import torch.nn as nn
+from composer.distributed.shared_utils import get_summon_params_fn
+from composer.utils import is_model_fsdp
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
@@ -22,8 +24,6 @@ from compose_rl.algorithms.online.model_methods import (
 )
 from compose_rl.algorithms.online.policy_configuration import HFPolicyConfig
 from compose_rl.utils.consts import _MASTER_WEIGHTS_PRECISION
-from composer.distributed.shared_utils import get_summon_params_fn
-from composer.utils import is_model_fsdp
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 

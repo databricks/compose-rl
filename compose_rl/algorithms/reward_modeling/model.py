@@ -9,6 +9,8 @@ from functools import partial
 from typing import Any, Mapping, MutableMapping, Optional, Union
 
 import torch
+from composer.distributed.shared_utils import get_summon_params_fn
+from composer.utils import is_model_fsdp
 from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 
 from compose_rl.algorithms.reward_modeling.base_reward import (
@@ -30,8 +32,6 @@ from compose_rl.algorithms.reward_modeling.modeling_hf import \
     ComposerHFSequenceClassification
 from compose_rl.algorithms.reward_modeling.modeling_mpt import \
     MPTForSequenceClassification
-from composer.utils import is_model_fsdp
-from composer.distributed.shared_utils import get_summon_params_fn
 
 log = logging.getLogger(__name__)
 
