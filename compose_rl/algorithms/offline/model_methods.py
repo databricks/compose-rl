@@ -121,7 +121,7 @@ def offline_loss(
     loss_type: RegressionOfflineEnum,
     beta1: float,
     beta2: float,
-    gamma: float = 0.1, 
+    gamma: float = 1., 
     multistep: bool = False,
     bce: bool = False, 
 ):
