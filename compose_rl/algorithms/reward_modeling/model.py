@@ -30,7 +30,8 @@ from compose_rl.algorithms.reward_modeling.modeling_hf import \
     ComposerHFSequenceClassification
 from compose_rl.algorithms.reward_modeling.modeling_mpt import \
     MPTForSequenceClassification
-from compose_rl.utils.utils import is_model_fsdp, summon_full_params
+from composer.utils import is_model_fsdp
+from composer.distributed.shared_utils import get_summon_params_fn
 
 log = logging.getLogger(__name__)
 
@@ -291,6 +292,7 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
 
         context_manager = nullcontext
         if is_model_fsdp(self.model):
+            summon_full_params = get_summon_params_fn(self.model)
             context_manager = partial(
                 summon_full_params,
                 self.model,

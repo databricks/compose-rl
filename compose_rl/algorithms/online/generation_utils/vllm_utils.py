@@ -51,7 +51,7 @@ from compose_rl.algorithms.online.model_methods import (
     ALGORITHM_TYPE,
     OnPolicyEnum,
 )
-from compose_rl.utils.utils import summon_full_params
+from composer.distributed.shared_utils import get_summon_params_fn
 
 log = logging.getLogger(__name__)
 
@@ -442,6 +442,10 @@ def broadcast_to_vllm(
     start_time = time.time()
     update_time = 0
 
+    # Getting the correct summon_full_params function based on whether
+    # the model is FSDP1 vs FSDP2.
+    summon_full_params = get_summon_params_fn(model)
+
     for module_name, module in model.named_modules():
         # Skip non-FSDP modules
         if not isinstance(module, (FSDP, FSDPModule)):
@@ -460,8 +464,8 @@ def broadcast_to_vllm(
         # Materializes parameters for this specific FSDP module only BUT THIS
         # INCLUDES any parameters from submodules that are not FSDP-wrapped themselves.
         # We don't want to materialize the entire model to avoid potential OOM.
-        # View NestedFSDPModel in tests/common/models.py and the related test in
-        # test_utils.py for an example.
+        # View NestedFSDPModel in the Composer repo and the related test in
+        # for an example of why this logic is needed.
         with summon_full_params(
             module,
             writeback=False,
@@ -469,7 +473,7 @@ def broadcast_to_vllm(
             recurse=False,
         ):
             # Note: For the following module.named_parameters(), we have to use recurse=True
-            # since the following case is possible:
+            # since the following case is possible where we still need NonFSDP_Child's params
             # FSDP_Module
             #   |- direct_param (found with recurse=False)
             #   |- NonFSDP_Child

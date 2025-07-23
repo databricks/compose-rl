@@ -28,7 +28,8 @@ from compose_rl.utils import (
     clear_mb_load_balancing_loss,
     get_mb_load_balancing_loss,
 )
-from compose_rl.utils.utils import is_model_fsdp, summon_full_params
+from composer.utils import is_model_fsdp
+from composer.distributed.shared_utils import get_summon_params_fn
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
@@ -190,6 +191,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             # are in the root FSDP module, and are summoned by the below context manager. See https://github.com/pytorch/pytorch/issues/100069
             # for more info.
             # Note: We use recurse=False here so that we only summon full params for the LM head, not the entire model.
+            summon_full_params = get_summon_params_fn(self.model)
             with summon_full_params(
                 self.model,
                 writeback=False,
