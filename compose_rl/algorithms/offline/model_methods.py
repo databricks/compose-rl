@@ -148,6 +148,7 @@ def offline_loss(
             added_vstar_bonus = vstar_bonus * vstar_rewards  # true added bonus is 1 iff both bonus = 1 and reward = 1
             if not multistep: 
                 exponentiated_mean = torch.mean(torch.exp((vstar_rewards+gamma*added_vstar_bonus) / beta1), dim=-1)
+                print(torch.max(vstar_rewards+gamma*added_vstar_bonus))
             else:
                 exponentiated_mean = torch.mean(
                     vstar_rewards * torch.exp(batch['reward'] / beta1).view(-1, 1) + (1 - vstar_rewards),
@@ -164,6 +165,7 @@ def offline_loss(
                 beta2 * (policy_logp - ref_logp) -
                 (batch['reward'] + gamma * added_bonuses - vstar)
             )**2
+            print(torch.max(batch['reward']+gamma*added_bonuses))
         elif bce == True:
             predicted_prob = F.sigmoid(beta2 * (policy_logp - ref_logp))
             actual_prob = F.sigmoid(batch['reward'] - vstar)
