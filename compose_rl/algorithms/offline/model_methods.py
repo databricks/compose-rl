@@ -140,21 +140,14 @@ def offline_loss(
         # Similar to REBEL, we assume each response has a reward in the batch.
         # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
         #
-        print("eta{}".format(eta))
         vstar = batch.get('vstar', None)
         if vstar is None:
             vstar_rewards = batch.get('vstar_rewards', None)
             assert vstar_rewards is not None
             vstar_bonus = batch.get('vstar_bonus', torch.zeros_like(vstar_rewards))
-            print("vstar_bonus: {}".format(vstar_bonus))
             added_vstar_bonus = vstar_bonus * vstar_rewards  # true added bonus is 1 iff both bonus = 1 and reward = 1
-            print("added_vstar_bonus: {}".format(added_vstar_bonus))
             if not multistep: 
                 exponentiated_mean = torch.mean(torch.exp((vstar_rewards+eta*added_vstar_bonus) / beta1), dim=-1)
-                print("vstar reward: {}".format(vstar_rewards))
-                print(eta)
-                print("combined: {}".format(vstar_rewards+eta*added_vstar_bonus))
-                print("1. {}".format(torch.max(vstar_rewards+eta*added_vstar_bonus)))
             else:
                 exponentiated_mean = torch.mean(
                     vstar_rewards * torch.exp(batch['reward'] / beta1).view(-1, 1) + (1 - vstar_rewards), # TODO: something is wrong here. 
@@ -171,7 +164,6 @@ def offline_loss(
                 beta2 * (policy_logp - ref_logp) -
                 (batch['reward'] + eta * added_bonuses - vstar)
             )**2
-            print("2. {}".format(torch.max(batch['reward']+eta*added_bonuses)))
         elif bce == True:
             predicted_prob = F.sigmoid(beta2 * (policy_logp - ref_logp))
             actual_prob = F.sigmoid(batch['reward'] - vstar)
