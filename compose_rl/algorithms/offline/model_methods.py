@@ -144,8 +144,10 @@ def offline_loss(
         if vstar is None:
             vstar_rewards = batch.get('vstar_rewards', None)
             assert vstar_rewards is not None
-            if not multistep:
-                exponentiated_mean = torch.mean(torch.exp(vstar_rewards / beta1), dim=-1)
+            vstar_bonus = batch.get('vstar_bonus', torch.zeros_like(vstar_rewards))
+            print('vstar_bonus shape {}'.format(vstar_bonus.shape))
+            if not multistep: 
+                exponentiated_mean = torch.mean(torch.exp((vstar_rewards+gamma*vstar_bonus) / beta1), dim=-1)
             else:
                 exponentiated_mean = torch.mean(
                     vstar_rewards * torch.exp(batch['reward'] / beta1).view(-1, 1) + (1 - vstar_rewards),
@@ -156,6 +158,7 @@ def offline_loss(
             assert vstar.shape == batch['reward'].shape
 
         bonuses = batch.get('bonus', None)
+        print('bonuses shape {}'.format(bonuses.shape))
         if bonuses is None:
             bonuses = torch.zeros_like(batch['reward'])
         if bce == False:

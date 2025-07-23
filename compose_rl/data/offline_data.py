@@ -257,7 +257,7 @@ def offline_dataset_collate_fn_test(
     sequence_lens = torch.sum(attention_masks, dim = -1) # sum of all 1 in attention mask, row-wise
     prompt_lens = torch.cat([item['prompt_len'] for item in data])
     
-    masks, rewards, vstars, vstar_rewards, bonuses = [], [],[],[], []
+    masks, rewards, vstars, vstar_rewards, bonuses, vstar_bonus = [], [],[],[], [],[]
 
     if 'reward' in data[0].keys():
         rewards = torch.cat([item['reward'] for item in data])
@@ -267,6 +267,8 @@ def offline_dataset_collate_fn_test(
         vstars = torch.cat([item['vstar'] for item in data])
     if 'vstar_rewards' in data[0].keys():
         vstar_rewards = torch.stack([item['vstar_rewards'] for item in data])
+    if 'vstar_bonus' in data[0].keys():
+        vstar_bonus = torch.stack([item['vstar_bonus'] for item in data])
     
     has_mask = 'mask' in data[0].keys()
     if has_mask:
@@ -298,6 +300,9 @@ def offline_dataset_collate_fn_test(
         return_dict['vstar'] = vstars
     if len(vstar_rewards) > 0:
         return_dict['vstar_rewards'] = vstar_rewards
+    if len(vstar_bonus) > 0:
+        return_dict['vstar_bonus'] = vstar_bonus
+    
 
     return return_dict
 
