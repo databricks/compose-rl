@@ -263,14 +263,12 @@ def offline_dataset_collate_fn_test(
         rewards = torch.cat([item['reward'] for item in data])
     if 'bonus' in data[0].keys():
         bonuses = torch.cat([item['bonus'] for item in data])
-        print(bonuses)
     if 'vstar' in data[0].keys():
         vstars = torch.cat([item['vstar'] for item in data])
     if 'vstar_rewards' in data[0].keys():
         vstar_rewards = torch.stack([item['vstar_rewards'] for item in data])
     if 'vstar_bonus' in data[0].keys():
         vstar_bonus = torch.stack([item['vstar_bonus'] for item in data])
-        print(vstar_bonus)
     
     has_mask = 'mask' in data[0].keys()
     if has_mask:
@@ -298,12 +296,14 @@ def offline_dataset_collate_fn_test(
         return_dict['reward'] = rewards
     if len(bonuses) > 0:
         return_dict['bonus'] = bonuses
+        #print("data collator {}".format(return_dict['bonus']))
     if len(vstars) > 0:
         return_dict['vstar'] = vstars
     if len(vstar_rewards) > 0:
         return_dict['vstar_rewards'] = vstar_rewards
     if len(vstar_bonus) > 0:
         return_dict['vstar_bonus'] = vstar_bonus
+        #print("data collator {}".format(return_dict['vstar_bonus']))
     
 
     return return_dict
