@@ -3,7 +3,6 @@
 
 import logging
 import os
-import pathlib
 from functools import partial
 from typing import Any, Optional
 
@@ -209,7 +208,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'device_train_microbatch_size': 1,
         }
 
-        # tmp_save_path = str('./checkpoints')
         self.ppo_callback = SingleControllerOnPolicyCallback(train_config=train_config)
         self.ppo_trainer = Trainer(
             model=model,
@@ -221,19 +219,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             max_duration='3iter',
             device_train_microbatch_size=1,
             load_path=self.ref_path,
-            # save_folder=tmp_save_path,
-            # save_interval='1iter',
         )
-
-        # trainer.fit(duration='1iter')
-
-        # This is the KL assert that must be true if we are truly loading from the same model.
-        # This is only true on the first iteration
-        # assert torch.allclose(
-        #     trainer.state.loss['kl/ift_kl'], # pyright: ignore
-        #     torch.tensor(0.0),
-        #     atol=5e-5,
-        # )
 
     def train_1_iter(self):
         self.ppo_trainer.fit(duration='1iter')
