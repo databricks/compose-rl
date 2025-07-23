@@ -673,6 +673,7 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
                 max_gen_len=max_gen_len,
                 generation_kwargs=generation_kwargs,
                 tokenizer=self.tokenizer,  # type: ignore
+                vllm_generate_function='generate',
             )
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences

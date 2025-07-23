@@ -14,8 +14,6 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 from transformers import (
     AutoTokenizer,
-    PreTrainedModel,
-    PreTrainedTokenizerBase,
 )
 
 from composer import Trainer
