@@ -121,7 +121,7 @@ def offline_loss(
     loss_type: RegressionOfflineEnum,
     beta1: float,
     beta2: float,
-    eta: float = 0.5,
+    eta: float,
     multistep: bool = False,
     bce: bool = False, 
 ):
@@ -157,7 +157,7 @@ def offline_loss(
                 print("1. {}".format(torch.max(vstar_rewards+eta*added_vstar_bonus)))
             else:
                 exponentiated_mean = torch.mean(
-                    vstar_rewards * torch.exp(batch['reward'] / beta1).view(-1, 1) + (1 - vstar_rewards),
+                    vstar_rewards * torch.exp(batch['reward'] / beta1).view(-1, 1) + (1 - vstar_rewards), # TODO: something is wrong here. 
                     dim=-1,
                 )
             vstar = beta1 * torch.log(exponentiated_mean)
