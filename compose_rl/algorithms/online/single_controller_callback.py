@@ -57,6 +57,9 @@ from compose_rl.utils import (
     switch_left_to_right_padding,
 )
 
+# Import the base class
+from compose_rl.algorithms.online.callback import OnPolicyCallback, env_reward
+
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 Policy = Union[ComposerHFPolicyLM, ComposerMPTPolicyLM]
 
@@ -65,249 +68,7 @@ __all__ = ['SingleControllerOnPolicyCallback', 'env_reward']
 log = logging.getLogger(__name__)
 
 
-def env_reward(
-    actor_critic: Policy,
-    reward_manager: RewardManager,
-    batch: dict,
-    max_gen_len: int,
-    precision: Precision,
-    device_train_microbatch_size: int,
-    tokenizer: Tokenizer,
-    eos_token_ids: list[int],
-    kl_estimator: Optional[str] = 'k1',
-    kl_clip_range: Optional[float] = 40.0,
-) -> tuple[
-    dict[str, torch.Tensor],
-    list[tuple[str, str]],
-    ReferenceOutput,
-    RewardOutput,
-]:
-    """Run reward on the model generated responses.
-
-    Runs reward over a set of sequences in the batch. It also does extra computation
-    that is required for later loss computation.
-
-    Args:
-        actor_critic (ComposerMosaicPolicy): Actor critic model to run reward over.
-        reward_manager (RewardManager): Composes the reference IFT model and all reward models.
-        batch (dict): The batch of data to run reward over.
-        max_gen_len (int): Maximum generation length.
-        precision (Precision): Precision to run computation.
-        device_train_microbatch_size (int): Device train microbatch size for the training job.
-            We need to do all log_prob computation with this in order to maintain numerics.
-        tokenizer (Tokenizer): The actor critic's tokenizer.
-        eos_token_ids (list[int]): A list of eos token ids.
-        kl_estimator (str): Which kl estimator to use. Options are 'k1', 'k2', 'k3' and 'k3_offpolicy'.
-        kl_clip_range (float): The clip range for the KL divergence.
-
-    Returns:
-        partial_env_output (dict[str, tensor]): Partially complete dictionary of return elements suitable
-            for PPO training
-        untokenized_prompt_and_responses (list): List of [str, str] tuples, each containing the decoded
-            prompt and responses tokens sequences, respectively
-        ref_output (ReferenceOutput): Pair of tensors corresponding to the KL penalty and
-            log prob sequences obtained from the reference model. If the reference model is non-blocking,
-            this will be an AsyncResult object that will resolve to the described output.
-        all_rewards (RewardOutput): Dictionary of tensors containing the reward output
-            from each reward model managed by the reward manager. If reward model "X" is non-blocking,
-            then all_rewards["X"] will be an AsyncResult object that will resolve to associated reward tensor.
-
-    Note:
-        Use the .get() method on an AsyncResult object (see Returns, above) to resolve it.
-    """
-    prompt_tokens = batch['prompt']
-
-    batch_size, _ = prompt_tokens.shape
-
-    pad_token_id = tokenizer.pad_token_id
-
-    if pad_token_id is None:
-        raise ValueError(
-            'Tokenizer does not have a pad token id. Please use a different tokenizer or add a pad token id.',
-        )
-
-    with get_precision_context(precision), torch.no_grad():
-        prompt_len = batch['prompt_len']
-        verified_answers = batch.get('verified_answer', None)
-        prompt_id = batch['prompt_id']
-        cur_device = prompt_tokens.device
-        prompt_dtype = prompt_tokens.dtype
-
-        assert 'sequences' in batch, f'sequences is not in batch {batch.keys()=}'
-
-        sequences = batch['sequences']
-        generated_len = torch.ones(
-            batch_size,
-            device=cur_device,
-            dtype=prompt_dtype,
-        ) * max_gen_len
-
-        # If all the processes early exit generate, then we need to manually pad everything
-        # we can pad this with pad tokens, since we switch the padding between left and right
-        # padding based on the sequence length + max_sequence_length.
-        if prompt_tokens.size(1) + max_gen_len > sequences.size(1):
-            len_to_pad = max_gen_len - (
-                sequences.size(1) - prompt_tokens.size(1)
-            )
-
-            extra_padding = torch.ones(
-                (batch_size, len_to_pad),
-                device=cur_device,
-                dtype=prompt_dtype,
-            ) * pad_token_id
-            sequences = torch.cat(
-                [sequences, extra_padding],  # type: ignore
-                dim=-1,  # type: ignore
-            )
-
-        # Sanity checking we're adding max_gen_len to prompt_tokens
-        if prompt_tokens.size(1) + max_gen_len != sequences.size(1):
-            raise ValueError(
-                f'Prompts {prompt_tokens.size(1)} + max_gen_len {max_gen_len} != sequences {sequences.size(1)}',
-            )
-
-        # Actions are what tokens the current policy would generate.
-        actions = sequences[:, -max_gen_len:]
-
-        right_padded_obs = switch_left_to_right_padding(
-            sequences,
-            prompt_len,
-            max_gen_len,
-            pad_token_id,  # type: ignore
-        )
-        right_padded_attn_mask = torch.logical_not(
-            torch.eq(right_padded_obs, pad_token_id),  # type: ignore
-        )
-
-        (
-            right_padded_obs,
-            right_padded_attn_mask,
-            generated_len,
-            action_mask,
-        ) = mask_eos(
-            actions=actions,
-            right_padded_obs=right_padded_obs,
-            right_padded_attn_mask=right_padded_attn_mask,
-            prompt_len=prompt_len,
-            generated_len=generated_len,
-            max_gen_len=max_gen_len,
-            eos_token_ids=eos_token_ids,  # type: ignore
-            pad_token=pad_token_id,  # type: ignore
-        )
-
-        untokenized_prompt_and_responses = []
-        for i in range(batch_size):
-            prompt = tokenizer.decode(  # type: ignore
-                right_padded_obs[i, :prompt_len[i]])
-            generated_text = tokenizer.decode(  # type:  ignore
-                get_decoded_sequence(actions[i], generated_len[i],
-                                            max_gen_len))
-            untokenized_prompt_and_responses.append((prompt, generated_text),)
-
-        # Making logits [batch_size, generated_len, vocab_size]
-        # We need to recompute the logits here. Otherwise there are numerical differences
-        # We also need to do it on the size of `device_train_microbatch_size` otherwise
-        # there are numerical differences at training time.
-        # log probs will be [batch_size, generated_len]
-        log_probs = []
-        entropies = []
-        values = []
-
-        input_model_kwargs = {
-            'obs': right_padded_obs,
-            'right_padded_attn_mask': right_padded_attn_mask,
-            'prompt_len': prompt_len,
-            'max_gen_len': max_gen_len,
-            'action_mask': action_mask,
-            'actions': actions,
-        }
-
-        microbatch_splits = _default_split_batch(
-            batch=input_model_kwargs,
-            microbatch_size=device_train_microbatch_size,
-        )
-        # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
-        for split in microbatch_splits:
-            curr_kwargs = split
-
-            cur_output = actor_critic(curr_kwargs)
-            cur_logits = cur_output['logits']
-            # need to pull out current actions and prompt len
-            cur_actions = curr_kwargs['actions']
-            cur_action_mask = curr_kwargs['action_mask']
-            cur_prompt_len = curr_kwargs['prompt_len']
-
-            cur_log_probs = get_log_probs(
-                logits=cur_logits,
-                actions=cur_actions,
-                prompt_len=cur_prompt_len,
-                max_gen_len=max_gen_len,
-            )
-            cur_entropies = get_entropies(
-                logits=cur_logits,
-                action_mask=cur_action_mask,
-                prompt_len=cur_prompt_len,
-                max_gen_len=max_gen_len,
-            )
-            log_probs.append(cur_log_probs)
-            entropies.append(cur_entropies)
-            # Ignore values when the model doesn't have a value head
-            if 'values' in cur_output:
-                cur_values = cur_output['values']
-                values.append(cur_values)
-
-        device_train_microbatch_log_probs = torch.cat(log_probs)
-        device_train_microbatch_entropies = torch.cat(entropies)
-
-        partial_env_output = {
-            'prompt_id': prompt_id,
-            'actions': actions,
-            'old_log_probs': device_train_microbatch_log_probs,
-            'old_entropies': device_train_microbatch_entropies,
-            'obs': right_padded_obs,
-            'generated_len': generated_len,
-            'action_mask': action_mask,
-        }
-        if len(values) > 0:
-            device_train_microbatch_values = torch.cat(values)
-
-            # Need to add in the padding for the value function
-            value_action_mask = torch.cat([
-                action_mask,
-                torch.zeros((batch_size, 1), device=cur_device),
-            ],
-                                          dim=-1)
-            device_train_microbatch_values *= value_action_mask
-            partial_env_output['values'] = device_train_microbatch_values
-        # Future implementations may change the way reward_seq_len is defined
-        # e.g., if special formatting is applied
-        reward_seq_len = prompt_len + generated_len
-
-        ref_output, all_rewards = reward_manager(
-            raw_untokenized_texts=untokenized_prompt_and_responses,
-            right_padded_obses=right_padded_obs,
-            attention_masks=right_padded_attn_mask,
-            seq_lens=reward_seq_len,
-            generated_lens=generated_len,
-            prompt_lens=prompt_len,
-            max_gen_length=max_gen_len,
-            actions=actions,
-            action_log_probs=device_train_microbatch_log_probs,
-            device_train_microbatch_size=device_train_microbatch_size,
-            kl_estimator=kl_estimator,
-            kl_clip_range=kl_clip_range,
-            verified_answers=verified_answers,
-        )
-
-    return (
-        partial_env_output,
-        untokenized_prompt_and_responses,
-        ref_output,
-        all_rewards,
-    )
-
-
-class SingleControllerOnPolicyCallback(CallbackWithConfig):
+class SingleControllerOnPolicyCallback(OnPolicyCallback):
     """Callback for managing on-policy training in an RLHF loop.
 
     Args:
@@ -503,40 +264,6 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
         )
 
 
-    def before_load(self, state: State, logger: Logger):
-        del logger
-        self.train_prompt_loader = state.train_dataloader
-
-    def after_load(self, state: State, logger: Logger):
-        del logger  # unused
-        # This needs to be done here becuase callbacks are init'd before we attach
-        # the dataloader as a property to state
-        self.tokenizer = state.model.tokenizer
-        self.eos_token_ids = [self.tokenizer.eos_token_id]  # type: ignore
-        if self.input_eos_token_ids is not None:
-            self.eos_token_ids = self.input_eos_token_ids
-            log.info(
-                f'The online RL loop will assume the following eos token ids {self.eos_token_ids}',
-            )
-            for eos_token_id in self.eos_token_ids:
-                log.info(
-                    f'Token {eos_token_id} is {self.tokenizer.decode([eos_token_id])}.',  # type: ignore
-                )
-
-        if self.pad_token_idx in self.eos_token_ids:
-            log.warning(
-                'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
-            )
-
-        self.train_prompt_loader_iter = iter(
-            self.train_prompt_loader,  # pyright: ignore
-        )
-
-        if self.train_prompt_loader_state_dict is not None:
-            self.train_prompt_loader.load_state_dict( # pyright: ignore
-                self.train_prompt_loader_state_dict,
-            )
-
     def round_trip_to_inference_engines(self, device: Any, vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
         """Round trip to inference engines.
         
@@ -568,21 +295,7 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
         # Update IFT KL
         self._update_ift_kl()
 
-    def epoch_end(self, state: State, logger: Logger):
-        del logger  # unused
-        assert self.epochs_per_iteration == state._iteration_length
-        if self.actor_critic.determine_early_stop():  # type: ignore
-            state.timestamp.epoch_in_iteration = self.epochs_per_iteration
-
-    def iteration_end(self, state: State, logger: Logger):
-        del logger  # unused
-        self._log_generations_to_logger(state)
-        self._increment_rl_iter()
-        self.buffer.reset()
-        self.buffer.set_state_dict(
-            self.train_prompt_loader.state_dict(), # pyright: ignore
-            0,
-        )
+    # epoch_end and iteration_end methods are inherited from OnPolicyCallback
 
     def _get_next_iter_prompts(self):
         """Gets the next iteration's batch of prompts."""
@@ -642,17 +355,7 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
 
         return ret_batch
 
-    def _get_single_batch_prompts(self):
-        """Gets a single batch of prompts from the dataloader."""
-        try:
-            return next(self.train_prompt_loader_iter)
-        except StopIteration:
-            # Reset the iterator to the beginning of the dataloader
-            self.train_prompt_loader_iter = iter(
-                self.train_prompt_loader,  # pyright: ignore
-            )
-            # Get the first sample from the dataloader
-            return next(self.train_prompt_loader_iter)
+    # _get_single_batch_prompts method is inherited from OnPolicyCallback
 
     def _interact_with_env(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any]):
         """Have the policy interact with the environment.
@@ -725,35 +428,7 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
 
         self.actor_critic.train()
 
-    def _extract_minibatch(
-        self,
-        batch: dict[str, torch.Tensor],
-        idx: int,
-        minibatch_size: int,
-    ) -> dict[str, torch.Tensor]:
-        """Extracts a minibatch from a composite batch.
-
-        This helper is used to extract a particular minibatch of size
-        minibatch_size from `batch`, where `batch` may
-        have a batch size that exceeds the minibatch size.
-
-        Args:
-            batch (dict[str, torch.Tensor]): an arbitrary batch, where
-                each entry has batch size >= minibatch_size,
-                representing the concatenation of >= 1 minibatches.
-            idx (int): The index of the batch (see above description) to extract.
-
-        Returns:
-            curr_gen_batch (dict[str, torch.Tensor]): The gen_batch_idx'th
-                gen_batch extracted from the batch input.
-        """
-        start_idx = idx * minibatch_size
-        end_idx = (idx + 1) * minibatch_size
-        curr_gen_batch = {
-            batch_key: tensor[start_idx:end_idx]
-            for batch_key, tensor in batch.items()
-        }
-        return curr_gen_batch
+    # _extract_minibatch method is inherited from OnPolicyCallback
 
     def _resolve_outputs(
         self,
@@ -903,76 +578,9 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
 
         return iter_batch
 
-    def _log_generations_to_logger(self, state: State):
-        # Gather all prompts, generations, prompt_ids and rewards from all ranks
-        prompts_and_gens = list(
-            chain(*dist.all_gather_object(self.prompts_and_gens)),
-        )
-        prompt_ids_rewards_and_answers = list(
-            chain(*dist.all_gather_object(self.prompt_ids_rewards_and_answers)),
-        )
-        # Make a final list of tuple in the format: (prompt_id, reward, prompt, generation, verified_answer)
-        columns = [
-            'prompt_id',
-            'reward',
-            'prompt',
-            'generation',
-            'verified_answer',
-        ]
-        save_data = [[prompt_id, reward, prompt, generation, verified_answer]
-                     for (prompt_id, reward,
-                          verified_answer), (prompt, generation) in zip(
-                              prompt_ids_rewards_and_answers,
-                              prompts_and_gens,
-                          )]
-        # Sort the save_data by reward in descending order
-        save_data = sorted(save_data, key=lambda x: x[1], reverse=True)
+    # _log_generations_to_logger method is inherited from OnPolicyCallback
 
-        if dist.get_global_rank() == 0:
-            if self.wandb_logger is not None:
-                assert wandb.run is not None, 'wandb should have started the run'
-
-                artifact = wandb.Artifact(
-                    'generate_samples_' + str(wandb.run.id),
-                    type='predictions',
-                )
-
-                text_table = wandb.Table(
-                    data=save_data,
-                    columns=columns,
-                )
-
-                artifact.add(text_table, 'predictions')
-                wandb.log_artifact(artifact)
-                wandb.log({'generations': text_table},
-                          step=state.timestamp.batch.value)
-
-            if self.mlflow_logger is not None:
-                self.mlflow_logger.log_table(
-                    columns=columns,
-                    rows=save_data,
-                    name=f'Prompt_generations_{self.iter_num}',
-                )
-
-        self.prompts_and_gens = []
-        self.prompt_ids_rewards_and_answers = []
-
-    def _update_ift_kl(self):
-        local_kl = torch.stack(self.kl_ift)
-
-        global_ift_kl = torch.cat(dist.all_gather_object(local_kl))
-        ift_kl_update = torch.mean(global_ift_kl)
-
-        self.kl_ctl.update(
-            ift_kl_update,
-            self.num_batches_per_update * self.device_train_batch_size *
-            dist.get_world_size(),
-        )
-
-        self.kl_ift = []
-
-    def _increment_rl_iter(self):
-        self.iter_num += 1
+    # _update_ift_kl, _increment_rl_iter, state_dict, and load_state_dict methods are inherited from OnPolicyCallback
 
     def _update_inference_model(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
         start_time = time.time()
@@ -988,16 +596,3 @@ class SingleControllerOnPolicyCallback(CallbackWithConfig):
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
         dist.barrier()
-
-    def state_dict(self):
-        return {
-            'KL_ctl_state_dict': self.kl_ctl.state_dict(),
-            'iter_num': self.iter_num,
-            'train_prompt_loader':
-                self.train_prompt_loader.state_dict(),  # pyright: ignore
-        }
-
-    def load_state_dict(self, state_dict: dict[str, Any]):
-        self.kl_ctl.load_state_dict(state_dict['KL_ctl_state_dict'])
-        self.iter_num = state_dict['iter_num']
-        self.train_prompt_loader_state_dict = state_dict['train_prompt_loader']

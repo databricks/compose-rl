@@ -27,9 +27,7 @@ from compose_rl.algorithms.online import (
 from compose_rl.algorithms.online.generation_utils import create_vllm_engines
 from compose_rl.data import prompt_dataset_collate_fn
 from compose_rl.utils.ray_utils import start_ray_server
-# add a PYTHONPATH tot he tests
-# import sys
-# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tests.common import (
     BaseDistributedGPUActor,
     VerifiablePromptDataset,
