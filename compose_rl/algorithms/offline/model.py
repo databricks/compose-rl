@@ -74,7 +74,7 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
             self.loss_type,
             self.beta1,
             self.beta2,
-            self.multistep,
+            multistep = self.multistep,
         )
 
 
