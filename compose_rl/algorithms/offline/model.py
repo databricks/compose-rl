@@ -69,11 +69,11 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
     def loss(self, outputs: CausalLMOutputWithPast,
              batch: Mapping) -> dict[str, torch.Tensor]:
         return offline_loss(
-            outputs,
-            batch,
-            self.loss_type,
-            self.beta1,
-            self.beta2,
+            outputs = outputs,
+            batch = batch,
+            loss_type = self.loss_type,
+            beta1 = self.beta1,
+            beta2 = self.beta2,
             multistep = self.multistep,
         )
 
