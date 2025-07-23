@@ -121,7 +121,7 @@ def offline_loss(
     loss_type: RegressionOfflineEnum,
     beta1: float,
     beta2: float,
-    gamma: float = 0.5,
+    eta: float = 0.5,
     multistep: bool = False,
     bce: bool = False, 
 ):
@@ -149,11 +149,11 @@ def offline_loss(
             added_vstar_bonus = vstar_bonus * vstar_rewards  # true added bonus is 1 iff both bonus = 1 and reward = 1
             print("added_vstar_bonus: {}".format(added_vstar_bonus))
             if not multistep: 
-                exponentiated_mean = torch.mean(torch.exp((vstar_rewards+gamma*added_vstar_bonus) / beta1), dim=-1)
+                exponentiated_mean = torch.mean(torch.exp((vstar_rewards+eta*added_vstar_bonus) / beta1), dim=-1)
                 print("vstar reward: {}".format(vstar_rewards))
-                print(gamma)
-                print("combined: {}".format(vstar_rewards.to(torch.float)+gamma*added_vstar_bonus.to(torch.float)))
-                print("1. {}".format(torch.max(vstar_rewards+gamma*added_vstar_bonus)))
+                print(eta)
+                print("combined: {}".format(vstar_rewards.to(torch.float)+eta*added_vstar_bonus.to(torch.float)))
+                print("1. {}".format(torch.max(vstar_rewards+eta*added_vstar_bonus)))
             else:
                 exponentiated_mean = torch.mean(
                     vstar_rewards * torch.exp(batch['reward'] / beta1).view(-1, 1) + (1 - vstar_rewards),
@@ -168,9 +168,9 @@ def offline_loss(
         if bce == False:
             losses = (
                 beta2 * (policy_logp - ref_logp) -
-                (batch['reward'] + gamma * added_bonuses - vstar)
+                (batch['reward'] + eta * added_bonuses - vstar)
             )**2
-            print("2. {}".format(torch.max(batch['reward']+gamma*added_bonuses)))
+            print("2. {}".format(torch.max(batch['reward']+eta*added_bonuses)))
         elif bce == True:
             predicted_prob = F.sigmoid(beta2 * (policy_logp - ref_logp))
             actual_prob = F.sigmoid(batch['reward'] - vstar)
