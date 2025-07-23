@@ -7,23 +7,18 @@ from __future__ import annotations
 
 import logging
 import time
-from itertools import chain
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import torch
-import wandb
 from composer.core import (
-    Precision,
     State,
     TimeUnit,
     ensure_time,
     get_precision_context,
 )
-from composer.core.data_spec import _default_split_batch
 from composer.loggers import Logger, MLFlowLogger, WandBLogger
 from composer.trainer.trainer import _get_initial_device_train_microbatch_size
 from composer.utils import dist, ensure_tuple
-from llmfoundry.interfaces import CallbackWithConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from compose_rl.algorithms.online.generation_utils import (
@@ -48,13 +43,8 @@ from compose_rl.utils import (
     compute_advantages,
     dist_compute_masked_mean_and_var,
     flatten,
-    get_decoded_sequence,
-    get_entropies,
-    get_log_probs,
-    mask_eos,
     masked_mean,
     masked_sum,
-    switch_left_to_right_padding,
 )
 
 # Import the base class
@@ -428,159 +418,6 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
 
         self.actor_critic.train()
 
-    # _extract_minibatch method is inherited from OnPolicyCallback
-
-    def _resolve_outputs(
-        self,
-        iter_batch: dict[str, torch.Tensor],
-        partial_outputs: tuple[dict, ReferenceOutput, RewardOutput],
-    ) -> dict[str, torch.Tensor]:
-        """Resolve env/reference/reward outputs into a PPO minibatch.
-
-        Args:
-            iter_batch (dict): The batch for the current iteration.
-            partial_outputs (tuple): A tuple of (env_output, reference_output, reward_output),
-                one tuple for entire ppo iter batch. This tuple is created from `env_reward`.
-
-        Returns:
-            output_minibatch (dict): The final minibatch from the environment, with all AsyncResult
-                objects resolved and outputs processed for PPO training.
-        """
-        env_outs, ref_outs, rew_dict = partial_outputs
-        rew_outs = self.reward_manager.resolve_outputs(
-            ref_output=ref_outs,
-            reward_output=rew_dict,
-            kl_ctl=self.kl_ctl,
-            action_mask=env_outs['action_mask'],
-            center_reward_mean=self.center_reward_mean,
-        )
-        env_outs.update(rew_outs)
-
-        # Keep track of prompt ids, rewards and verified answers for logging
-        prompt_ids = env_outs['prompt_id'].detach().cpu().tolist()
-        rewards = env_outs['rewards'].sum(dim=-1).detach().cpu().tolist()
-        self.prompt_ids_rewards_and_answers.extend(
-            list(zip(prompt_ids, rewards, iter_batch['verified_answer'])),
-        )
-
-        # Adding the right_padded_attn_mask to the env_outputs
-        env_outs['right_padded_attn_mask'] = torch.logical_not(
-            torch.eq(env_outs['obs'], self.pad_token_idx),  # type: ignore
-        )
-
-        # Now that rewards are resolved, we can compute advantages
-        if self.actor_critic.loss_type == OnPolicyEnum.PPO:
-            env_outs['advantages'] = compute_advantages(
-                rewards=env_outs['rewards'],
-                values=env_outs['values'],
-                gamma=self.gamma,
-                lambda_gae=self.lambda_gae,
-            )
-        elif self.actor_critic.loss_type == OnPolicyEnum.GRPO:
-            # compute GRPO advantages
-            prompt_id = env_outs['prompt_id']
-            rewards = env_outs['rewards']
-
-            # Flatten the rewards by summing on sequence length/action_mask
-            flat_rewards = masked_sum(
-                rewards,
-                env_outs['action_mask'],
-                dim=-1,
-            )
-
-            # Get unique prompt IDs and their indices
-            unique_prompt_ids, inverse_indices = torch.unique(
-                prompt_id,
-                return_inverse=True,
-            )
-
-            # Use scatter to compute means and standard deviations
-            # First, we'll create a tensor to track counts, sums, and sum of squares
-            n_unique = len(unique_prompt_ids)
-            counts = torch.zeros(n_unique, device=prompt_id.device)
-            sums = torch.zeros(n_unique, device=prompt_id.device)
-            sum_squares = torch.zeros(n_unique, device=prompt_id.device)
-
-            # Use scatter_add to accumulate values
-            counts.scatter_add_(
-                0,
-                inverse_indices,
-                torch.ones_like(flat_rewards),
-            )
-            sums.scatter_add_(0, inverse_indices, flat_rewards)
-            sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
-
-            # Compute means and standard deviations
-            means = sums / counts
-            variances = (sum_squares / counts) - (means**2)
-            stds = torch.sqrt(variances)
-
-            # Map back to original tensor shape
-            mean_rewards = means[inverse_indices]
-            std_rewards = stds[inverse_indices]
-
-            # Calculate GRPO advantage
-            grpo_advantage = (flat_rewards - mean_rewards)
-            # Only normalize the advantage if flag is set
-            if self.actor_critic.normalize_advantage:
-                grpo_advantage /= (std_rewards + 1e-4)
-
-            # Create advantages of the same shape as original rewards
-            advantages = torch.zeros_like(rewards)
-            # Copy the flat grpo_advantage according to action_mask
-            expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
-                env_outs['action_mask'],
-            )
-            advantages = torch.where(
-                env_outs['action_mask'].bool(),
-                expanded_advantages,
-                advantages,
-            )
-            env_outs['advantages'] = advantages
-        else:
-            raise ValueError(
-                f'Invalid loss type: {self.actor_critic.loss_type}. ' +
-                'Valid options are: ppo, grpo.',
-            )
-
-        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            env_outs['advantages'],
-            env_outs['action_mask'],
-        )
-
-        mean_ift = masked_mean(
-            env_outs['ift_kl'],
-            env_outs['action_mask'],
-        )
-        self.kl_ift.append(mean_ift.cpu())
-
-        iter_batch.update(env_outs)
-
-        iter_batch.update({
-            'max_gen_len':
-                torch.ones(self.iter_batch_size).to(torch.int32) *
-                self.max_gen_len,
-            'adv_masked_mean':
-                torch.ones(self.iter_batch_size) * batch_adv_mean.cpu(),
-            'adv_masked_var':
-                torch.ones(self.iter_batch_size) * batch_adv_var.cpu(),
-            'ift_kl_scalar':
-                torch.ones(self.iter_batch_size) * self.kl_ctl.value,
-            'reward_std':
-                torch.ones(self.iter_batch_size) *
-                env_outs['rewards'].std().to('cpu'),
-        })
-
-        # Moving minibatches to CPU to not take additional GPU memory
-        for k, v in iter_batch.items():
-            if hasattr(v, 'cpu'):
-                iter_batch[k] = v.cpu()
-
-        return iter_batch
-
-    # _log_generations_to_logger method is inherited from OnPolicyCallback
-
-    # _update_ift_kl, _increment_rl_iter, state_dict, and load_state_dict methods are inherited from OnPolicyCallback
 
     def _update_inference_model(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
         start_time = time.time()
