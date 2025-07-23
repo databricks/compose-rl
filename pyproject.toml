@@ -46,6 +46,8 @@ hf_classifier_rm = "compose_rl.algorithms.reward_modeling:ComposerHFClassifierRe
 hf_causal_classifier_rm = "compose_rl.algorithms.reward_modeling:ComposerHFCausalClassifierRewardModel"
 mpt_pairwise_offline_lm = "compose_rl.algorithms.offline:ComposerMPTPairwiseOfflinePolicyLM"
 hf_pairwise_offline_lm = "compose_rl.algorithms.offline:ComposerHFPairwiseOfflinePolicyLM"
+mpt_offline_lm = "compose_rl.algorithms.offline:ComposerMPTOfflinePolicyLM"
+hf_offline_lm = "compose_rl.algorithms.offline:ComposerHFOfflinePolicyLM"
 mpt_actor_critic_lm = "compose_rl.algorithms.online:ComposerMPTPolicyLM"
 hf_actor_critic_lm = "compose_rl.algorithms.online:ComposerHFPolicyLM"
 hf_critic_free_lm = "compose_rl.algorithms.online:ComposerHFCriticFreePolicyLM"
@@ -60,10 +62,13 @@ pairwise_preference = "compose_rl.data:build_pairwise_preference_dataloader"
 finegrained_preference = "compose_rl.data:build_finegrained_preference_dataloader"
 prompt = "compose_rl.data:build_prompt_dataloader"
 messages = "compose_rl.data:build_messages_dataloader"
+offline = "compose_rl.data:build_offline_dataloader"
 
 [project.entry-points."llmfoundry_callbacks_with_config"]
 offline_rl = "compose_rl.algorithms.offline:ReferencePolicyCallback"
+pairwise_offline_rl = "compose_rl.algorithms.offline:PairwiseReferencePolicyCallback"
 on_policy_rl = "compose_rl.algorithms.online:OnPolicyCallback"
+
 # Backwards Compatibility
 dpo = "compose_rl.algorithms.offline:ReferencePolicyCallback"
 ppo = "compose_rl.algorithms.online:OnPolicyCallback"
