@@ -20,6 +20,7 @@ from composer.utils import dist
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from compose_rl.algorithms.online.generation_utils import (
+    broadcast_to_vllm,
     vllm_generate,
 )
 from compose_rl.algorithms.online.model import (
@@ -101,3 +102,18 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
         return batch
+
+
+    def _update_inference_model(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+        start_time = time.time()
+        log.info('Before broadcast to vLLM')
+        broadcast_to_vllm(
+            self.actor_critic,
+            vllm_engines,
+            model_update_group,
+            batch,
+            loss_type=self.actor_critic.loss_type,  # type: ignore
+        )
+        log.info('Finished broadcasting to vLLM')
+        log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
+        dist.barrier()
