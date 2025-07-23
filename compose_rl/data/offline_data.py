@@ -263,12 +263,14 @@ def offline_dataset_collate_fn_test(
         rewards = torch.cat([item['reward'] for item in data])
     if 'bonus' in data[0].keys():
         bonuses = torch.cat([item['bonus'] for item in data])
+        print(bonuses)
     if 'vstar' in data[0].keys():
         vstars = torch.cat([item['vstar'] for item in data])
     if 'vstar_rewards' in data[0].keys():
         vstar_rewards = torch.stack([item['vstar_rewards'] for item in data])
     if 'vstar_bonus' in data[0].keys():
         vstar_bonus = torch.stack([item['vstar_bonus'] for item in data])
+        print(vstar_bonus)
     
     has_mask = 'mask' in data[0].keys()
     if has_mask:
@@ -401,6 +403,10 @@ class OfflineStreamingDataset(StreamingDataset):
         if 'vstar' in sample:
             assert 'vstar_rewards' not in sample
             return_dict['vstar'] = torch.Tensor([sample['vstar']])
+
+        if 'vstar_bonus' in sample:
+            return_dict['vstar_bonus'] = torch.Tensor([sample['vstar_bonus']])
+
 
         if 'v-star' in sample:
             assert 'vstar_rewards' not in sample
