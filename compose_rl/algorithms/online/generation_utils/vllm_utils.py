@@ -28,6 +28,7 @@ import ray
 import torch
 import torch.distributed
 import torch.nn as nn
+from composer.distributed.shared_utils import get_summon_params_fn
 from composer.utils import dist
 from ray.exceptions import GetTimeoutError
 from ray.util.placement_group import placement_group
@@ -51,7 +52,6 @@ from compose_rl.algorithms.online.model_methods import (
     ALGORITHM_TYPE,
     OnPolicyEnum,
 )
-from composer.distributed.shared_utils import get_summon_params_fn
 
 log = logging.getLogger(__name__)
 
