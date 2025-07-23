@@ -54,7 +54,7 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
             vllm_engines (list[Any]): The vllm engines to round trip to.
         """
         batch = device.batch_to_device(self._get_next_iter_prompts())
-        # self._update_inference_model(batch, vllm_engines, model_update_group)
+        self._update_inference_model(batch, vllm_engines, model_update_group)
         self.batch_rollouts = self._interact_with_env(batch, vllm_engines)
 
     def iteration_start(self, state: State, logger: Logger):
