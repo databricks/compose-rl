@@ -447,15 +447,11 @@ def policy_loss(
         assert advantages.shape == masked_log_probs_diff.shape
         policy_loss = ((beta * masked_log_probs_diff - advantages)**2).mean()
 
-        #vstars = batch['vstar']
         rewards = utils.masked_sum(
             batch['rewards'],
             batch['action_mask'],
             dim=-1,
         )
-
-        #assert vstars.size() == rewards.size() == masked_log_probs_diff.size(
-        #)  # should have the same shape which is (batch_size, )
 
         policy_dict = {
             'loss/policy_loss': policy_loss,
@@ -467,7 +463,7 @@ def policy_loss(
                 rewards,
             ),  #compute the average reward of the current batch
             'advantage/mean': torch.mean(
-                advs,
+                advantages,
             ),  #compute the average of the vstar of the current batch
         }
         return policy_dict
