@@ -338,6 +338,7 @@ class OnPolicyCallback(CallbackWithConfig):
 
         self.beta1 = var_config.get('beta1', 0.)
 
+
         # Other algo specific hparams
 
         # Which kl estimator to use
@@ -685,7 +686,7 @@ class OnPolicyCallback(CallbackWithConfig):
                         'prompt_len',
                         'verified_answer',
                         'prompt_id',
-                        'vstar',
+                        'vstar_rewards',
                         'messages',
                     ]:
                         curr_values.append(batch[key])
@@ -703,7 +704,7 @@ class OnPolicyCallback(CallbackWithConfig):
                             )
                     elif key == 'prompt_attention_mask':
                         padding_key = False
-
+                    
                     # Compute the required padding and concatenate with the batch tensor
                     pad = torch.ones(
                         (bs, max_len - seq_len),
@@ -715,7 +716,7 @@ class OnPolicyCallback(CallbackWithConfig):
             if isinstance(curr_values[0], torch.Tensor):
                 ret_batch[key] = torch.cat(curr_values)
             else:
-                if key in ['verified_answer', 'vstar']:
+                if key in ['verified_answer']:
                     ret_batch[key] = list(flatten(curr_values))
                 else:
                     ret_batch[key] = curr_values
