@@ -47,7 +47,7 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
             callback is registered under callbacks_with_config registry.
     """
 
-    def round_trip_to_inference_engines(self, device: Any, vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+    def update_and_query_inference_engines(self, device: Any, vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
         """Round trip to inference engines.
         
         Args:

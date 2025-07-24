@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 @ray.remote(num_gpus=1)
 class DistributedGPUActor(BaseDistributedGPUActor):
-    """Distributed GPU actor for testing."""
+    """Distributed GPU actor for testing. Moved part of controller logic from PPO Callback to here."""
 
     def __init__(self,
         rank: int,
@@ -61,6 +61,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.num_batches_per_update = 2
 
     def build_dataloader(self):
+        # dataloader should be built with inference agent instead with this trainer actor,
+        # it is still attached to trainer actor here to avoid a full refactor to PPO Callback code
         max_seq_len = 32
         prompt_len = 10
 
@@ -87,7 +89,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         return self._dataloader
 
     def build_tokenizer(self):
-        # tokenizer = assets_tokenizer_helper(self.pretrain_model_name)
         tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name)
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         return tokenizer
@@ -113,6 +114,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         return dict()
 
     def build_ref_model(self, pretrain_model_name: str):
+        # train a reference model for the PPO training
+        # The key observation here is that we should construct our high level model training logic in the actor instead of the callback
+        # e.g., we can build ref/reward/policy/value model and create/colocate multiple trainers all in this class 
         tmp_ref_path = str('./ref_checkpoints')
         ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
         if os.path.exists(ref_path):
@@ -207,6 +211,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'device_train_microbatch_size': self.device_train_batch_size,
         }
 
+        # ideally we should pull the rest of the training logic from the callback to this class as well,
+        # e.g, how to interact with env, calculate rewards etc
         self.ppo_callback = SingleControllerOnPolicyCallback(train_config=train_config)
         self.ppo_trainer = Trainer(
             model=model,
@@ -221,6 +227,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
 
     def train_1_iter(self):
+        # we should implement the top level PPO algo here instead of the callback
+        # algorithmic researchers are expected to implement this function along with above policy/value/reward/ref trainers or models
         self.ppo_trainer.fit(duration='1iter')
         # This is the KL assert that must be true if we are truly loading from the same model.
         # This is only true on the first iteration
@@ -230,8 +238,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             atol=5e-5,
         )
 
-    def sync_weight_and_gen(self, vllm_engines: list[Any]):
-        self.ppo_callback.round_trip_to_inference_engines(
+    def update_and_query_inference_engines(self, vllm_engines: list[Any]):
+        self.ppo_callback.update_and_query_inference_engines(
             device=self.ppo_trainer.state.device,
             vllm_engines=vllm_engines,
             model_update_group=self.model_update_group,
@@ -239,16 +247,18 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
 
 def run():
+    # This is an example of how to move the controller logic from PPO Callback to a separate trainer actor above and this main single controller function,
     prompts = [
         "what is RAY?",
         "what is vLLM?",
     ]
-    # pretrain_model_name = 'gpt2'
     pretrain_model_name = 'meta-llama/Llama-3.2-1B-Instruct'
     with start_ray_server() as address:
         if dist.get_rank() == 0:
+            # only rank 0 is the master controller
             master_addr, _ = address.split(':')
             
+            # Init all actors (training, inference, env, etc) of the system
             print(f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===")
             num_train_actors = dist.get_world_size() // 2
             # Create actors - rank 0 will allocate master address/port
@@ -299,6 +309,7 @@ def run():
                 },
             )
 
+            # init additional process groups for vllm_engines and master actor
             new_port = ray.get(master_actor.get_free_port.remote())
             print(f'new_port: {new_port}')
             refs = [
@@ -322,7 +333,8 @@ def run():
             # should only get refs of both master and vllm_engines together, otherwise it will hang
             print(ray.get(refs))
 
-            refs = [actor.sync_weight_and_gen.remote(vllm_engines) for actor in train_actors]
+            # core controller logic, should be implemented according to the algorithm (ppo, multi-turn, etc)
+            refs = [actor.update_and_query_inference_engines.remote(vllm_engines) for actor in train_actors]
             ray.get(refs)
             print('sync weight and gen done')
 
