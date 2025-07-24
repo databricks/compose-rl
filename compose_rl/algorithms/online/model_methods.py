@@ -427,10 +427,10 @@ def policy_loss(
             )
 
         assert advantages is not None
-        assert advantages.shape == online_log_probs.shape
+        #assert advantages.shape == online_log_probs.shape
         # take the first column of the advantages to get a tensor with (bs,), 
         # since we don't need token level advantages here for these two losses.
-        advs = advantages[:,0] 
+        #advs = advantages[:,0] 
 
         if loss_type == OnPolicyEnum.APO:
             masked_log_probs_diff = utils.masked_sum(
@@ -444,7 +444,8 @@ def policy_loss(
                 batch['action_mask'],
                 dim = -1,
             )
-        policy_loss = ((beta * masked_log_probs_diff - advs)**2).mean()
+        assert advantages.shape == masked_log_probs_diff.shape
+        policy_loss = ((beta * masked_log_probs_diff - advantages)**2).mean()
 
         #vstars = batch['vstar']
         rewards = utils.masked_sum(
