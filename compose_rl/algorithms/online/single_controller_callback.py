@@ -42,9 +42,7 @@ log = logging.getLogger(__name__)
 class SingleControllerOnPolicyCallback(OnPolicyCallback):
     """Callback for managing on-policy training in an RLHF loop.
 
-    Args:
-        train_config (dict): Training config passed to callback via foundry train.py as
-            callback is registered under callbacks_with_config registry.
+    Ideally all the overwritten methods below should be implemented in the trainer actor instead of the callback, we kept them here for now to minimize a drastic refactor to PPO Callback code
     """
 
     def update_and_query_inference_engines(self, device: Any, vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
