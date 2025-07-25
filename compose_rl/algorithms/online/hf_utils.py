@@ -7,6 +7,7 @@ from typing import Any, Optional, Union
 
 import torch
 import torch.nn as nn
+from composer.distributed.shared_utils import get_summon_params_fn
 from composer.utils import is_model_fsdp
 from transformers import (
     AutoConfig,
@@ -93,14 +94,13 @@ class AutoModelForCausalLMAsPolicy(PreTrainedModel):
         **kwargs: Any,
     ):
         if is_model_fsdp(self.lm_backbone):
-            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-
-            # Note: We need to use the FSDP.summon_full_params context manager here because the generate function
+            # Note: We need to use the summon_full_params context manager here because the generate function
             # does not seem to gather the weights for the LM head. This solution works because the tied weights of the LM head
             # are in the root FSDP module, and are summoned by the below context manager. See https://github.com/pytorch/pytorch/issues/100069
             # for more info.
             # Note: We use recurse=False here so that we only summon full params for the LM head, not the entire model.
-            with FSDP.summon_full_params(
+            summon_full_params = get_summon_params_fn(self.lm_backbone)
+            with summon_full_params(
                 self.lm_backbone,
                 writeback=False,
                 recurse=False,

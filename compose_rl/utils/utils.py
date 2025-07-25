@@ -11,7 +11,9 @@ import spacy
 import spacy_alignments as tokenizations
 import torch
 import torch.nn.functional as F
+from composer.utils import dist
 from kubernetes import client, config
+from torch.distributed.fsdp import FSDPModule
 from torch.utils.data import DataLoader
 from transformers import PretrainedConfig
 
@@ -998,14 +1000,18 @@ def flip_pad_token_usage_for_generate(model: torch.nn.Module):
     assert len(model.transformer.blocks) > 0  # type: ignore
     block = model.transformer.blocks[0]  # type: ignore
     # Logic takes care of the activation checkpointing case w/ FSDP
-    if hasattr(
-        block._fsdp_wrapped_module,  # type: ignore
-        '_checkpoint_wrapped_module',
-    ):
-        needs_flipping = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
+    if hasattr(block, '_fsdp_wrapped_module'):
+        fsdp_wrapped_module = block._fsdp_wrapped_module  # type: ignore
+    elif isinstance(block, FSDPModule):
+        fsdp_wrapped_module = block
+    else:
+        return needs_flipping
+
+    if hasattr(fsdp_wrapped_module, '_checkpoint_wrapped_module'):
+        needs_flipping = not fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
     else:
         # Otherwise we avoid the activation checkpointing and toggle the flag here
-        needs_flipping = not block._fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
+        needs_flipping = not fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
 
     if needs_flipping:
         flip_pad_token_usage_in_ffn(model)
@@ -1024,11 +1030,17 @@ def flip_pad_token_usage_in_ffn(model: torch.nn.Module):
     for block in model.transformer.blocks:  # type: ignore
 
         # Logic takes care of the activation checkpointing case w/ FSDP
-        if hasattr(block._fsdp_wrapped_module, '_checkpoint_wrapped_module'):
-            block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn = not block._fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn
+        if hasattr(block, '_fsdp_wrapped_module'):
+            fsdp_wrapped_module = block._fsdp_wrapped_module
+        elif isinstance(block, FSDPModule):
+            fsdp_wrapped_module = block
+        else:
+            continue
+        if hasattr(fsdp_wrapped_module, '_checkpoint_wrapped_module'):
+            fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn = not fsdp_wrapped_module._checkpoint_wrapped_module.use_pad_tok_in_ffn  # type: ignore
         else:
             # Otherwise we avoid the activation checkpointing and toggle the flag here
-            block._fsdp_wrapped_module.use_pad_tok_in_ffn = not block._fsdp_wrapped_module.use_pad_tok_in_ffn
+            fsdp_wrapped_module.use_pad_tok_in_ffn = not fsdp_wrapped_module.use_pad_tok_in_ffn  # type: ignore
 
 
 def get_remote_name(pod_name: str):
