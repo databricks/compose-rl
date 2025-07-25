@@ -515,7 +515,7 @@ def online_rl_loss(
     # tensors in `outputs` are recomputed at the start of each step in the epoch.
 
     return_dict = {}
-    advantages = None
+    advantages = batch.get('advantages', None)
     if loss_type not in ALGORITHM_TYPE.REGRESSION:
         advantages = batch['advantages']
 
@@ -540,19 +540,11 @@ def online_rl_loss(
 
         # Normalizing advantages over each minibatch
 
-        print("####################")
-        print(batch['advantages'])
-
         advantages = utils.masked_normalize(
             batch['advantages'],
             adv_masked_mean,
             adv_masked_var,
         )
-
-
-        print("####################")
-        print(advantages)
-
         return_dict.update(**value_dict)
 
     if advantages is not None:
