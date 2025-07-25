@@ -339,6 +339,51 @@ class TrainActorGroup(SPMDActorGroup):
         print('train 1 iter done')
 
 
+class InferenceAgent:
+
+    def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str):
+        self.num_vllm_engines = num_vllm_engines
+        self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
+        self.vllm_engines = create_vllm_engines(
+            num_engines=num_vllm_engines,
+            tensor_parallel_size=vllm_tensor_parallel_size,
+            enforce_eager=True,
+            pretrain=pretrain_model_name,
+            revision=None,
+            seed=1,
+            enable_prefix_caching=False,
+            max_model_len=512,
+            device_bundle={
+                'GPU': 1,
+                'CPU': 1,
+                'worker_node': 0,
+            },
+        )
+
+    def generate(self, prompts: list[str]):
+        ref = self.vllm_engines[0].generate.remote(prompts)
+        gen_results = ray.get(ref)
+        for output in gen_results:
+            prompt = output.prompt
+            generated_text = output.outputs[0].text
+            print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+
+
+class PPOController:
+
+    def __init__(self, train_actor: TrainActorGroup, inference_client: InferenceAgent, pretrain_model_name: str):
+        self.train_actor = train_actor
+        self.inference_client = inference_client
+
+        self.train_actor.build_models(pretrain_model_name)
+        setup_process_groups(self.train_actor.master_actor, self.inference_client.vllm_engines, self.inference_client.vllm_tensor_parallel_size)
+
+    
+    def train(self):
+        self.train_actor.sync_weights_and_generate(self.inference_client.vllm_engines)
+        self.train_actor.train_iteration()
+
+
 def run():
     # This is an example of how to move the controller logic from PPO Callback to a separate trainer actor above and this main single controller function,
     prompts = [
@@ -352,8 +397,7 @@ def run():
             
             # create SPMD training actors of the system
             num_train_actors = dist.get_world_size() // 2
-            actor_group = TrainActorGroup(num_train_actors)
-            actor_group.build_models(pretrain_model_name)
+            train_actor = TrainActorGroup(num_train_actors)
 
             # Create vLLM engines (or inference actors)
             world_size = dist.get_world_size()
@@ -361,38 +405,13 @@ def run():
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
-            print(f'num_vllm_engines: {num_vllm_engines}')
-            
-            vllm_engines = create_vllm_engines(
-                num_engines=num_vllm_engines,
-                tensor_parallel_size=vllm_tensor_parallel_size,
-                enforce_eager=True,
-                pretrain=pretrain_model_name,
-                revision=None,
-                seed=1,
-                enable_prefix_caching=False,
-                max_model_len=512,
-                device_bundle={
-                    'GPU': 1,
-                    'CPU': 1,
-                    'worker_node': 0,
-                },
-            )
 
-            setup_process_groups(actor_group.master_actor, vllm_engines, vllm_tensor_parallel_size)
+            inference_client = InferenceAgent(num_vllm_engines, vllm_tensor_parallel_size, pretrain_model_name)
 
-            # core controller logic, should be implemented according to the algorithm (ppo, multi-turn, etc)
-            actor_group.sync_weights_and_generate(vllm_engines)
+            ppo_controller = PPOController(train_actor, inference_client, pretrain_model_name)
+            ppo_controller.train()
 
-            actor_group.train_iteration()
-
-            # Generate text using the first vLLM engine
-            ref = vllm_engines[0].generate.remote(prompts)
-            gen_results = ray.get(ref)
-            for output in gen_results:
-                prompt = output.prompt
-                generated_text = output.outputs[0].text
-                print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+            inference_client.generate(prompts)
 
 if __name__ == '__main__':
     run()
