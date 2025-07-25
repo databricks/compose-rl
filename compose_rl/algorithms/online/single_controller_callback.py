@@ -6,23 +6,13 @@
 from __future__ import annotations
 
 import logging
-import time
-from typing import Any, Union
+from typing import Union
 
-import torch
-from composer.core import (
-    State,
-    get_precision_context,
-)
+from composer.core import State
 from composer.loggers import Logger
 from composer.trainer.trainer import _get_initial_device_train_microbatch_size
-from composer.utils import dist
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from compose_rl.algorithms.online.generation_utils import (
-    broadcast_to_vllm,
-    vllm_generate,
-)
 from compose_rl.algorithms.online.model import (
     ComposerHFPolicyLM,
     ComposerMPTPolicyLM,
