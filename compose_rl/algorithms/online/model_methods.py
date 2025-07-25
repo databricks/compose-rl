@@ -539,11 +539,19 @@ def online_rl_loss(
             adv_masked_var = adv_masked_var[0]
 
         # Normalizing advantages over each minibatch
+
+        print("####################")
+        print(batch['advantages'])
+
         advantages = utils.masked_normalize(
             batch['advantages'],
             adv_masked_mean,
             adv_masked_var,
         )
+
+
+        print("####################")
+        print(advantages)
 
         return_dict.update(**value_dict)
 
