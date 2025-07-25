@@ -13,6 +13,7 @@ import ray
 import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from transformers import (
     AutoTokenizer,
 )
@@ -70,6 +71,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.train_config: dict = None
 
     def build_train_config(self, pretrain_model_name: str):
+        # TODO: Modify the train config. Hardcode to the config for Qwen/Qwen2.5-7B-Instruct
         self.pretrain_model_name = pretrain_model_name
         self.device_train_batch_size = 4
         self.num_batches_per_update = 2
@@ -130,6 +132,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         max_seq_len = 32
         prompt_len = 10
 
+        # TODO: Modify the dummy dataset to be actual verifiable prompt dataset dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/q7b_open_r1_48k/
+        # NOTE: Create DistributedSampler
+        # Potentially just move this out of the Actor to the Single Controller
         dataset = VerifiablePromptDataset(prompt_len=prompt_len)
         dataloader = DataLoader(
             dataset,
@@ -181,6 +186,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         composer_dist.initialize_dist('gpu')
 
     def build_ref_model(self):
+        # TODO: Modify this to use the reference model logic in the composer-rl library
         # train a reference model for the PPO training
         # The key observation here is that we should construct our high level model training logic in the actor instead of the callback
         # e.g., we can build ref/reward/policy/value model and create/colocate multiple trainers all in this class 
@@ -225,6 +231,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         # ideally we should pull the rest of the training logic from the callback to this class as well,
         # e.g, how to interact with env, calculate rewards etc
+        
+        # NOTE: SingleControllerOnPolicyCallback is over-writing the iteration_start method
+
         self.ppo_callback = SingleControllerOnPolicyCallback(train_config=self.train_config)
         self.ppo_trainer = Trainer(
             model=model,
@@ -363,11 +372,14 @@ class TrainActorGroup(SPMDActorGroup):
         ray.get(init_task)
 
         # Build reference models
-        build_ref_model_tasks = [actor.build_ref_model.remote() for actor in self._train_actors]
-        ray.get(build_ref_model_tasks)
-        print('build ref model done')
+        # TODO: Bowen thinks we should not be needing to build reference models.
+        # Currently this is just a dummy trainer to create a checkpoint
+        # build_ref_model_tasks = [actor.build_ref_model.remote() for actor in self._train_actors]
+        # ray.get(build_ref_model_tasks)
+        # print('build ref model done')
 
         # Build PPO trainers
+        # NOTE: PPO Trainer Callback might already be creating a reference model internally
         build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote() for actor in self._train_actors]
         ray.get(build_ppo_trainer_tasks)
         print('build ppo trainer done')
@@ -419,9 +431,13 @@ class PPOController:
 
     
     def train(self):
-        self.train_actor.update_inference_model(self.inference_client.vllm_engines)
-        self.train_actor.query_inference_engines(self.inference_client.vllm_engines)
-        self.train_actor.train_iteration()
+        # TODO: add a for loop to train for multiple iterations
+        for _ in range(5):  # Example: train for 5 iterations
+            # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
+            self.train_actor.update_inference_model(self.inference_client.vllm_engines)
+            self.train_actor.query_inference_engines(self.inference_client.vllm_engines)
+            # NOTE: Now this function will call composer.trainer.fit() which will call the iteration_start in the callback
+            self.train_actor.train_iteration()
 
 
 def run():
