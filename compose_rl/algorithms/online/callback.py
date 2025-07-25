@@ -1002,10 +1002,15 @@ class OnPolicyCallback(CallbackWithConfig):
                 'Valid options are: ppo, grpo.',
             )
 
-        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            env_outs['advantages'],
-            env_outs['action_mask'],
-        )
+        if self.actor_critic.loss_type == OnPolicyEnum.APO or self.actor_critic.loss_type == OnPolicyEnum.SMD:
+            batch_adv_mean = torch.mean(env_outs['advantages'])
+            batch_adv_var = (torch.std(env_outs['advantages']))**2
+        else:
+            batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
+                env_outs['advantages'],
+                env_outs['action_mask'],
+            )
+
         bs = iter_batch['prompt_id'].shape[0]
         iter_batch.update({
             'adv_masked_mean': torch.ones(bs) * batch_adv_mean.cpu(),
