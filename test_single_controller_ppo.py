@@ -20,6 +20,7 @@ from transformers import (
 from composer import Trainer
 from composer.optim import DecoupledAdamW
 from composer.utils import dist as composer_dist
+from composer.core import get_precision_context
 from llmfoundry.models import ComposerHFCausalLM
 
 from compose_rl.algorithms.online import (
@@ -29,6 +30,7 @@ from compose_rl.algorithms.online import (
 from compose_rl.algorithms.online.generation_utils import (
     broadcast_to_vllm,
     create_vllm_engines,
+    vllm_generate,
 )
 from compose_rl.data import prompt_dataset_collate_fn
 from compose_rl.utils.ray_utils import start_ray_server
@@ -50,19 +52,77 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         rank: int,
         world_size: int,
         master_addr: Optional[str] = None,
-        master_port: Optional[int] = None):
+        master_port: Optional[int] = None,):
         super().__init__(rank, world_size, master_addr, master_port)
         self.model = None
         self.model_update_group = None
-        self.pretrain_model_name = None
         self.ref_path = None
         self._dataloader = None
         self._tokenizer = None
         self.ppo_callback = None
         self.ppo_trainer: Trainer = None
 
+        self.pretrain_model_name = None
+        self.device_train_batch_size = None
+        self.num_batches_per_update = None
+        self.max_seq_len = None
+        self.precision = None
+        self.train_config: dict = None
+
+    def build_train_config(self, pretrain_model_name: str):
+        self.pretrain_model_name = pretrain_model_name
         self.device_train_batch_size = 4
         self.num_batches_per_update = 2
+        self.max_seq_len = 32
+        self.precision = 'amp_bf16'
+
+        ref_model_config = {**self.model_config, 'name': 'hf_causal_lm'}
+
+        variables = {
+            'buffer': {
+                'name': 'MinibatchRolloutBuffer',
+                'max_buffer_size': self.num_batches_per_update,
+            },
+            'max_gen_len': 8,
+            'gamma': 0.99,
+            'lambda_gae': 0.95,
+            'generation_kwargs': {
+                'use_cache': True,
+                'do_sample': False,
+                'temperature': 1.0,
+            },
+            'kl_controller': {
+                'init_kl_coef': 0.2,
+                'target': 0.01,
+                'horizon': 12800,
+                'kl_ctl_type': 'adaptive',
+            },
+            'reference_model': {
+                'model_config': ref_model_config,
+                'precision': self.precision,
+                'load_path': self.ref_path,
+                'non_train_fsdp_config': self.fsdp_config,
+            },
+            'epoch_per_iteration': 1,
+            'num_batches_per_update': self.num_batches_per_update,
+            'rewards': {
+                'output_length': {
+                    'reward_type': 'output_length',
+                    'max_gen_len': 10,
+                },
+            },
+        }
+        self.train_config = {
+            'model': {**self.model_config, 'kl_estimator': 'k1', 'kl_clip_range': 40.0},
+            'fsdp_config': self.fsdp_config,
+            'seed': 17,
+            'precision': self.precision,
+            'variables': variables,
+            'max_seq_len': self.max_seq_len,
+            'global_train_batch_size': self.device_train_batch_size * self.world_size,
+            'device_train_batch_size': self.device_train_batch_size,
+            'device_train_microbatch_size': self.device_train_batch_size,
+        }
 
     def build_dataloader(self):
         # dataloader should be built with inference agent instead with this trainer actor,
@@ -120,7 +180,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def init_composer_dist(self):
         composer_dist.initialize_dist('gpu')
 
-    def build_ref_model(self, pretrain_model_name: str):
+    def build_ref_model(self):
         # train a reference model for the PPO training
         # The key observation here is that we should construct our high level model training logic in the actor instead of the callback
         # e.g., we can build ref/reward/policy/value model and create/colocate multiple trainers all in this class 
@@ -130,7 +190,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             self.ref_path = ref_path
             return
 
-        self.pretrain_model_name = pretrain_model_name
         tmp_model = ComposerHFCausalLM(**self.model_config, use_auth_token=True)
 
         tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
@@ -157,74 +216,22 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # After making the reference model, we can proceed with the PPO training
         self.ref_path = ref_path
 
-    def build_ppo_trainer(self, pretrain_model_name: str):
-        self.pretrain_model_name = pretrain_model_name
+    def build_ppo_trainer(self):
         composer_dist.initialize_dist('gpu')
-        max_seq_len = 32
-        precision = 'amp_bf16'
 
         model = ComposerHFPolicyLM(**self.model_config, use_auth_token=True)
 
         optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
 
-        # ref_model_config = copy.deepcopy(self.model_config)
-        ref_model_config = {**self.model_config, 'name': 'hf_causal_lm'}
-
-        variables = {
-            'buffer': {
-                'name': 'MinibatchRolloutBuffer',
-                'max_buffer_size': self.num_batches_per_update,
-            },
-            'max_gen_len': 8,
-            'gamma': 0.99,
-            'lambda_gae': 0.95,
-            'generation_kwargs': {
-                'use_cache': True,
-                'do_sample': False,
-                'temperature': 1.0,
-            },
-            'kl_controller': {
-                'init_kl_coef': 0.2,
-                'target': 0.01,
-                'horizon': 12800,
-                'kl_ctl_type': 'adaptive',
-            },
-            'reference_model': {
-                'model_config': ref_model_config,
-                'precision': precision,
-                'load_path': self.ref_path,
-                'non_train_fsdp_config': self.fsdp_config,
-            },
-            'epoch_per_iteration': 1,
-            'num_batches_per_update': self.num_batches_per_update,
-            'rewards': {
-                'output_length': {
-                    'reward_type': 'output_length',
-                    'max_gen_len': 10,
-                },
-            },
-        }
-        train_config = {
-            'model': {**self.model_config, 'kl_estimator': 'k1', 'kl_clip_range': 40.0},
-            'fsdp_config': self.fsdp_config,
-            'seed': 17,
-            'precision': precision,
-            'variables': variables,
-            'max_seq_len': max_seq_len,
-            'global_train_batch_size': self.device_train_batch_size * self.world_size,
-            'device_train_batch_size': self.device_train_batch_size,
-            'device_train_microbatch_size': self.device_train_batch_size,
-        }
-
         # ideally we should pull the rest of the training logic from the callback to this class as well,
         # e.g, how to interact with env, calculate rewards etc
-        self.ppo_callback = SingleControllerOnPolicyCallback(train_config=train_config)
+        self.ppo_callback = SingleControllerOnPolicyCallback(train_config=self.train_config)
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
             callbacks=self.ppo_callback,
             train_dataloader=self.dataloader,
-            precision=precision,
+            precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
             max_duration='3iter',
             device_train_microbatch_size=1,
@@ -243,35 +250,43 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             atol=5e-5,
         )
 
-    def update_inference_model(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+    def update_inference_model(self, vllm_engines: list[Any]):
         start_time = time.time()
         print('Before broadcast to vLLM')
         broadcast_to_vllm(
             self.ppo_callback.actor_critic,
             vllm_engines,
-            model_update_group,
-            device=batch['prompt'].device,
+            self.model_update_group,
+            device=torch.device('cuda'),
             loss_type=self.ppo_callback.actor_critic.loss_type,  # type: ignore
         )
         print('Finished broadcasting to vLLM')
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
         dist.barrier()
 
-    def query_inference_engines(self, device: Any, vllm_engines: list[Any]):
+    def query_inference_engines(self, vllm_engines: list[Any]):
         """Round trip to inference engines.
         
         Args:
             vllm_engines (list[Any]): The vllm engines to round trip to.
         """
-        batch = device.batch_to_device(self.ppo_callback._get_next_iter_prompts())
-        self.ppo_callback.batch_rollouts = self.ppo_callback._interact_with_env(batch, vllm_engines)
-    
-    def update_and_query_inference_engines(self, vllm_engines: list[Any]):
-        self.ppo_callback.update_and_query_inference_engines(
-            device=self.ppo_trainer.state.device,
-            vllm_engines=vllm_engines,
-            model_update_group=self.model_update_group,
-        )
+        batch = self.ppo_trainer.state.device.batch_to_device(self.ppo_callback._get_next_iter_prompts())
+        max_gen_len = self.train_config['variables']['max_gen_len']
+        generation_kwargs = self.train_config['variables']['generation_kwargs']
+        with get_precision_context(self.precision), torch.no_grad():
+            # If vllm engines are available, we use them to generate sequences in one go
+            sequences = vllm_generate(
+                vllm_engines=vllm_engines,
+                batch=batch,
+                max_gen_len=max_gen_len,
+                generation_kwargs=generation_kwargs,
+                tokenizer=self.tokenizer,  # type: ignore
+                vllm_generate_function='generate',
+            )
+        # Add the prepared sequences to the batch again
+        batch['sequences'] = sequences
+        self.ppo_callback.batch_rollouts = batch
+
 
 def setup_process_groups(master_actor: Any, vllm_engines: list[Any], vllm_tensor_parallel_size: int):
     """Initialize process groups for vLLM engines and master actor."""
@@ -341,25 +356,31 @@ class TrainActorGroup(SPMDActorGroup):
 
     def build_models(self, pretrain_model_name: str):
         """Build reference models and PPO trainers for all actors."""
+        build_train_config_tasks = [actor.build_train_config.remote(pretrain_model_name) for actor in self._train_actors]
+        ray.get(build_train_config_tasks)
+
         init_task = [actor.init_composer_dist.remote() for actor in self._train_actors]
         ray.get(init_task)
-        print('init composer dist done')
 
         # Build reference models
-        build_ref_model_tasks = [actor.build_ref_model.remote(pretrain_model_name) for actor in self._train_actors]
+        build_ref_model_tasks = [actor.build_ref_model.remote() for actor in self._train_actors]
         ray.get(build_ref_model_tasks)
         print('build ref model done')
 
         # Build PPO trainers
-        build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote(pretrain_model_name) for actor in self._train_actors]
+        build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote() for actor in self._train_actors]
         ray.get(build_ppo_trainer_tasks)
         print('build ppo trainer done')
-
-    def sync_weights_and_generate(self, vllm_engines: list[Any]):
-        """Sync weights and generate with inference engines."""
-        refs = [actor.update_and_query_inference_engines.remote(vllm_engines) for actor in self._train_actors]
+    
+    def update_inference_model(self, vllm_engines: list[Any]):
+        refs = [actor.update_inference_model.remote(vllm_engines) for actor in self._train_actors]
         ray.get(refs)
-        print('sync weight and gen done')
+        print('update inference model done')
+    
+    def query_inference_engines(self, vllm_engines: list[Any]):
+        refs = [actor.query_inference_engines.remote(vllm_engines) for actor in self._train_actors]
+        ray.get(refs)
+        print('query inference engines done')
 
     def train_iteration(self):
         """Run one training iteration on all actors."""
@@ -409,7 +430,8 @@ class PPOController:
 
     
     def train(self):
-        self.train_actor.sync_weights_and_generate(self.inference_client.vllm_engines)
+        self.train_actor.update_inference_model(self.inference_client.vllm_engines)
+        self.train_actor.query_inference_engines(self.inference_client.vllm_engines)
         self.train_actor.train_iteration()
 
 
