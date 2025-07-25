@@ -469,7 +469,7 @@ def broadcast_to_vllm(
         with summon_full_params(
             module,
             writeback=False,
-            rank0_only=True,
+            rank0_only=False,
             recurse=False,
         ):
             # Note: For the following module.named_parameters(), we have to use recurse=True
