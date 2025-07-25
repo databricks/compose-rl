@@ -19,7 +19,7 @@ class OnPolicyEnum(Enum):
 
 
 class ALGORITHM_TYPE(set, Enum):
-    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.APO}
+    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.APO, OnPolicyEnum.SMD}
     ACTOR_CRITIC = {OnPolicyEnum.PPO}
     CLIPPED_PG = {OnPolicyEnum.PPO, OnPolicyEnum.GRPO}
     REGRESSION = {
