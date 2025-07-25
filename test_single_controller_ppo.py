@@ -5,6 +5,7 @@
 
 import logging
 import os
+import time
 from functools import partial
 from typing import Any, Optional
 
@@ -25,7 +26,10 @@ from compose_rl.algorithms.online import (
     ComposerHFPolicyLM,
     SingleControllerOnPolicyCallback,
 )
-from compose_rl.algorithms.online.generation_utils import create_vllm_engines
+from compose_rl.algorithms.online.generation_utils import (
+    broadcast_to_vllm,
+    create_vllm_engines,
+)
 from compose_rl.data import prompt_dataset_collate_fn
 from compose_rl.utils.ray_utils import start_ray_server
 
@@ -239,6 +243,29 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             atol=5e-5,
         )
 
+    def update_inference_model(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+        start_time = time.time()
+        print('Before broadcast to vLLM')
+        broadcast_to_vllm(
+            self.ppo_callback.actor_critic,
+            vllm_engines,
+            model_update_group,
+            device=batch['prompt'].device,
+            loss_type=self.ppo_callback.actor_critic.loss_type,  # type: ignore
+        )
+        print('Finished broadcasting to vLLM')
+        print(f'Took: {time.time() - start_time} to broadcast to vllm.')
+        dist.barrier()
+
+    def query_inference_engines(self, device: Any, vllm_engines: list[Any]):
+        """Round trip to inference engines.
+        
+        Args:
+            vllm_engines (list[Any]): The vllm engines to round trip to.
+        """
+        batch = device.batch_to_device(self.ppo_callback._get_next_iter_prompts())
+        self.ppo_callback.batch_rollouts = self.ppo_callback._interact_with_env(batch, vllm_engines)
+    
     def update_and_query_inference_engines(self, vllm_engines: list[Any]):
         self.ppo_callback.update_and_query_inference_engines(
             device=self.ppo_trainer.state.device,

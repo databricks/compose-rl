@@ -1157,7 +1157,7 @@ class OnPolicyCallback(CallbackWithConfig):
             model=self.actor_critic,
             vllm_engines=self.vllm_engines,
             model_update_group=self.model_update_group,
-            batch=batch,
+            device=batch['prompt'].device,
             loss_type=self.actor_critic.loss_type,  # type: ignore
             enable_prefix_caching=self.vllm_enable_prefix_caching,
         )

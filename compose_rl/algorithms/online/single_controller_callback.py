@@ -52,7 +52,7 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
             vllm_engines (list[Any]): The vllm engines to round trip to.
         """
         batch = device.batch_to_device(self._get_next_iter_prompts())
-        self._update_inference_model(batch, vllm_engines, model_update_group)
+        self._update_inference_model(vllm_engines, model_update_group)
         self.batch_rollouts = self._interact_with_env(batch, vllm_engines)
 
     def iteration_start(self, state: State, logger: Logger):
@@ -102,14 +102,14 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
         return batch
 
 
-    def _update_inference_model(self, batch: dict[str, torch.Tensor], vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
+    def _update_inference_model(self, vllm_engines: list[Any], model_update_group: dist.ProcessGroup):
         start_time = time.time()
         log.info('Before broadcast to vLLM')
         broadcast_to_vllm(
             self.actor_critic,
             vllm_engines,
             model_update_group,
-            batch,
+            device=torch.device('cuda'),
             loss_type=self.actor_critic.loss_type,  # type: ignore
         )
         log.info('Finished broadcasting to vLLM')
