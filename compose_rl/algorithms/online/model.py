@@ -264,6 +264,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         policy_clip_ratio: float = 0.15,
         policy_clip_high_ratio: float | None = None,
         beta: float = 1e-3,
+        beta1: float = 0.5, 
         compute_kl_loss: bool = True,
         entropy_loss_weight: float | None = None,
         target_kl: float = 0.1,
@@ -286,6 +287,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
             kl_clip_range (float): The KL clip range. Default: ``40.0``.
             beta (float): pi_ref KL hyperparameter for APO. Default: ``1e-3``
+            beta1 (float): hyperparmater to form V* in APO. Default: ``0.5``
             temperature (float): Sampling temperature used for generations to properly scale logits.
         """
         super().__init__(**kwargs)
@@ -298,6 +300,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.compute_kl_loss = compute_kl_loss
         self.target_kl = target_kl
         self.beta = beta
+        self.beta1 = beta1
         self.kl_estimator = kl_estimator
         self.kl_clip_range = kl_clip_range
         self.entropy_loss_weight = entropy_loss_weight
