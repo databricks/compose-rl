@@ -688,6 +688,7 @@ class OnPolicyCallback(CallbackWithConfig):
                         'prompt_id',
                         'vstar_rewards',
                         'messages',
+                        'vstar',
                     ]:
                         curr_values.append(batch[key])
                         continue
