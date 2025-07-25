@@ -6,7 +6,6 @@ import os
 from functools import partial
 from typing import Any, Optional
 
-import pytest
 import ray
 import torch
 import torch.distributed as dist
@@ -31,7 +30,6 @@ from compose_rl.utils.ray_utils import start_ray_server
 from tests.common import (
     BaseDistributedGPUActor,
     VerifiablePromptDataset,
-    world_size,
 )
 
 # Set up logging
@@ -245,6 +243,99 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model_update_group=self.model_update_group,
         )
 
+def setup_process_groups(master_actor: Any, vllm_engines: list[Any], master_addr: str, num_train_actors: int):
+    """Initialize process groups for vLLM engines and master actor."""
+    # Get a new port for the weight-update process group
+    new_port = ray.get(master_actor.get_free_port.remote())
+    print(f'new_port: {new_port}')
+    
+    world_size = dist.get_world_size()
+    vllm_tensor_parallel_size = world_size - num_train_actors
+    
+    # Initialize process groups for vLLM engines
+    refs = [
+        engine.init_process_group.remote(
+            master_addr,
+            new_port,
+            i * vllm_tensor_parallel_size + 1,
+            world_size // 2 + 1,
+            'weight-update',
+            backend='nccl',
+        ) for i, engine in enumerate(vllm_engines)
+    ]
+    
+    # Add master actor to the process group
+    refs.append(master_actor.add_process_group.remote(
+        backend='nccl',
+        master_addr=master_addr,
+        master_port=new_port,
+        world_size=world_size // 2 + 1,
+        rank=0,
+        group_name='weight-update',
+    ))
+    
+    # Wait for all process groups to be initialized
+    print(ray.get(refs))
+
+
+class DistributedActorGroup:
+    def __init__(self, num_train_actors: int, master_addr: str, master_port: int):
+        self.num_train_actors = num_train_actors
+        self.master_addr = master_addr
+        self.master_port = master_port
+        self._master_actor = None
+        self._train_actors = []
+
+    def create_actors(self, pretrain_model_name: str):
+        """Create and initialize all training actors."""
+        print(f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===")
+        
+        # Create master actor first
+        self._master_actor = DistributedGPUActor.remote(0, self.num_train_actors)
+        self._train_actors.append(self._master_actor)
+        
+        # Get master address from rank 0 actor
+        master_info = ray.get(self._master_actor.get_master_address.remote())
+        self.master_addr, self.master_port = master_info
+        print(f"Master address allocated: {self.master_addr}:{self.master_port}")
+        
+        # Create remaining actors with the master address/port
+        for i in range(1, self.num_train_actors):
+            actor = DistributedGPUActor.remote(i, self.num_train_actors, self.master_addr, self.master_port)
+            self._train_actors.append(actor)
+
+    def build_models(self, pretrain_model_name: str):
+        """Build reference models and PPO trainers for all actors."""
+        # Build reference models
+        build_ref_model_tasks = [actor.build_ref_model.remote(pretrain_model_name) for actor in self._train_actors]
+        ray.get(build_ref_model_tasks)
+        print('build ref model done')
+
+        # Build PPO trainers
+        build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote(pretrain_model_name) for actor in self._train_actors]
+        ray.get(build_ppo_trainer_tasks)
+        print('build ppo trainer done')
+
+    def sync_weights_and_generate(self, vllm_engines: list[Any]):
+        """Sync weights and generate with inference engines."""
+        refs = [actor.update_and_query_inference_engines.remote(vllm_engines) for actor in self._train_actors]
+        ray.get(refs)
+        print('sync weight and gen done')
+
+    def train_iteration(self):
+        """Run one training iteration on all actors."""
+        refs = [actor.train_1_iter.remote() for actor in self._train_actors]
+        ray.get(refs)
+        print('train 1 iter done')
+
+    @property
+    def train_actors(self):
+        return self._train_actors
+
+    @property
+    def master_actor(self):
+        return self._master_actor
+
 
 def run():
     # This is an example of how to move the controller logic from PPO Callback to a separate trainer actor above and this main single controller function,
@@ -259,40 +350,21 @@ def run():
             master_addr, _ = address.split(':')
             
             # Init all actors (training, inference, env, etc) of the system
-            print(f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===")
             num_train_actors = dist.get_world_size() // 2
-            # Create actors - rank 0 will allocate master address/port
-            train_actors = []
-
-            # master actor will allocate master_addr and master_port
-            master_actor = DistributedGPUActor.remote(0, num_train_actors)
-            train_actors.append(master_actor)
-            
-            # Get master address from rank 0 actor
-            master_info = ray.get(master_actor.get_master_address.remote())
-            master_addr, master_port = master_info
-            print(f"Master address allocated: {master_addr}:{master_port}")
-            
-            # Create remaining actors with the master address/port
-            for i in range(1, num_train_actors):
-                actor = DistributedGPUActor.remote(i, num_train_actors, master_addr, master_port)
-                train_actors.append(actor)
+            actor_group = DistributedActorGroup(num_train_actors, master_addr, 0)  # master_port will be updated by create_actors
+            actor_group.create_actors(pretrain_model_name)
 
             # composer will initialize the process group for each actor, so no need to initialize them explicitly
-            build_ref_model_tasks = [actor.build_ref_model.remote(pretrain_model_name) for actor in train_actors]
-            ray.get(build_ref_model_tasks)
-            print('build ref model done')
+            actor_group.build_models(pretrain_model_name)
 
-            build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote(pretrain_model_name) for actor in train_actors]
-            ray.get(build_ppo_trainer_tasks)
-            print('build ppo trainer done')
-
+            # Create vLLM engines
             world_size = dist.get_world_size()
             vllm_tensor_parallel_size = world_size - num_train_actors
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
             print(f'num_vllm_engines: {num_vllm_engines}')
+            
             vllm_engines = create_vllm_engines(
                 num_engines=num_vllm_engines,
                 tensor_parallel_size=vllm_tensor_parallel_size,
@@ -309,39 +381,14 @@ def run():
                 },
             )
 
-            # init additional process groups for vllm_engines and master actor
-            new_port = ray.get(master_actor.get_free_port.remote())
-            print(f'new_port: {new_port}')
-            refs = [
-                engine.init_process_group.remote(
-                    master_addr,
-                    new_port,
-                    i * vllm_tensor_parallel_size + 1,
-                    dist.get_world_size() // 2 + 1,
-                    'weight-update',
-                    backend='nccl',
-                ) for i, engine in enumerate(vllm_engines)
-            ]
-            refs.append(master_actor.add_process_group.remote(
-                backend='nccl',
-                master_addr=master_addr,
-                master_port=new_port,
-                world_size=dist.get_world_size() // 2 + 1,
-                rank=0,
-                group_name='weight-update',
-            ))
-            # should only get refs of both master and vllm_engines together, otherwise it will hang
-            print(ray.get(refs))
+            setup_process_groups(actor_group.master_actor, vllm_engines, actor_group.master_addr, num_train_actors)
 
             # core controller logic, should be implemented according to the algorithm (ppo, multi-turn, etc)
-            refs = [actor.update_and_query_inference_engines.remote(vllm_engines) for actor in train_actors]
-            ray.get(refs)
-            print('sync weight and gen done')
+            actor_group.sync_weights_and_generate(vllm_engines)
 
-            refs = [actor.train_1_iter.remote() for actor in train_actors]
-            ray.get(refs)
-            print('train 1 iter done')
+            actor_group.train_iteration()
 
+            # Generate text using the first vLLM engine
             ref = vllm_engines[0].generate.remote(prompts)
             gen_results = ray.get(ref)
             for output in gen_results:
