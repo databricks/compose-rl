@@ -455,8 +455,8 @@ def policy_loss(
 
         policy_dict = {
             'loss/policy_loss': policy_loss,
-            'kl/policy_kl_ref': policy_kl_ref,
-            'kl/policy_kl_old': policy_kl_old,
+            'kl/online_ift_kl': policy_kl_ref,
+            'kl/policy_kl': policy_kl_old,
             'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
             'gen/entropy': old_entropies,
             'rewards/mean': torch.mean(
@@ -516,8 +516,8 @@ def online_rl_loss(
 
     return_dict = {}
     advantages = batch.get('advantages', None)
-    if loss_type not in ALGORITHM_TYPE.REGRESSION:
-        advantages = batch['advantages']
+    #if loss_type not in ALGORITHM_TYPE.REGRESSION:
+    #    advantages = batch['advantages']
 
     # 1. Critic Loss
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
