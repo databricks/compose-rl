@@ -111,6 +111,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def fsdp_config(self):
         return dict()
 
+    def init_composer_dist(self):
+        composer_dist.initialize_dist('gpu')
+
     def build_ref_model(self, pretrain_model_name: str):
         # train a reference model for the PPO training
         # The key observation here is that we should construct our high level model training logic in the actor instead of the callback
@@ -122,8 +125,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             return
 
         self.pretrain_model_name = pretrain_model_name
-        composer_dist.initialize_dist('gpu')
-
         tmp_model = ComposerHFCausalLM(**self.model_config, use_auth_token=True)
 
         tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
@@ -243,14 +244,14 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model_update_group=self.model_update_group,
         )
 
-def setup_process_groups(master_actor: Any, vllm_engines: list[Any], master_addr: str, num_train_actors: int):
+def setup_process_groups(master_actor: Any, vllm_engines: list[Any], vllm_tensor_parallel_size: int):
     """Initialize process groups for vLLM engines and master actor."""
     # Get a new port for the weight-update process group
+    master_addr, _ = ray.get(master_actor.get_master_address.remote())
     new_port = ray.get(master_actor.get_free_port.remote())
     print(f'new_port: {new_port}')
     
     world_size = dist.get_world_size()
-    vllm_tensor_parallel_size = world_size - num_train_actors
     
     # Initialize process groups for vLLM engines
     refs = [
@@ -278,15 +279,11 @@ def setup_process_groups(master_actor: Any, vllm_engines: list[Any], master_addr
     print(ray.get(refs))
 
 
-class DistributedActorGroup:
-    def __init__(self, num_train_actors: int, master_addr: str, master_port: int):
+class SPMDActorGroup:
+    def __init__(self, num_train_actors: int):
         self.num_train_actors = num_train_actors
-        self.master_addr = master_addr
-        self.master_port = master_port
-        self._master_actor = None
-        self._train_actors = []
 
-    def create_actors(self, pretrain_model_name: str):
+        self._train_actors = []
         """Create and initialize all training actors."""
         print(f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===")
         
@@ -295,17 +292,30 @@ class DistributedActorGroup:
         self._train_actors.append(self._master_actor)
         
         # Get master address from rank 0 actor
-        master_info = ray.get(self._master_actor.get_master_address.remote())
-        self.master_addr, self.master_port = master_info
-        print(f"Master address allocated: {self.master_addr}:{self.master_port}")
+        master_addr, master_port = ray.get(self._master_actor.get_master_address.remote())
+        print(f"Master address allocated: {master_addr}:{master_port}")
         
         # Create remaining actors with the master address/port
         for i in range(1, self.num_train_actors):
-            actor = DistributedGPUActor.remote(i, self.num_train_actors, self.master_addr, self.master_port)
+            actor = DistributedGPUActor.remote(i, self.num_train_actors, master_addr, master_port)
             self._train_actors.append(actor)
+
+    @property
+    def train_actors(self):
+        return self._train_actors
+
+    @property
+    def master_actor(self):
+        return self._master_actor
+
+class TrainActorGroup(SPMDActorGroup):
 
     def build_models(self, pretrain_model_name: str):
         """Build reference models and PPO trainers for all actors."""
+        init_task = [actor.init_composer_dist.remote() for actor in self._train_actors]
+        ray.get(init_task)
+        print('init composer dist done')
+
         # Build reference models
         build_ref_model_tasks = [actor.build_ref_model.remote(pretrain_model_name) for actor in self._train_actors]
         ray.get(build_ref_model_tasks)
@@ -328,14 +338,6 @@ class DistributedActorGroup:
         ray.get(refs)
         print('train 1 iter done')
 
-    @property
-    def train_actors(self):
-        return self._train_actors
-
-    @property
-    def master_actor(self):
-        return self._master_actor
-
 
 def run():
     # This is an example of how to move the controller logic from PPO Callback to a separate trainer actor above and this main single controller function,
@@ -344,20 +346,16 @@ def run():
         "what is vLLM?",
     ]
     pretrain_model_name = 'meta-llama/Llama-3.2-1B-Instruct'
-    with start_ray_server() as address:
+    with start_ray_server():
         if dist.get_rank() == 0:
             # only rank 0 is the master controller
-            master_addr, _ = address.split(':')
             
-            # Init all actors (training, inference, env, etc) of the system
+            # create SPMD training actors of the system
             num_train_actors = dist.get_world_size() // 2
-            actor_group = DistributedActorGroup(num_train_actors, master_addr, 0)  # master_port will be updated by create_actors
-            actor_group.create_actors(pretrain_model_name)
-
-            # composer will initialize the process group for each actor, so no need to initialize them explicitly
+            actor_group = TrainActorGroup(num_train_actors)
             actor_group.build_models(pretrain_model_name)
 
-            # Create vLLM engines
+            # Create vLLM engines (or inference actors)
             world_size = dist.get_world_size()
             vllm_tensor_parallel_size = world_size - num_train_actors
             num_vllm_engines = (
@@ -381,7 +379,7 @@ def run():
                 },
             )
 
-            setup_process_groups(actor_group.master_actor, vllm_engines, actor_group.master_addr, num_train_actors)
+            setup_process_groups(actor_group.master_actor, vllm_engines, vllm_tensor_parallel_size)
 
             # core controller logic, should be implemented according to the algorithm (ppo, multi-turn, etc)
             actor_group.sync_weights_and_generate(vllm_engines)
