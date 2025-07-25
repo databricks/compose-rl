@@ -391,24 +391,13 @@ class TrainActorGroup(SPMDActorGroup):
 
 class RolloutAgent:
 
-    def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str):
-        self.num_vllm_engines = num_vllm_engines
+    def __init__(self, vllm_engines: list, vllm_tensor_parallel_size: int):
+        self.vllm_engines = vllm_engines
         self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
-        self.vllm_engines = create_vllm_engines(
-            num_engines=num_vllm_engines,
-            tensor_parallel_size=vllm_tensor_parallel_size,
-            enforce_eager=True,
-            pretrain=pretrain_model_name,
-            revision=None,
-            seed=1,
-            enable_prefix_caching=False,
-            max_model_len=512,
-            device_bundle={
-                'GPU': 1,
-                'CPU': 1,
-                'worker_node': 0,
-            },
-        )
+    
+    @property
+    def num_vllm_engines(self):
+        return len(self.vllm_engines)
 
     def generate(self, prompts: list[str]):
         ref = self.vllm_engines[0].generate.remote(prompts)
@@ -456,8 +445,23 @@ def run():
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
-
-            inference_client = RolloutAgent(num_vllm_engines, vllm_tensor_parallel_size, pretrain_model_name)
+            # TODO: Encapsulate this into a inference server manager class
+            vllm_engines = create_vllm_engines(
+                        num_engines=num_vllm_engines,
+                        tensor_parallel_size=vllm_tensor_parallel_size,
+                        enforce_eager=True,
+                        pretrain=pretrain_model_name,
+                        revision=None,
+                        seed=1,
+                        enable_prefix_caching=False,
+                        max_model_len=512,
+                        device_bundle={
+                            'GPU': 1,
+                            'CPU': 1,
+                            'worker_node': 0,
+                        },
+                    )
+            inference_client = RolloutAgent(vllm_engines, vllm_tensor_parallel_size)
 
             ppo_controller = PPOController(train_actor, inference_client, pretrain_model_name)
             ppo_controller.train()
