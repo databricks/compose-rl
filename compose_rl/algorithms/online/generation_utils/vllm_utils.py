@@ -352,12 +352,12 @@ def should_update_torch_module(
     return False
 
 
-def get_path_to_param(model: nn.Module, param: torch.Tensor) -> str:
-    """Get the path to a parameter in the model.
+def get_name_for_param(model: nn.Module, param: torch.Tensor) -> str:
+    """Get the full name of a parameter in the model.
 
     Args:
-        model (nn.Module): The model to get the path to
-        param (torch.Tensor): The parameter to get the path to
+        model (nn.Module): The model that contains the parameter
+        param (torch.Tensor): The parameter to get the name for
     """
     for name, p in model.named_parameters():
         if p is param:
@@ -490,7 +490,7 @@ def broadcast_to_vllm(
                 if isinstance(param, DTensor):
                     continue
 
-                full_name = get_path_to_param(model, param)
+                full_name = get_name_for_param(model, param)
                 parsed_name = simplify_param_path(full_name)
 
                 if parsed_name in seen_updated_parsed_names:
