@@ -1,6 +1,8 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
+# run cmd: VLLM_ATTENTION_BACKEND=FLASH_ATTN composer test_single_controller_ppo.py
+
 import logging
 import os
 from functools import partial
@@ -339,7 +341,7 @@ class TrainActorGroup(SPMDActorGroup):
         print('train 1 iter done')
 
 
-class InferenceAgent:
+class RolloutAgent:
 
     def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str):
         self.num_vllm_engines = num_vllm_engines
@@ -371,7 +373,7 @@ class InferenceAgent:
 
 class PPOController:
 
-    def __init__(self, train_actor: TrainActorGroup, inference_client: InferenceAgent, pretrain_model_name: str):
+    def __init__(self, train_actor: TrainActorGroup, inference_client: RolloutAgent, pretrain_model_name: str):
         self.train_actor = train_actor
         self.inference_client = inference_client
 
@@ -406,7 +408,7 @@ def run():
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
 
-            inference_client = InferenceAgent(num_vllm_engines, vllm_tensor_parallel_size, pretrain_model_name)
+            inference_client = RolloutAgent(num_vllm_engines, vllm_tensor_parallel_size, pretrain_model_name)
 
             ppo_controller = PPOController(train_actor, inference_client, pretrain_model_name)
             ppo_controller.train()
