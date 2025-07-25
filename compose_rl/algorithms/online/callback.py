@@ -981,6 +981,8 @@ class OnPolicyCallback(CallbackWithConfig):
                 )
                 env_outs['advantages'] = advantages
             elif self.actor_critic.loss_type == OnPolicyEnum.SMD: # just return advantage in the shape of (bs, )
+                print("###########################")
+                print(prompt_advantage)
                 env_outs['advantages'] = prompt_advantage
 
         elif self.actor_critic.loss_type == OnPolicyEnum.APO:
