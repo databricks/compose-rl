@@ -13,13 +13,12 @@ from composer.loggers import Logger
 from composer.trainer.trainer import _get_initial_device_train_microbatch_size
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
+# Import the base class
+from compose_rl.algorithms.online.callback import OnPolicyCallback
 from compose_rl.algorithms.online.model import (
     ComposerHFPolicyLM,
     ComposerMPTPolicyLM,
 )
-
-# Import the base class
-from compose_rl.algorithms.online.callback import OnPolicyCallback
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 Policy = Union[ComposerHFPolicyLM, ComposerMPTPolicyLM]
@@ -55,4 +54,3 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
 
         # Update IFT KL
         self._update_ift_kl()
-

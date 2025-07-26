@@ -104,7 +104,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
         additional_kwargs = {}
         if hasattr(self.config, 'beta'):
             additional_kwargs['beta'] = self.config.beta
-        
+
         return_dict = online_rl_loss(
             outputs=outputs,
             batch=batch,
@@ -226,7 +226,7 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
         additional_kwargs = {}
         if hasattr(self.config, 'beta'):
             additional_kwargs['beta'] = self.config.beta
-        
+
         return_dict = online_rl_loss(
             outputs=outputs,
             batch=batch,
