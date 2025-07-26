@@ -19,6 +19,8 @@ from compose_rl.algorithms.online.policy_configuration import (
     HFPolicyConfig,
     MPTPolicyConfig,
 )
+from compose_rl.algorithms.online.single_controller_callback import \
+    SingleControllerOnPolicyCallback
 from compose_rl.registry import kl_controllers
 
 kl_controllers.register('adaptive', func=AdaptiveKLController)
@@ -28,6 +30,7 @@ kl_controllers.register('ball', func=BallKLController)
 
 __all__ = [
     'OnPolicyCallback',
+    'SingleControllerOnPolicyCallback',
     'ComposerMPTPolicyLM',
     'ComposerHFPolicyLM',
     'ComposerHFCriticFreePolicyLM',
