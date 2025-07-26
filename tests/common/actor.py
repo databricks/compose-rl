@@ -87,7 +87,7 @@ class BaseDistributedGPUActor:
         rank: int,
         group_name: str,
     ):
-        """Initialize the process group on trainer rank 0 and e.g., vllm engines."""
+        """Initialize the process group on trainer rank 0 and vllm engines."""
         # NOTE vLLM seems to have a safer implementation of init_process_group:
         # https://github.com/vllm-project/vllm/blob/v0.9.1/examples/offline_inference/rlhf.py#L105
         # we should look into using that instead

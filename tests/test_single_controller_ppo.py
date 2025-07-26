@@ -353,7 +353,7 @@ class SPMDActorGroup:
 
         self._train_actors = []
         """Create and initialize all training actors."""
-        print(f"\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===")
+        print(f'\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===')
 
         # Create master actor first
         self._master_actor = DistributedGPUActor.remote(
@@ -366,7 +366,7 @@ class SPMDActorGroup:
         master_addr, master_port = ray.get(
             self._master_actor.get_master_address.remote(),
         )
-        print(f"Master address allocated: {master_addr}:{master_port}")
+        print(f'Master address allocated: {master_addr}:{master_port}')
 
         # Create remaining actors with the master address/port
         for i in range(1, self.num_train_actors):
@@ -455,7 +455,7 @@ class RolloutAgent:
         for output in gen_results:
             prompt = output.prompt
             generated_text = output.outputs[0].text
-            print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+            print(f'Prompt: {prompt!r}, Generated text: {generated_text!r}')
 
 
 class PPOController:
@@ -490,10 +490,10 @@ def _run_single_controller_ppo(
     pretrain_model_path: str,
     world_size: int = 0,
 ):
-    """Shared function for running single controller PPO with Ray actors and vLLM engines.
+    """Shared function for running single controller PPO.
 
     Args:
-        pretrain_model_path: Path to the pretrained model (either local path or model name)
+        pretrain_model_path: Path to the pretrained model
         world_size: Number of distributed processes
         prompts: List of prompts to test generation with
     """
