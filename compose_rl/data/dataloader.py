@@ -139,9 +139,9 @@ def get_num_tokens_in_batch_online(
         generated_items = batch['action_mask'].sum().item()
         relevant_tokens = prompt_len_tokens + generated_items
         padding_tokens = batch['sequences'].numel() - relevant_tokens
-        log.info(f'prompt tokens in batch: {prompt_len_tokens}')
-        log.info(f'generated tokens in batch: {generated_items}')
-        log.info(f'padding tokens in batch: {padding_tokens}')
+        #log.info(f'prompt tokens in batch: {prompt_len_tokens}')
+        #log.info(f'generated tokens in batch: {generated_items}')
+        #log.info(f'padding tokens in batch: {padding_tokens}')
         return int(relevant_tokens)
     else:
         log.warning(
