@@ -97,7 +97,10 @@ class PromptStreamingDataset(StreamingDataset):
             idx (int): the index where we fetch the data in the StreamingDataset.
         """
         sample = super().__getitem__(idx)
-        prompt = self._read_binary_tokenized_sample(sample, 'prompt')
+        if isinstance(sample['prompt'], bytes):
+            prompt = self._read_binary_tokenized_sample(sample, 'prompt')
+        elif isinstance(sample['prompt'], np.ndarray):
+            prompt = torch.from_numpy(sample['prompt'])[:self.max_seq_len]
 
         # TODO (bcui): Maybe add in an option to truncate a prompt by a given length?
         if len(prompt) + self.max_gen_len > self.max_seq_len:
@@ -129,8 +132,10 @@ class PromptStreamingDataset(StreamingDataset):
             item_dict['verified_answer'] = _answer  # type: ignore
 
         #vstar
-        vstar = sample.get('vstar', None)
-        if vstar is not None:
-            item_dict['vstar'] = torch.Tensor([vstar])
+        #vstar = sample.get('vstar', None)
+        if 'vstar_rewards' in sample.keys():
+            assert isinstance(sample['vstar_rewards'], np.ndarray)
+            vstar_rewards = torch.from_numpy(sample['vstar_rewards'])
+            item_dict['vstar_rewards'] = vstar_rewards
 
         return item_dict
