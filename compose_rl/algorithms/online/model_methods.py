@@ -589,10 +589,6 @@ def online_rl_loss(
             else:
                 # If this value is not [batch, actions] shaped, just do a
                 # vanilla mean.
-                print("######################")
-                print(key)
-                print(value)
-                print("######################")
                 return_dict['env/' + str(key)] = value.mean(dim=0)
         if 'ift_kl' == key:
             return_dict['kl/' + str(key)] = utils.masked_mean(

@@ -131,11 +131,9 @@ class PromptStreamingDataset(StreamingDataset):
 
             item_dict['verified_answer'] = _answer  # type: ignore
 
-        #vstar
-        #vstar = sample.get('vstar', None)
         if 'vstar_rewards' in sample.keys():
             assert isinstance(sample['vstar_rewards'], np.ndarray)
-            vstar_rewards = torch.from_numpy(sample['vstar_rewards'])
+            vstar_rewards = torch.from_numpy(sample['vstar_rewards']).to(torch.float)  # convert it to torch float
             item_dict['vstar_rewards'] = vstar_rewards
 
         return item_dict
