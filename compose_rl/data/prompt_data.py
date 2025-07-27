@@ -51,7 +51,7 @@ def prompt_dataset_collate_fn(
             collated_batch[key] = torch.tensor(cur_values)
             continue
         if key in ['vstar_rewards']:
-            collated_batch[key] = torch.cat([torch.from_numpy(item) for item in cur_values])
+            collated_batch[key] = torch.cat([item for item in cur_values])
             continue
         if key in ['verified_answer']:
             collated_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
