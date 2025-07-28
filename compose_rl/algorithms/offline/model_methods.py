@@ -167,7 +167,7 @@ def offline_loss(
         if vstar is None:
             vstar_rewards = batch.get('vstar_rewards', None)
             assert vstar_rewards is not None
-            vstar_rewards = vstar_rewards[:, 1:] # exclude gold
+            # vstar_rewards = vstar_rewards[:, 1:] # exclude gold
             if not multistep:
                 exponentiated_mean = torch.mean(torch.exp(vstar_rewards / beta1), dim=-1)
             else:
