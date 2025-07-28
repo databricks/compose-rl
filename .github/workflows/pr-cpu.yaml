@@ -23,7 +23,7 @@ jobs:
       matrix:
         include:
         - name: "cpu-2.7.0"
-          container: mosaicml/pytorch:2.7.0_cpu-python3.12-ubuntu22.04
+          container: mosaicml/dle:nightly-latest  # Update after the next release of llm-foundry (mosaicml/llm-foundry:2.7.0_cpu-python3.12-ubuntu22.04)
           markers: "not gpu and not only_release"
           pip_deps: "[cpu]"
           pytest_command: "coverage run -m pytest"
