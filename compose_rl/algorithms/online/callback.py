@@ -982,7 +982,17 @@ class OnPolicyCallback(CallbackWithConfig):
                 )
                 env_outs['advantages'] = advantages
             elif self.actor_critic.loss_type == OnPolicyEnum.SMD: # just return advantage in the shape of (bs, )
-                env_outs['advantages'] = prompt_advantage
+                # if self.beta1 > 0: compute value using softmax, i.e., V = beta_1 log E \sum_i exp( r_i / beta_1) /n 
+                if self.beta1 > 0: 
+                    exp_sums = torch.zeros(n_unique, device=prompt_id.device)
+                    exp_sums.scatter_add_(0, inverse_indices, torch.exp(flat_rewards/self.beta1))
+                    exp_mean = exp_sums/counts
+                    vstar = self.beta1 * torch.log(exp_mean)
+                    #map back to the original tensor shape
+                    vstar_reshaped = vstar[inverse_indices] 
+                    env_outs['advantages'] = flat_rewards - vstar_reshaped
+                elif self.beta1 < 0:
+                    env_outs['advantages'] = prompt_advantage
 
         elif self.actor_critic.loss_type == OnPolicyEnum.APO:
             vstar_rewards = env_outs['vstar_rewards'] 
