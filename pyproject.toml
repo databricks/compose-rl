@@ -80,7 +80,7 @@ ppo_load_planner = "compose_rl.utils.load_planner:ActorCriticModelLoadPlanner"
 # iSort
 [tool.isort]
 multi_line_output = 0
-line_length = 80
+line_length = 120
 skip = [ "env", "wandb", "runs", "build", "node_modules" ]
 include_trailing_comma = true
 split_on_trailing_comma = true
@@ -101,6 +101,7 @@ extend-safe-fixes = [
 ]
 [tool.ruff]
 target-version = "py39"
+line-length = 120
 exclude = [
     "build/**",
     "docs/**",
@@ -269,7 +270,7 @@ blank_line_before_nested_class_or_def = true
 coalesce_brackets = true
 
 # The column limit.
-column_limit = 80
+column_limit = 120
 
 # The style for continuation alignment. Possible values are:
 #
