@@ -583,7 +583,7 @@ def _run_single_controller_ppo(
 
 
 @pytest.mark.gpu
-@world_size(4)
+@world_size(2)
 def test_single_controller_ppo(
     world_size: int,
     tiny_llama_model: PreTrainedModel,

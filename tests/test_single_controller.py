@@ -65,7 +65,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
 
 @pytest.mark.gpu
-@world_size(4)
+@world_size(2)
 def test_distributed_ray_actors(
     world_size: int,
     tiny_gpt2_model: PreTrainedModel,
