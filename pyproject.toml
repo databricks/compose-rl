@@ -77,28 +77,15 @@ actor_critic_load_planner = "compose_rl.utils.load_planner:ActorCriticModelLoadP
 # Backwards Compatibility
 ppo_load_planner = "compose_rl.utils.load_planner:ActorCriticModelLoadPlanner"
 
-# iSort
+# iSort (legacy - now handled by Ruff)
 [tool.isort]
-multi_line_output = 0
+profile = "black"
 line_length = 120
-skip = [ "env", "wandb", "runs", "build", "node_modules" ]
+skip = ["env", "wandb", "runs", "build", "node_modules", ".venv", "venv"]
 include_trailing_comma = true
 split_on_trailing_comma = true
+known_first_party = ["compose_rl"]
 
-[tool.ruff.lint]
-select = [
-    "C4",
-    # TODO port pydocstyle
-    # "D", # pydocstyle
-    "LOG",
-    "PERF",
-    "PLE",
-    "COM812",
-    "UP006"
-]
-extend-safe-fixes = [
-    "UP006",
-]
 [tool.ruff]
 target-version = "py39"
 line-length = 120
@@ -106,7 +93,57 @@ exclude = [
     "build/**",
     "docs/**",
     "node_modules/**",
+    ".venv/**",
+    "venv/**",
+    "__pycache__/**",
+    "*.egg-info/**",
 ]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "PLR", # pylint refactor
+    "PLW", # pylint warnings
+    "PL",  # pylint errors
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    "E501",  # line too long, handled by line-length
+    "B008",  # do not perform function calls in argument defaults
+    "B006",  # do not use mutable data structures for argument defaults
+    "PLR0913", # too many arguments to function call
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
+    "PLR0911", # too many return statements
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["compose_rl"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# Additional code quality tools
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # allow unused imports in __init__.py
+"tests/**/*.py" = ["PLR0911", "PLR0912", "PLR0913", "PLR0915"]  # relax some rules for tests
+
+# Modern development tools configuration
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 120
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 # Coverage
 [tool.coverage.run]
@@ -189,88 +226,21 @@ filterwarnings = [
     'ignore::DeprecationWarning:tensorboard',  # ignore tensorboard
 ]
 
-# Yapf
+# YAPF (legacy - consider migrating to Ruff formatter)
 [tool.yapf]
-# Align closing bracket with visual indentation.
-align_closing_bracket_with_visual_indent = false
-
-# Allow dictionary keys to exist on multiple lines. For example:
-#
-#   x = {
-#       ('this is the first element of a tuple',
-#        'this is the second element of a tuple'):
-#            value,
-#   }
-allow_multiline_dictionary_keys = false
-
-# Allow lambdas to be formatted on more than one line.
-allow_multiline_lambdas = false
-
-# Allow splitting before a default / named assignment in an argument list.
-allow_split_before_default_or_named_assigns = true
-
-# Allow splits before the dictionary value.
-allow_split_before_dict_value = true
-
-#   Let spacing indicate operator precedence. For example:
-#
-#     a = 1 * 2 + 3 / 4
-#     b = 1 / 2 - 3 * 4
-#     c = (1 + 2) * (3 - 4)
-#     d = (1 - 2) / (3 + 4)
-#     e = 1 * 2 - 3
-#     f = 1 + 2 + 3 + 4
-#
-# will be formatted as follows to indicate precedence:
-#
-#     a = 1*2 + 3/4
-#     b = 1/2 - 3*4
-#     c = (1+2) * (3-4)
-#     d = (1-2) / (3+4)
-#     e = 1*2 - 3
-#     f = 1 + 2 + 3 + 4
-#
-arithmetic_precedence_indication = false
-
-# Number of blank lines surrounding top-level function and class
-# definitions.
-blank_lines_around_top_level_definition = 2
-
-# Insert a blank line before a class-level docstring.
-blank_line_before_class_docstring = false
-
-# Insert a blank line before a module docstring.
-blank_line_before_module_docstring = true
-
-# Insert a blank line before a 'def' or 'class' immediately nested
-# within another 'def' or 'class'. For example:
-#
-#   class Foo:
-#                      # <------ this blank line
-#     def method():
-#       ...
-blank_line_before_nested_class_or_def = true
-
-# Do not split consecutive brackets. Only relevant when
-# dedent_closing_brackets is set. For example:
-#
-#    call_func_that_takes_a_dict(
-#        {
-#            'key1': 'value1',
-#            'key2': 'value2',
-#        }
-#    )
-#
-# would reformat to:
-#
-#    call_func_that_takes_a_dict({
-#        'key1': 'value1',
-#        'key2': 'value2',
-#    })
-coalesce_brackets = true
-
-# The column limit.
+# Modern, practical YAPF configuration
+style = "google"
 column_limit = 120
+indent_width = 4
+continuation_indent_width = 4
+blank_line_before_nested_class_or_def = true
+blank_line_before_module_docstring = true
+blank_lines_around_top_level_definition = 2
+coalesce_brackets = true
+dedent_closing_brackets = true
+indent_dictionary_value = true
+
+# Column limit already set above
 
 # The style for continuation alignment. Possible values are:
 #
