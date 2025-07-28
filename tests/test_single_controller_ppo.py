@@ -67,7 +67,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.device_train_batch_size = None
         self.num_batches_per_update = None
         self.max_seq_len = None
-        self.precision = None
+        self.precision: str = None # type: ignore
         self.train_config: dict = None  # type: ignore
 
     def build_train_config(self, pretrain_model_name: str):
@@ -301,8 +301,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
         max_gen_len = self.train_config['variables']['max_gen_len']
         generation_kwargs = self.train_config['variables']['generation_kwargs']
-        with get_precision_context(self.precision
-                                  ), torch.no_grad():  # type: ignore
+        with get_precision_context(self.precision), torch.no_grad():
             # TODO (infra): refactor this code to isolate gather of
             # prompts on the trainer actor and gather/scatter of sequences
             # on the trainer actor, the first half is uesless while
