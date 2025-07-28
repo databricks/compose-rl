@@ -59,7 +59,6 @@ class FineGrainedPreference(Dataset):
 
 
 class PromptDataset(Dataset):
-
     def __init__(self, size: int = 8, prompt_len: int = 5):
         self.size = size
         self.prompt_len = prompt_len
@@ -76,7 +75,6 @@ class PromptDataset(Dataset):
 
 
 class VerifiablePromptDataset(Dataset):
-
     def __init__(self, size: int = 8, prompt_len: int = 5):
         self.size = size
         self.prompt_len = prompt_len
@@ -94,7 +92,6 @@ class VerifiablePromptDataset(Dataset):
 
 
 class VerifiableMessagesDataset(Dataset):
-
     def __init__(self, size: int = 8, prompt_len: int = 5):
         self.size = size
         self.prompt_len = prompt_len

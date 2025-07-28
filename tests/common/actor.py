@@ -17,7 +17,6 @@ from compose_rl.utils.ray_utils import (
 
 
 class BaseDistributedGPUActor:
-
     def __init__(
         self,
         rank: int,
