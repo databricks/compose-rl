@@ -1,7 +1,8 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-# run cmd: cd compose-rl && cp tests/test_single_controller_ppo.py . && composer test_single_controller_ppo.py
+# run cmd: `cd compose-rl && cp tests/test_single_controller_ppo.py .
+# && composer test_single_controller_ppo.py`
 
 import os
 import pathlib
@@ -154,7 +155,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             sampler=composer_dist.get_sampler(dataset),
             batch_size=self.device_train_batch_size,
         )
-        # We need to mock this method, since our dataset isn't a StreamingDataset
+        # We need to mock this method, since our dataset isn't a
+        # StreamingDataset
         dataloader.state_dict = lambda: {}
         dataloader.load_state_dict = lambda x: None
         return dataloader
@@ -168,6 +170,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def build_tokenizer(self):
         # TODO (algo): decide if we should use tokens or messages given
         # we may need token level log prob
+        # TODO (infra): use the tokenizer/texts for prompt dataloader but
+        # token (ids) for the experience buffer/manager
         tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name)
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         return tokenizer
@@ -190,7 +194,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     @property
     def fsdp_config(self):
-        # TODO (infra): use actual fsdp2 config
+        # TODO (infra): use actual fsdp1 config
         return {}
 
     def init_composer_dist(self):
@@ -208,7 +212,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             self.ref_path = ref_path
             return
 
-        tmp_model = ComposerHFCausalLM(**self.model_config, use_auth_token=True)
+        tmp_model = ComposerHFCausalLM(
+            **self.model_config,
+            use_auth_token=True,
+        )
 
         tmp_optimizer = DecoupledAdamW(tmp_model.parameters(), lr=1e-6)
 
@@ -261,6 +268,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # TODO (algo): implement the top level PPO algo here instead of the
         # callback. Algorithmic researchers are expected to implement this
         # function along with above policy/value/reward/ref trainers or models
+        # TODO (infra): try multiple fit to see if the (mlflow) logger, etc
+        # TODO (infra): fault tolerance at iteration level first
+        # TODO (infra): enable batch level control
         self.ppo_trainer.fit(duration='1iter')
         # This is the KL assert that must be true if we are truly loading
         # from the same model. This is only true on the first iteration
