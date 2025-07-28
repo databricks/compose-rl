@@ -26,6 +26,7 @@ from composer.optim import DecoupledAdamW
 from composer.utils import dist as composer_dist
 from composer.core import get_precision_context
 from llmfoundry.models import ComposerHFCausalLM
+from llmfoundry.data import build_dataloader
 
 from compose_rl.algorithms.online import (
     ComposerHFPolicyLM,
@@ -205,8 +206,15 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.logger.info("Finished build_train_config")
 
     def build_dataloader(self):
+        from streaming.base.world import World
+        world = World.detect()
+        self.logger.info(f"Building dataloader with world: {world}")
+        self.logger.info(f"World size: {world.num_ranks}, rank: {world.rank}")
         # dataloader should be built with inference agent instead with this trainer actor,
         # it is still attached to trainer actor here to avoid a full refactor to PPO Callback code
+        # Option 0: Not make dataloader a property and just build it here
+        # Option 1: Use the PromptDataset directly
+        # Option 2: Convert this to huggingface dataset and then create a sampler on top.
         train_loader_config = {
             'name': 'prompt',
             'dataset': {
@@ -220,8 +228,16 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 'download_timeout': 1800
             },
             'drop_last': True,
-            # 'num_workers': 8
+            'num_workers': 1,
+            # 'replication': 4,  # Setting this to number of train actors to check if it works
         }
+        foundry_dataloader = build_dataloader(
+            cfg = train_loader_config,
+            tokenizer = self.tokenizer,
+            device_batch_size = self.train_config['device_train_batch_size'],
+        )
+        self.logger.info(f"Foundry dataloader built successfully from class {type(foundry_dataloader)}")
+        return foundry_dataloader
         max_seq_len = 32
         prompt_len = 10
 
@@ -246,6 +262,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     @property
     def dataloader(self):
+        # NOTE: this will only create a single instance of the dataloader but we want each actor to create their own
         if self._dataloader is None:
             self._dataloader = self.build_dataloader()
         return self._dataloader
@@ -348,6 +365,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def train_1_iter(self):
         # we should implement the top level PPO algo here instead of the callback
         # algorithmic researchers are expected to implement this function along with above policy/value/reward/ref trainers or models
+        # NOTE: Trainer has a train microbatches function that should be used here.
+        # fit() checks if there is existing checkpoint, make a full forward pass, it will run eval pass and save pass.
+        # We potentially want to run this https://github.com/mosaicml/composer/blob/dev/composer/trainer/trainer.py#L2826
+        # fit() can also potentially overwrite the mlflow
         self.ppo_trainer.fit(duration='1iter')
         # This is the KL assert that must be true if we are truly loading from the same model.
         # This is only true on the first iteration
