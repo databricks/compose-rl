@@ -23,7 +23,16 @@ from compose_rl.utils import (
     extract_packed_chosen_rejected,
     get_batch_logp,
     get_mb_load_balancing_loss,
+    get_log_probs_from_logits,
+    make_action_mask,
+    get_token_entropies,
+    get_sequence_entropies,
 )
+
+
+class RegressionOfflineEnum(Enum):
+    APO = 'apo'
+    QRPO = 'qrpo'
 
 
 class PairwiseOfflineEnum(Enum):
@@ -33,6 +42,204 @@ class PairwiseOfflineEnum(Enum):
     REBEL = 'rebel'
     IPO = 'ipo'
     KTO = 'kto'
+
+
+def offline_forward(
+    model: nn.Module,
+    batch: MutableMapping,
+    average_log_prob: bool = False,
+    policy_model_config: Optional[PretrainedConfig] = None,
+    temperature: float = 1.0,
+) -> dict[str, torch.Tensor]:
+    """Forwards the model for dpo and get the chosen and rejected log probs.
+
+    Args:
+        model (nn.Module): Model we are forwarding.
+        tokenizer (Tokenizer): Tokenizer for the model.
+        batch (Dict[str, torch.LongTensor]): Batch over which we should forward the model.
+            Note: this batch has chosen and rejected concated along the sequence dimension.
+        average_log_prob (bool): Whether should we average the log probabilities.
+        policy_model_config: Policy model config.
+    """
+    is_multimodal = 'pixel_values' in batch.keys()
+    has_mask = 'mask' in batch.keys()
+
+    if policy_model_config is not None and hasattr(model, 'transformer'):
+        clear_mb_load_balancing_loss(
+            policy_model_config,
+            model.transformer,  # type: ignore
+        )
+
+    inputs = {
+        'input_ids': batch['input_ids'],
+        'attention_mask': batch['attention_mask'],
+    }
+
+    if is_multimodal:
+        multimodal_inputs = {
+            'token_type_ids': batch['token_type_ids'],
+            'pixel_values': batch['pixel_values'],
+        }
+        inputs.update(multimodal_inputs)
+
+    output_logits = model(**inputs).logits
+    # Calculate token entropies from the logits
+    token_entropies = get_token_entropies(logits=output_logits)
+    token_entropies = token_entropies.detach()
+
+    if has_mask is False:
+        logps = get_batch_logp(
+            batch['input_ids'],
+            output_logits,
+            batch['prompt_len'],
+            batch['sequence_len'],
+            average_log_prob,
+            temperature=temperature,
+        )
+        # Calculate sequence entropies
+        action_mask = make_action_mask(
+            batch['prompt_len'],
+            batch['sequence_len'],
+            batch['attention_mask'].shape,
+            device=output_logits.device,
+        )
+        sequence_entropies = get_sequence_entropies(
+            token_entropies=token_entropies,
+            action_mask=action_mask
+        )
+    else:
+        token_policy_logps = get_log_probs_from_logits(
+            output_logits[:,:-1], 
+            batch['input_ids'][:,1:]
+        )
+        # apply attention_mask and mask explicitly
+        token_policy_logps *= batch['attention_mask'][:,1:]
+        token_policy_logps *= batch['mask'][:,1:]
+        logps = torch.sum(token_policy_logps, dim = -1)  # (bs, )
+        # Calculate sequence entropies
+        # TODO: confirm with JC and Adyasha if this is correct
+        combined_mask = batch['attention_mask'] * batch['mask']
+        sequence_entropies = get_sequence_entropies(
+            token_entropies=token_entropies,
+            action_mask=combined_mask,
+        )
+
+    outputs: dict[str, torch.Tensor] = {
+        'policy_logp': logps,
+        'sequence_entropies': sequence_entropies,
+    }
+
+    if policy_model_config is not None and hasattr(model, 'transformer'):
+        lbl = get_mb_load_balancing_loss(
+            policy_model_config,
+            model.transformer,  # type: ignore
+        )
+        if lbl is not None:
+            outputs['lbl'] = lbl
+
+    return outputs
+
+
+def offline_loss(
+    outputs: CausalLMOutputWithPast,
+    batch: Mapping,
+    loss_type: RegressionOfflineEnum,
+    beta1: float,
+    beta2: float,
+    eta: float,
+    multistep: bool = False,
+    bce: bool = False, 
+):
+    # eta: r + eta * bonus (bonus can be used to model things like tool use)
+    
+    policy_logp = outputs['policy_logp']  # (batch_size, )
+
+    ref_logp = batch.get(
+        'ref_logp',
+        torch.zeros_like(policy_logp),
+    )
+
+    if loss_type == RegressionOfflineEnum.APO:
+        # Reproducing the APO loss from APO paper: https://arxiv.org/pdf/2505.20686 on page 3
+        # APO is not a pair-wise loss function.
+        # Similar to REBEL, we assume each response has a reward in the batch.
+        # We assume that the dataset contains vstar values, i.e., V^star(x) for each prompt x in the batch
+        #
+        vstar = batch.get('vstar', None)
+        if vstar is None:
+            vstar_rewards = batch.get('vstar_rewards', None)
+            assert vstar_rewards is not None
+            vstar_bonus = batch.get('vstar_bonus', torch.zeros_like(vstar_rewards))
+            added_vstar_bonus = vstar_bonus * vstar_rewards  # true added bonus is 1 iff both bonus = 1 and reward = 1
+            if not multistep: 
+                exponentiated_mean = torch.mean(torch.exp((vstar_rewards+eta*added_vstar_bonus) / beta1), dim=-1)
+            else:
+                exponentiated_mean = torch.mean(
+                    vstar_rewards * torch.exp(batch['reward'] / beta1).view(-1, 1) + (1 - vstar_rewards), # TODO: something is wrong here. 
+                    dim=-1,
+                )
+            vstar = beta1 * torch.log(exponentiated_mean)
+
+            assert vstar.shape == batch['reward'].shape
+
+        bonuses = batch.get('bonus', torch.zeros_like(batch['reward']))
+        added_bonuses = bonuses * batch['reward']  # true added bonus = 1 if both bonus = 1 and reward = 1
+        if bce == False:
+            losses = (
+                beta2 * (policy_logp - ref_logp) -
+                (batch['reward'] + eta * added_bonuses - vstar)
+            )**2
+        elif bce == True:
+            predicted_prob = F.sigmoid(beta2 * (policy_logp - ref_logp))
+            actual_prob = F.sigmoid(batch['reward'] - vstar)
+            losses = -(actual_prob * torch.log(predicted_prob) 
+                        +   (1.-actual_prob)*torch.log(1.-predicted_prob)
+                    )
+    elif loss_type == RegressionOfflineEnum.QRPO:
+        vstar_rewards = batch.get('vstar_rewards', None)
+        assert vstar_rewards is not None
+        if not multistep:
+            reward_q = torch.mean((batch['reward'].view(-1, 1) >= vstar_rewards).float(), dim=-1)
+        else:
+            raise NotImplementedError("Multistep for QRPO not implemented")
+
+        losses = (reward_q - beta2 * torch.log(beta2) - 1 - beta2 * (policy_logp - ref_logp)) ** 2
+
+    # Estimate policy's reward via offine method, i.e., importance weighting here (can be high variance)
+    # formula: sum_y exp( log pi(y) - log pi_ref(y) ) r(y) where y ~ pi_ref
+    # use clip to ensure the output from exp is valid
+    with torch.no_grad():
+        estimated_rewards = torch.exp(
+            torch.clip(policy_logp - ref_logp, max=5.),
+        ) * batch['reward']
+        estimated_reward = torch.mean(estimated_rewards)
+
+    losses = losses.mean()
+
+    implicit_rewards = beta2 * (policy_logp - ref_logp).detach()
+
+    # Logging KL margins for comparing different methods
+    reverse_kl = (policy_logp - ref_logp).detach()
+    forward_kl = (ref_logp - policy_logp).detach()
+    loss_dict = {
+        'implicit_rewards': implicit_rewards,
+        'reverse_kl': reverse_kl,
+        'forward_kl': forward_kl,
+        'estimated_reward': estimated_reward,
+        'sequence_entropies': outputs['sequence_entropies'], # Track detached sequence entropies in the loss dict
+    }
+    if loss_type == RegressionOfflineEnum.APO:
+        loss_dict['batch_advantage'] = torch.mean(
+            batch['reward'] - vstar,
+        )
+
+    if 'lbl' in outputs:
+        losses += outputs['lbl']
+        loss_dict['lbl'] = outputs['lbl']
+
+    loss_dict['total'] = losses
+
+    return loss_dict
 
 
 def pairwise_offline_forward(
@@ -66,6 +273,12 @@ def pairwise_offline_forward(
     pad_token_id = tokenizer.pad_token_id
     if pad_token_id is None:
         raise ValueError('Tokenizer must have a PAD token.')
+
+    is_multimodal = 'pixel_values' in batch.keys()
+    if is_multimodal and use_attention_sequence_id:
+        raise NotImplementedError(
+            'Using Sequence ID is not implemented for VLMs',
+        )
 
     # If we can use attention sequence ID, we use this logic branch.
     # This is determined by a value set in `train_dpo.py`
@@ -104,18 +317,42 @@ def pairwise_offline_forward(
             pad_token_id=0,
         )
 
-        batch_cat_inputs = torch.cat([chosen_inputs, rejected_inputs], dim=0)
-        batch_attn_mask = torch.cat(
-            [
-                chosen_attention_mask,
-                rejected_attention_mask,
-            ],
-            dim=0,
-        )
+        inputs = {
+            'input_ids':
+                torch.cat([chosen_inputs, rejected_inputs], dim=0),
+            'attention_mask':
+                torch.cat(
+                    [
+                        chosen_attention_mask,
+                        rejected_attention_mask,
+                    ],
+                    dim=0,
+                ),
+        }
+
+        if is_multimodal:
+            chosen_token_type_ids, rejected_token_type_ids = extract_packed_chosen_rejected(
+                batch['token_type_ids'],
+                batch['chosen_len'],
+                batch['rejected_len'],
+                concat_seq_len,
+                pad_token_id=0,
+            )
+
+            # TODO: Ask if assuming same pixel inputs is ok?
+            multimodal_inputs = {
+                'token_type_ids':
+                    torch.cat([chosen_token_type_ids, rejected_token_type_ids],
+                              dim=0),
+                'pixel_values':
+                    torch.cat([batch['pixel_values'], batch['pixel_values']],
+                              dim=0),
+            }
+
+            inputs.update(multimodal_inputs)
 
         output_logits = model(
-            batch_cat_inputs,
-            attention_mask=batch_attn_mask,
+            **inputs,
         ).logits
 
         # Extract out the chosen and rejected logits along the batch dimension
@@ -158,6 +395,9 @@ def pairwise_offline_forward(
         outputs['chosen_reward'] = batch['chosen_reward']
         outputs['rejected_reward'] = batch['rejected_reward']
 
+    if 'vstar' in batch:
+        outputs['vstar'] = batch['vstar']
+
     if policy_model_config is not None and hasattr(model, 'transformer'):
         lbl = get_mb_load_balancing_loss(
             policy_model_config,
@@ -175,7 +415,7 @@ def pairwise_offline_loss(
     loss_type: PairwiseOfflineEnum,
     beta: float,
     label_smoothing: float,
-    sft_alpha: float,
+    sft_alpha: float = 0.0,
 ) -> dict[str, torch.Tensor]:
     """Computes pairwise offline RL losses.
 
@@ -192,8 +432,8 @@ def pairwise_offline_loss(
         sft_alpha (float): Regularization weight for supervised finetuning loss (SFT) to
             be added to DPO type loss.
     """
-    policy_chosen_logp = outputs['policy_chosen_logp']
-    policy_rejected_logp = outputs['policy_rejected_logp']
+    policy_chosen_logp = outputs['policy_chosen_logp']  # (batch_size, )
+    policy_rejected_logp = outputs['policy_rejected_logp']  # (batch_size, )
     ref_chosen_logp = batch.get(
         'ref_chosen',
         torch.zeros_like(policy_chosen_logp),
@@ -209,6 +449,7 @@ def pairwise_offline_loss(
     logits = pi_logratios - ref_logratios  # Also known as h_{\pi_\theta}^{y_w,y_l}
 
     losses = torch.zeros_like(logits)
+
     if loss_type == PairwiseOfflineEnum.DPO:
         losses = (
             -F.logsigmoid(beta * logits) * (1 - label_smoothing) -
@@ -271,8 +512,6 @@ def pairwise_offline_loss(
             ),
             0,
         )
-    else:
-        raise ValueError(f'Loss type: {loss_type} is not supported.')
 
     if sft_alpha > 0:
         sft_losses = -1 * sft_alpha * policy_chosen_logp
@@ -306,6 +545,7 @@ def pairwise_offline_loss(
     ]:
         # reward_diff is always defined if loss_type is RPO, RCDPO, or REBEL
         loss_dict['reward_diff'] = reward_diff.detach()  # type: ignore
+
     if sft_alpha > 0:
         # sft_losses_normalized is always defined if sft_alpha>0
         snl = sft_losses_normalized.detach()  # type: ignore
