@@ -574,8 +574,10 @@ class JudgementFormatVerifierReward(PydanticFormatVerifierReward):
 
 class JudgementScoreVerifierReward(BaseVerifierReward):
 
-    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0):
+    def __init__(self, tokenizer: Tokenizer, reward: float = 1.0,
+        is_score_logit: bool = True):
         super().__init__(tokenizer=tokenizer, reward=reward)
+        self.is_score_logit = is_score_logit
 
     def needs_extraction(self) -> bool:
         """Indicate that this verifier needs extraction."""
@@ -607,6 +609,9 @@ class JudgementScoreVerifierReward(BaseVerifierReward):
             # if the answer is NaN, our reward would be NaN (bad), so let's avoid this, shall we?
             # seems smart to avoid infinite values as well
             return 0.0
+        if not self.is_score_logit and (answer < 0 or answer > 1):
+            # the score is supposed to be a probability, but is not in [0,1] return fail
+            return 0.0
         # if the target is an integer, we need to convert it to a boolean
         if isinstance(label, int) and label in [0, 1]:
             label = bool(label)
@@ -637,5 +642,7 @@ class JudgementScoreVerifierReward(BaseVerifierReward):
         """
         assert isinstance(target, bool), f'Target must be a boolean, got {type(target)}'
         target = 1.0 if target else 0.0
-        generated_score = self._safe_sigmoid(generated_score)
+        if self.is_score_logit:
+            # if the score is a logit, we need to convert it to a probability
+            generated_score = self._safe_sigmoid(generated_score)
         return 1.0 - (generated_score - target) ** 2
