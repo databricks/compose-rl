@@ -61,14 +61,14 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self._dataloader = None
         self._tokenizer = None
         self.ppo_callback = None
-        self.ppo_trainer: Trainer = None
+        self.ppo_trainer: Trainer = None  # type: ignore
 
         self.pretrain_model_name = None
         self.device_train_batch_size = None
         self.num_batches_per_update = None
         self.max_seq_len = None
         self.precision = None
-        self.train_config: dict = None
+        self.train_config: dict = None  # type: ignore
 
     def build_train_config(self, pretrain_model_name: str):
         self.pretrain_model_name = pretrain_model_name
@@ -221,7 +221,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             parallelism_config={'fsdp': self.fsdp_config},
             save_folder=tmp_ref_path,
             save_weights_only=True,
-            device_train_microbatch_size=self.device_train_microbatch_size,
+            device_train_microbatch_size=self.device_train_microbatch_size,  # type: ignore
         )
 
         temp_trainer.fit()
@@ -290,7 +290,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
         max_gen_len = self.train_config['variables']['max_gen_len']
         generation_kwargs = self.train_config['variables']['generation_kwargs']
-        with get_precision_context(self.precision), torch.no_grad():
+        with get_precision_context(self.precision), torch.no_grad():  # type: ignore
             # If vllm engines are available, we use them to generate sequences in one go
             sequences = vllm_generate(
                 vllm_engines=vllm_engines,
@@ -302,7 +302,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             )
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
-        self.ppo_callback.batch_rollouts = batch
+        self.ppo_callback.batch_rollouts = batch  # type: ignore
 
 
 def setup_process_groups(
@@ -312,8 +312,8 @@ def setup_process_groups(
 ):
     """Initialize process groups for vLLM engines and master actor."""
     # Get a new port for the weight-update process group
-    master_addr, _ = ray.get(master_actor.get_master_address.remote())
-    new_port = ray.get(master_actor.get_free_port.remote())
+    master_addr, _ = ray.get(master_actor.get_master_address.remote())  # type: ignore
+    new_port = ray.get(master_actor.get_free_port.remote())  # type: ignore
     print(f'new_port: {new_port}')
 
     world_size = dist.get_world_size()
@@ -364,7 +364,7 @@ class SPMDActorGroup:
 
         # Get master address from rank 0 actor
         master_addr, master_port = ray.get(
-            self._master_actor.get_master_address.remote(),
+            self._master_actor.get_master_address.remote(),  # type: ignore
         )
         print(f'Master address allocated: {master_addr}:{master_port}')
 
@@ -373,7 +373,7 @@ class SPMDActorGroup:
             actor = DistributedGPUActor.remote(
                 i,
                 self.num_train_actors,
-                master_addr,
+                master_addr,  # type: ignore
                 master_port,
             )
             self._train_actors.append(actor)
