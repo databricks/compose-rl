@@ -287,7 +287,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             kl_estimator (str): The KL estimator to use. Default: ``'k3'``.
             kl_clip_range (float): The KL clip range. Default: ``40.0``.
             beta (float): pi_ref KL hyperparameter for APO. Default: ``1e-3``
-            beta1 (float): hyperparmater to form V* in APO. Default: ``0.5``
+            beta1 (float): hyperparmater to form V* in APO and SMD. For SMD, when beta1<0, we use plain average instead of ln-expection-exp; Default: ``0.5``
             temperature (float): Sampling temperature used for generations to properly scale logits.
         """
         super().__init__(**kwargs)
