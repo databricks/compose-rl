@@ -583,7 +583,7 @@ def _run_single_controller_ppo(
 
 
 @pytest.mark.gpu
-@world_size(4)
+@world_size(4)  # TODO change this to 2 for CI testing (hit fatal python error)
 def test_single_controller_ppo(
     world_size: int,
     tiny_llama_model: PreTrainedModel,
