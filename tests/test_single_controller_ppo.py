@@ -46,7 +46,7 @@ from tests.common import (
 
 @ray.remote(num_gpus=1)
 class DistributedGPUActor(BaseDistributedGPUActor):
-    """Distributed GPU actor for testing"""
+    """Distributed GPU actor for testing."""
 
     def __init__(
         self,
@@ -68,7 +68,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.device_train_batch_size = None
         self.num_batches_per_update = None
         self.max_seq_len = None
-        self.precision: str = None # type: ignore
+        self.precision: str = None  # type: ignore
         self.train_config: dict = None  # type: ignore
 
     def build_train_config(self, pretrain_model_name: str):
@@ -337,7 +337,7 @@ def setup_process_groups(
     """Initialize process groups for vLLM engines and master actor."""
     # Get a new port for the weight-update process group
     master_addr, _ = ray.get(
-        master_actor.get_master_address.remote()
+        master_actor.get_master_address.remote(),
     )  # type: ignore
     new_port = ray.get(master_actor.get_free_port.remote())  # type: ignore
     print(f'new_port: {new_port}')
@@ -415,7 +415,6 @@ class SPMDActorGroup:
 
 
 class TrainActorGroup(SPMDActorGroup):
-
     # TODO: this class is mainly pass through gang scheduler,
     # we should refactor this class to be more generic and reusable
 
@@ -470,7 +469,6 @@ class TrainActorGroup(SPMDActorGroup):
 
 
 class RolloutAgent:
-
     def __init__(self, vllm_engines: list, vllm_tensor_parallel_size: int):
         self.vllm_engines = vllm_engines
         self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
@@ -492,7 +490,6 @@ class RolloutAgent:
 
 # TODO (infra): implement parameter buffer manager and experience manager
 class PPOController:
-
     def __init__(
         self,
         train_actor: TrainActorGroup,

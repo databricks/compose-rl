@@ -31,7 +31,9 @@ log = logging.getLogger(__name__)
 class SingleControllerOnPolicyCallback(OnPolicyCallback):
     """Callback for managing on-policy training in an RLHF loop.
 
-    Ideally all the overwritten methods below should be implemented in the trainer actor instead of the callback, we kept them here for now to minimize a drastic refactor to PPO Callback code
+    Ideally all the overwritten methods below should be implemented in the
+    trainer actor instead of the callback, we kept them here for now to minimize
+    a drastic refactor to PPO Callback code
     """
 
     def iteration_start(self, state: State, logger: Logger):
