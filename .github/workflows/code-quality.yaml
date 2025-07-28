@@ -24,7 +24,7 @@ jobs:
     strategy:
       matrix:
         python_version:
-        - "3.11"
+        - "3.12"
         pip_deps:
         - "[dev]"
     steps:
