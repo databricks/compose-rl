@@ -24,6 +24,9 @@ from compose_rl.utils import (
     get_batch_logp,
     get_mb_load_balancing_loss,
     get_log_probs_from_logits,
+    make_action_mask,
+    get_token_entropies,
+    get_sequence_entropies,
 )
 
 
@@ -80,6 +83,9 @@ def offline_forward(
         inputs.update(multimodal_inputs)
 
     output_logits = model(**inputs).logits
+    # Calculate token entropies from the logits
+    token_entropies = get_token_entropies(logits=output_logits)
+    token_entropies = token_entropies.detach()
 
     if has_mask is False:
         logps = get_batch_logp(
@@ -90,6 +96,17 @@ def offline_forward(
             average_log_prob,
             temperature=temperature,
         )
+        # Calculate sequence entropies
+        action_mask = make_action_mask(
+            batch['prompt_len'],
+            batch['sequence_len'],
+            batch['attention_mask'].shape,
+            device=output_logits.device,
+        )
+        sequence_entropies = get_sequence_entropies(
+            token_entropies=token_entropies,
+            action_mask=action_mask
+        )
     else:
         token_policy_logps = get_log_probs_from_logits(
             output_logits[:,:-1], 
@@ -99,9 +116,17 @@ def offline_forward(
         token_policy_logps *= batch['attention_mask'][:,1:]
         token_policy_logps *= batch['mask'][:,1:]
         logps = torch.sum(token_policy_logps, dim = -1)  # (bs, )
+        # Calculate sequence entropies
+        # TODO: confirm with JC and Adyasha if this is correct
+        combined_mask = batch['attention_mask'] * batch['mask']
+        sequence_entropies = get_sequence_entropies(
+            token_entropies=token_entropies,
+            action_mask=combined_mask,
+        )
 
     outputs: dict[str, torch.Tensor] = {
         'policy_logp': logps,
+        'sequence_entropies': sequence_entropies,
     }
 
     if policy_model_config is not None and hasattr(model, 'transformer'):
@@ -201,6 +226,7 @@ def offline_loss(
         'reverse_kl': reverse_kl,
         'forward_kl': forward_kl,
         'estimated_reward': estimated_reward,
+        'sequence_entropies': outputs['sequence_entropies'], # Track detached sequence entropies in the loss dict
     }
     if loss_type == RegressionOfflineEnum.APO:
         loss_dict['batch_advantage'] = torch.mean(

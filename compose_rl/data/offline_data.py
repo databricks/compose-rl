@@ -30,6 +30,7 @@ def base64_to_pil(base64_string: str):
         image_data = base64.b64decode(base64_string)
         image_stream = BytesIO(image_data)
         image = Image.open(image_stream)
+        image = image.convert("RGB")
         return image
     except Exception as e:
         print(f"Error decoding base64 string: {e}")
