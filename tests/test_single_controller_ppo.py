@@ -45,7 +45,7 @@ from tests.common import (
 
 @ray.remote(num_gpus=1)
 class DistributedGPUActor(BaseDistributedGPUActor):
-    """Distributed GPU actor for testing. Moved part of controller logic from PPO Callback to here."""
+    """Distributed GPU actor for testing"""
 
     def __init__(
         self,
@@ -138,8 +138,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         }
 
     def build_dataloader(self):
-        # dataloader should be built with inference agent instead with this trainer actor,
-        # it is still attached to trainer actor here to avoid a full refactor to PPO Callback code
+        # TODO (infra): build prompt dataloader with rollout agent instead of
+        # trainer actor
         max_seq_len = 32
         prompt_len = 10
 
@@ -166,6 +166,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         return self._dataloader
 
     def build_tokenizer(self):
+        # TODO (algo): decide if we should use tokens or messages given
+        # we may need token level log prob
         tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name)
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         return tokenizer
@@ -188,15 +190,18 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     @property
     def fsdp_config(self):
+        # TODO (infra): use actual fsdp2 config
         return {}
 
     def init_composer_dist(self):
         composer_dist.initialize_dist('gpu')
 
     def build_ref_model(self):
-        # train a reference model for the PPO training
-        # The key observation here is that we should construct our high level model training logic in the actor instead of the callback
-        # e.g., we can build ref/reward/policy/value model and create/colocate multiple trainers all in this class
+        # pre-train a reference model for the PPO training
+        # The key observation here is that we should construct model
+        # training pipeline in the actor instead of the callback
+        # e.g., we can build ref/reward/policy/value model and create/colocate
+        # multiple trainers all in this class
         tmp_ref_path = str('./ref_checkpoints')
         ref_path = os.path.join(tmp_ref_path, 'latest-rank0.pt')
         if os.path.exists(ref_path):
@@ -221,12 +226,11 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             parallelism_config={'fsdp': self.fsdp_config},
             save_folder=tmp_ref_path,
             save_weights_only=True,
-            device_train_microbatch_size=self.device_train_microbatch_size,  # type: ignore
+            device_train_microbatch_size=self.
+            device_train_microbatch_size,  # type: ignore
         )
 
         temp_trainer.fit()
-
-        # After making the reference model, we can proceed with the PPO training
         self.ref_path = ref_path
 
     def build_ppo_trainer(self):
@@ -236,8 +240,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
 
-        # ideally we should pull the rest of the training logic from the callback to this class as well,
-        # e.g, how to interact with env, calculate rewards etc
+        # TODO (infra): pull the rest of the training logic from the callback
+        # to this class, e.g, how to interact with env, calculate rewards etc
         self.ppo_callback = SingleControllerOnPolicyCallback(
             train_config=self.train_config,
         )
@@ -254,11 +258,12 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
 
     def train_1_iter(self):
-        # we should implement the top level PPO algo here instead of the callback
-        # algorithmic researchers are expected to implement this function along with above policy/value/reward/ref trainers or models
+        # TODO (algo): implement the top level PPO algo here instead of the
+        # callback. Algorithmic researchers are expected to implement this
+        # function along with above policy/value/reward/ref trainers or models
         self.ppo_trainer.fit(duration='1iter')
-        # This is the KL assert that must be true if we are truly loading from the same model.
-        # This is only true on the first iteration
+        # This is the KL assert that must be true if we are truly loading
+        # from the same model. This is only true on the first iteration
         assert torch.allclose(
             self.ppo_trainer.state.loss['kl/ift_kl'], # pyright: ignore
             torch.tensor(0.0),
@@ -268,6 +273,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def update_inference_model(self, vllm_engines: list[Any]):
         start_time = time.time()
         print('Before broadcast to vLLM')
+        # TODO (infra) instead of direcly broadcasting to vllm, we should
+        # push the model parameters to a parameter buffer manager and have
+        # the buffer manager initiate broadcast of parameters to vllm engines
         broadcast_to_vllm(
             self.ppo_callback.actor_critic,
             vllm_engines,
@@ -285,13 +293,20 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         Args:
             vllm_engines (list[Any]): The vllm engines to round trip to.
         """
+        # TODO (infra): we should use the rollout agent to generate sequences
+        # instead of the trainer actor, e.g,. reimplment _get_next_iter_prompts
+        # in the rollout agent
         batch = self.ppo_trainer.state.device.batch_to_device(
             self.ppo_callback._get_next_iter_prompts(),
         )
         max_gen_len = self.train_config['variables']['max_gen_len']
         generation_kwargs = self.train_config['variables']['generation_kwargs']
-        with get_precision_context(self.precision), torch.no_grad():  # type: ignore
-            # If vllm engines are available, we use them to generate sequences in one go
+        with get_precision_context(self.precision
+                                  ), torch.no_grad():  # type: ignore
+            # TODO (infra): refactor this code to isolate gather of
+            # prompts on the trainer actor and gather/scatter of sequences
+            # on the trainer actor, the first half is uesless while
+            # the second half should be managed throught a experience manager
             sequences = vllm_generate(
                 vllm_engines=vllm_engines,
                 batch=batch,
@@ -312,7 +327,9 @@ def setup_process_groups(
 ):
     """Initialize process groups for vLLM engines and master actor."""
     # Get a new port for the weight-update process group
-    master_addr, _ = ray.get(master_actor.get_master_address.remote())  # type: ignore
+    master_addr, _ = ray.get(
+        master_actor.get_master_address.remote()
+    )  # type: ignore
     new_port = ray.get(master_actor.get_free_port.remote())  # type: ignore
     print(f'new_port: {new_port}')
 
@@ -347,6 +364,7 @@ def setup_process_groups(
 
 
 class SPMDActorGroup:
+    # TODO (infra): refactor this to a proper base class
 
     def __init__(self, num_train_actors: int):
         self.num_train_actors = num_train_actors
@@ -388,6 +406,9 @@ class SPMDActorGroup:
 
 
 class TrainActorGroup(SPMDActorGroup):
+
+    # TODO: this class is mainly pass through gang scheduler,
+    # we should refactor this class to be more generic and reusable
 
     def build_models(self, pretrain_model_name: str):
         """Build reference models and PPO trainers for all actors."""
@@ -450,6 +471,8 @@ class RolloutAgent:
         return len(self.vllm_engines)
 
     def generate(self, prompts: list[str]):
+        # TODO (infra): try integrate this with the multi-turn rollout
+        # repo
         ref = self.vllm_engines[0].generate.remote(prompts)
         gen_results = ray.get(ref)
         for output in gen_results:
@@ -458,6 +481,7 @@ class RolloutAgent:
             print(f'Prompt: {prompt!r}, Generated text: {generated_text!r}')
 
 
+# TODO (infra): implement parameter buffer manager and experience manager
 class PPOController:
 
     def __init__(
@@ -497,7 +521,8 @@ def _run_single_controller_ppo(
         world_size: Number of distributed processes
         prompts: List of prompts to test generation with
     """
-    # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend takes too long to jit compile
+    # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend
+    # takes too long to jit compile
     os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
 
     prompts = [
@@ -572,7 +597,9 @@ def test_single_controller_ppo(
 
 
 if __name__ == '__main__':
-    # This is an example of how to move the controller logic from PPO Callback to a separate trainer actor above and this main single controller function,
+    # This is an example of how to move the controller logic from PPO Callback
+    # to a separate trainer actor above and this main single controller
+    # function.
     _run_single_controller_ppo(
         pretrain_model_path='meta-llama/Llama-3.2-1B-Instruct',
     )
