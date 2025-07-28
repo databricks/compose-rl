@@ -9,6 +9,7 @@
 import logging
 import os
 import time
+import datetime
 from functools import partial
 from typing import Any, Optional
 
@@ -206,19 +207,25 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.logger.info("Finished build_train_config")
 
     def build_dataloader(self):
+        # NOTE: They key issue is LOCAL_WORLD_SIZE
         from streaming.base.world import World
+        from streaming.base import distributed as dist
         world = World.detect()
-        self.logger.info(f"Building dataloader with world: {world}")
-        self.logger.info(f"World size: {world.num_ranks}, rank: {world.rank}")
+        self.logger.info(f"@@@@@@@@@@@@@@@@@Building dataloader with world: {world}")
+        self.logger.info(f"@@@@@@@@@@@@@@@@@World size: {world.num_ranks}, rank: {world.rank}")
+        self.logger.info(f"@@@@@@@@@@@@@@@@@{dist.get_rank()=}, {dist.get_local_world_size()=}, {dist.get_world_size()=}")
         # dataloader should be built with inference agent instead with this trainer actor,
         # it is still attached to trainer actor here to avoid a full refactor to PPO Callback code
         # Option 0: Not make dataloader a property and just build it here
         # Option 1: Use the PromptDataset directly
         # Option 2: Convert this to huggingface dataset and then create a sampler on top.
+        # Create a new temporary directory for local dataset
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_dataset_dir = f"/tmp/dataset/prompt_{timestamp}/"
         train_loader_config = {
             'name': 'prompt',
             'dataset': {
-                'local': '/tmp/dataset/prompt/',
+                'local': temp_dataset_dir,
                 'split': 'train',
                 'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/q7b_open_r1_48k/',
                 'shuffle': True,
@@ -260,12 +267,12 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         dataloader.load_state_dict = lambda x: None
         return dataloader
 
-    @property
-    def dataloader(self):
-        # NOTE: this will only create a single instance of the dataloader but we want each actor to create their own
-        if self._dataloader is None:
-            self._dataloader = self.build_dataloader()
-        return self._dataloader
+    # @property
+    # def dataloader(self):
+    #     # NOTE: this will only create a single instance of the dataloader but we want each actor to create their own
+    #     if self._dataloader is None:
+    #         self._dataloader = self.build_dataloader()
+    #     return self._dataloader
 
     def build_tokenizer(self):
         tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name)
@@ -350,6 +357,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         
         # NOTE: SingleControllerOnPolicyCallback is over-writing the iteration_start method
         self.ppo_callback = SingleControllerOnPolicyCallback(train_config=self.train_config)
+
+        # Build the dataloader
+        self.dataloader = self.build_dataloader()
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,

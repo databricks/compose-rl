@@ -37,6 +37,8 @@ class BaseDistributedGPUActor:
 
         # Set up basic environment variables
         os.environ['WORLD_SIZE'] = str(world_size)
+        # NOTE: Testing local world size fix for dataloader
+        os.environ['LOCAL_WORLD_SIZE'] = str(world_size)
         os.environ['RANK'] = str(rank)
 
         # Set LOCAL_RANK based on Ray GPU allocation
