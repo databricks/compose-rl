@@ -665,6 +665,14 @@ class OnPolicyCallback(CallbackWithConfig):
         batches = [
             self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
+        # # NOTE: hacky debugging logging
+        # self.ray_logger.info(f"&&&&&& Got {len(batches)} unique batches for the iteration")
+        # self.ray_logger.info(f"&&&&&& Each batch has {len(batches[0])} keys: {batches[0].keys()}")
+        # # 'prompt', 'prompt_len', 'verified_answer'
+        # self.ray_logger.info(f"&&&&&& First batch prompt {batches[0]['prompt'].shape}: {batches[0]['prompt']}")
+        # self.ray_logger.info(f"&&&&&& self.pad_token_idx {self.pad_token_idx}")
+        # self.ray_logger.info(f"&&&&&& First batch prompt_len {batches[0]['prompt_len'].shape}: {batches[0]['prompt_len']}")
+        # self.ray_logger.info(f"&&&&&& First batch verified_answer {len(batches[0]['verified_answer'])}: {batches[0]['verified_answer']}")
 
         ret_batch = {}
         for key in batches[0].keys():
