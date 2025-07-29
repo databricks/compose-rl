@@ -210,6 +210,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.logger.info("Finished build_train_config")
 
     def build_dataloader(self):
+        # TODO (infra): build prompt dataloader with rollout agent instead of
+        # trainer actor
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_dataset_dir = f"/tmp/dataset/prompt_{timestamp}/"
         train_loader_config = {
