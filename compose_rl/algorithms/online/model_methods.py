@@ -486,6 +486,7 @@ def policy_loss(
         )
 
         logprob_tol = torch.mean(torch.abs(seq_old_logprobs - seq_vllm_logprobs))
+        prob_tol = torch.mean(torch.abs(torch.exp(seq_old_logprobs) - torch.exp(seq_vllm_logprobs)))
 
         policy_dict = {
             'loss/policy_loss': policy_loss,
@@ -499,7 +500,11 @@ def policy_loss(
             'advantage/mean': torch.mean(
                 advantages,
             ),  #compute the average of the vstar of the current batch
-            'vllm_generation_abs_tolerance': logprob_tol,
+            'vllm_abs_log_tol': logprob_tol,
+            'vllm_abs_tol': prob_tol,
+            'log_diff/min': torch.min(masked_log_probs_diff),
+            'log_diff/max': torch.max(masked_log_probs_diff),
+            'log_diff/mean': torch.mean(masked_log_probs_diff),
         }
         return policy_dict
 
