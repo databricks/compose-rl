@@ -43,16 +43,11 @@ from compose_rl.algorithms.online.generation_utils import (
     create_vllm_engines,
     vllm_generate,
 )
-from compose_rl.data import prompt_dataset_collate_fn
 from compose_rl.utils.ray_utils import start_ray_server
-
 from tests.common import (
     BaseDistributedGPUActor,
     world_size,
 )
-
-# Set up logging
-logger = logging.getLogger(__name__)
 
 
 @ray.remote(num_gpus=1)
@@ -269,16 +264,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         return {}
 
     def init_composer_dist(self):
-        self.logger.info("Initializing composer dist")
         composer_dist.initialize_dist('gpu')
-        self.logger.info("Composer dist initialized")
 
     def build_ppo_trainer(self):
         name = self.model_config.pop('name')
-        self.logger.info("Starting build_ppo_trainer")
-        composer_dist.initialize_dist('gpu')
-        self.logger.info("Composer dist initialized in build_ppo_trainer")
-
         
         self.logger.info(f"Model type: {name}")
         if name == 'hf_ppo_lm':
@@ -287,7 +276,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         elif name == 'hf_critic_free_lm':
             self.logger.info("Creating ComposerHFCriticFreePolicyLM")
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
-        
         self.logger.info("Model created successfully")
 
         optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
@@ -296,9 +284,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # to this class, e.g, how to interact with env, calculate rewards etc
         # NOTE: SingleControllerOnPolicyCallback is currently over-writing the iteration_start method
         self.ppo_callback = SingleControllerOnPolicyCallback(train_config=self.train_config)
-
-        # Build the dataloader and set the prompt loader iter to the dataloader iterator
-        self.ppo_callback.ray_logger = self.logger
 
         self.ppo_trainer = Trainer(
             model=model,
@@ -320,8 +305,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # TODO (infra): fault tolerance at iteration level first
         # TODO (infra): enable batch level control
 
-        # we should implement the top level PPO algo here instead of the callback
-        # algorithmic researchers are expected to implement this function along with above policy/value/reward/ref trainers or models
         # NOTE: Trainer has a train microbatches function that should be used here to get low level control.
         # fit() checks if there is existing checkpoint, make a full forward pass, it will run eval pass and save pass.
         # We potentially want to run this https://github.com/mosaicml/composer/blob/dev/composer/trainer/trainer.py#L2826
@@ -332,6 +315,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def update_inference_model(self, vllm_engines: list[Any]):
         start_time = time.time()
         print('Before broadcast to vLLM')
+        # TODO (infra) instead of direcly broadcasting to vllm, we should
+        # push the model parameters to a parameter buffer manager and have
+        # the buffer manager initiate broadcast of parameters to vllm engines
         broadcast_to_vllm(
             self.ppo_callback.actor_critic,
             vllm_engines,
@@ -345,14 +331,16 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def query_inference_engines(self, vllm_engines: list[Any]):
         """Round trip to inference engines.
-        
+
         Args:
             vllm_engines (list[Any]): The vllm engines to round trip to.
         """
         # TODO (infra): we should use the rollout agent to generate sequences
         # instead of the trainer actor, e.g,. reimplment _get_next_iter_prompts
         # in the rollout agent
-        batch = self.ppo_trainer.state.device.batch_to_device(self.ppo_callback._get_next_iter_prompts())
+        batch = self.ppo_trainer.state.device.batch_to_device(
+            self.ppo_callback._get_next_iter_prompts()
+        )
         max_gen_len = self.train_config['variables']['max_gen_len']
         generation_kwargs = self.train_config['variables']['generation_kwargs']
         with get_precision_context(self.precision), torch.no_grad():
@@ -370,19 +358,24 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             )
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
-        self.ppo_callback.batch_rollouts = batch
+        self.ppo_callback.batch_rollouts = batch  # type: ignore
 
 
-def setup_process_groups(master_actor: Any, vllm_engines: list[Any], vllm_tensor_parallel_size: int):
-
+def setup_process_groups(
+    master_actor: Any,
+    vllm_engines: list[Any],
+    vllm_tensor_parallel_size: int,
+):
     """Initialize process groups for vLLM engines and master actor."""
     # Get a new port for the weight-update process group
-    master_addr, _ = ray.get(master_actor.get_master_address.remote())
-    new_port = ray.get(master_actor.get_free_port.remote())
+    master_addr, _ = ray.get(
+        master_actor.get_master_address.remote(),
+    )  # type: ignore
+    new_port = ray.get(master_actor.get_free_port.remote())  # type: ignore
     print(f'new_port: {new_port}')
-    
+
     world_size = dist.get_world_size()
-    
+
     # Initialize process groups for vLLM engines
     refs = [
         engine.init_process_group.remote(
@@ -394,17 +387,19 @@ def setup_process_groups(master_actor: Any, vllm_engines: list[Any], vllm_tensor
             backend='nccl',
         ) for i, engine in enumerate(vllm_engines)
     ]
-    
+
     # Add master actor to the process group
-    refs.append(master_actor.add_process_group.remote(
-        backend='nccl',
-        master_addr=master_addr,
-        master_port=new_port,
-        world_size=world_size // 2 + 1,
-        rank=0,
-        group_name='weight-update',
-    ))
-    
+    refs.append(
+        master_actor.add_process_group.remote(
+            backend='nccl',
+            master_addr=master_addr,
+            master_port=new_port,
+            world_size=world_size // 2 + 1,
+            rank=0,
+            group_name='weight-update',
+        ),
+    )
+
     # Wait for all process groups to be initialized
     print(ray.get(refs))
 
@@ -549,8 +544,12 @@ class PPOController:
     def train(self):
         for _ in range(5):  # Example: train for 5 iterations
             # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
-            self.train_actor.update_inference_model(self.inference_client.vllm_engines)
-            self.train_actor.query_inference_engines(self.inference_client.vllm_engines)
+            self.train_actor.update_inference_model(
+                self.inference_client.vllm_engines
+            )
+            self.train_actor.query_inference_engines(
+                self.inference_client.vllm_engines
+            )
             self.train_actor.train_iteration()
 
 
@@ -647,52 +646,3 @@ if __name__ == '__main__':
     _run_single_controller_ppo(
         pretrain_model_path='Qwen/Qwen2.5-1.5B-Instruct',
     )
-
-# def run():
-#     # This is an example of how to move the controller logic from PPO Callback to a separate trainer actor above and this main single controller function,
-#     prompts = [
-#         "what is RAY?",
-#         "what is vLLM?",
-#     ]
-#     # pretrain_model_name = 'meta-llama/Llama-3.2-1B-Instruct'
-#     # pretrain_model_name = 'Qwen/Qwen2.5-7B-Instruct'
-#     pretrain_model_name = 'Qwen/Qwen2.5-1.5B-Instruct' # For testing
-#     with start_ray_server():
-#         if dist.get_rank() == 0:
-#             # only rank 0 is the master controller
-            
-#             # create SPMD training actors of the system
-#             num_train_actors = dist.get_world_size() // 2
-#             train_actor = TrainActorGroup(num_train_actors)
-
-#             # Create vLLM engines (or inference actors)
-#             world_size = dist.get_world_size()
-#             vllm_tensor_parallel_size = world_size - num_train_actors
-#             num_vllm_engines = (
-#                 world_size - num_train_actors
-#             ) // vllm_tensor_parallel_size
-#             # TODO: Encapsulate this into a inference server manager class
-#             vllm_engines = create_vllm_engines(
-#                         num_engines=num_vllm_engines,
-#                         tensor_parallel_size=vllm_tensor_parallel_size,
-#                         enforce_eager=True,
-#                         pretrain=pretrain_model_name,
-#                         revision=None,
-#                         seed=1,
-#                         enable_prefix_caching=False,
-#                         max_model_len=1000,
-#                         device_bundle={
-#                             'GPU': 1,
-#                             'CPU': 1,
-#                             'worker_node': 0,
-#                         },
-#                     )
-#             inference_client = RolloutAgent(vllm_engines, vllm_tensor_parallel_size)
-
-#             ppo_controller = PPOController(train_actor, inference_client, pretrain_model_name)
-#             ppo_controller.train()
-
-#             inference_client.generate(prompts)
-
-# if __name__ == '__main__':
-#     run()
