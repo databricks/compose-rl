@@ -99,6 +99,7 @@ def _vllm_generate(
         'top_p': generation_kwargs.get('top_p', 1.0),
         'top_k': generation_kwargs.get('top_k', -1),
         'max_tokens': max_gen_len,
+        'logprobs': 1, # return logprobs
     }
 
     # We have to remove all pad tokens here
@@ -138,11 +139,13 @@ def _vllm_generate(
     start_time = time.time()
     results = ray.get(futs)
     all_responses = []
+    all_logprobs = []
 
     # Get all of the ray futures
     for i, result in enumerate(results):
         # Each result is a list of responses this assumes one output per input
         all_responses.extend([resp.outputs[0].token_ids for resp in result])
+        all_logprobs.extend([[list(datum.values())[0] for datum in resp.outputs[0].logprobs] for resp in result])
 
     log.info(
         f'took: {time.time() - start_time} to gather futures',
@@ -150,13 +153,18 @@ def _vllm_generate(
 
     # Distribute padded responses back to the correct device
     split_responses = []
+    split_logprobs = []
     start = 0
     for size in batch_sizes:
         split_responses.append(
             all_responses[start:start + size],
         )
+        split_logprobs.append(
+            all_logprobs[start:start + size],
+        )
         start += size
-    return split_responses
+    #return split_responses
+    return split_responses, split_logprobs
 
 
 def _vllm_chat(
@@ -320,7 +328,7 @@ def vllm_generate(
                 batch_sizes,
             )
         else:
-            split_responses = _vllm_generate(
+            split_responses, split_logprobs = _vllm_generate(
                 vllm_engines,
                 max_gen_len,
                 generation_kwargs,
@@ -335,6 +343,7 @@ def vllm_generate(
         all_prompts = None
         all_messages = None
         split_responses = None
+        split_logprobs = None
 
     # Do another garbage collection and empty the cache
     gc.collect()
@@ -345,13 +354,20 @@ def vllm_generate(
 
     # Scatter the generated responses back to the correct rank
     local_responses = [None]
+    local_logprobs = [None]
     start_time = time.time()
     torch.distributed.scatter_object_list(
         local_responses,
         split_responses,
         src=0,
     )
+    torch.distributed.scatter_object_list(
+        local_logprobs,
+        split_logprobs,
+        src=0,
+    )
     local_responses = local_responses[0]
+    local_logprobs = local_logprobs[0]
 
     log.info(f'took: {time.time() - start_time} to scatter prompts')
 
@@ -379,7 +395,24 @@ def vllm_generate(
     # Construct full sequences from the prompt and padded responses
     sequences = torch.cat([prompt_tokens, padded_responses], dim=-1)
     num_tokens_generated = sequences.size(1) - prompt_tokens.size(1)
+
+    # LOGPROBS
+    padded_logprobs = []
+    for sequence in local_logprobs:  # type: ignore
+        sequence = list(sequence)
+        if len(sequence) < max_vllm_generated_len:
+            sequence = sequence + [
+                0,
+            ] * (max_vllm_generated_len - len(sequence))
+
+        padded_logprobs.append(sequence)
+    vllm_logprobs = torch.tensor(
+        padded_logprobs,
+        dtype=torch.float,
+        device=cur_device,
+    )
+
     log.info(
         f'It took {time.time() - start_gen_time} to generate {num_tokens_generated} tokens',
     )
-    return sequences
+    return sequences, vllm_logprobs
