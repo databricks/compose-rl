@@ -35,6 +35,7 @@ log = logging.getLogger(__name__)
 
 
 class ComposerMPTPolicyLM(HuggingFaceModel):
+
     def __init__(
         self,
         tokenizer: Tokenizer,
@@ -139,6 +140,7 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
 
 
 class ComposerHFPolicyLM(ComposerHFPolicy):
+
     def __init__(
         self,
         *,

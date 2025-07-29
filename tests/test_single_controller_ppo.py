@@ -469,6 +469,7 @@ class TrainActorGroup(SPMDActorGroup):
 
 
 class RolloutAgent:
+
     def __init__(self, vllm_engines: list, vllm_tensor_parallel_size: int):
         self.vllm_engines = vllm_engines
         self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
@@ -490,6 +491,7 @@ class RolloutAgent:
 
 # TODO (infra): implement parameter buffer manager and experience manager
 class PPOController:
+
     def __init__(
         self,
         train_actor: TrainActorGroup,

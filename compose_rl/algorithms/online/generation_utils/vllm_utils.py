@@ -113,6 +113,7 @@ def init_process_group(
 
 
 class WorkerWrap:
+
     def init_process_group(
         self,
         master_address: str,
