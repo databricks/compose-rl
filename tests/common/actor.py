@@ -39,8 +39,8 @@ class BaseDistributedGPUActor:
         self.master_port = master_port
 
         # Set up basic environment variables
-        # TODO: may need to handle LOCAL_WORLD_SIZE as used in callback.py
         os.environ['WORLD_SIZE'] = str(world_size)
+        os.environ['LOCAL_WORLD_SIZE'] = str(world_size)
         os.environ['RANK'] = str(rank)
 
         # Set LOCAL_RANK based on Ray GPU allocation
