@@ -106,15 +106,15 @@ class BaseDistributedGPUActor:
 
 class SPMDActorGroup:
 
-    def __init__(self, num_train_actors: int, actor_class: type[BaseDistributedGPUActor]):
+    def __init__(self, num_train_actors: int, actor_class: type[BaseDistributedGPUActor], num_gpus_per_actor: int = 1):
         self.num_train_actors = num_train_actors
-
         self._train_actors: list[BaseDistributedGPUActor] = []
         """Create and initialize all training actors."""
         print(f'\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===')
 
+        remote_actor_class = ray.remote(num_gpus=num_gpus_per_actor)(actor_class)
         # Create master actor first
-        self._master_actor = actor_class.remote(
+        self._master_actor = remote_actor_class.remote(
             0,
             self.num_train_actors,
         )
@@ -128,7 +128,7 @@ class SPMDActorGroup:
 
         # Create remaining actors with the master address/port
         for i in range(1, self.num_train_actors):
-            actor = actor_class.remote(
+            actor = remote_actor_class.remote(
                 i,
                 self.num_train_actors,
                 master_addr,  # type: ignore

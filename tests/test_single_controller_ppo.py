@@ -38,13 +38,13 @@ from compose_rl.algorithms.online.generation_utils import (
 from compose_rl.data import prompt_dataset_collate_fn
 from compose_rl.utils.ray_utils import start_ray_server
 from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
+from compose_rl.controllers.buffer import Buffer
 from tests.common import (
     VerifiablePromptDataset,
     world_size,
 )
 
 
-@ray.remote(num_gpus=1)
 class DistributedGPUActor(BaseDistributedGPUActor):
     """Distributed GPU actor for testing."""
 
@@ -362,12 +362,9 @@ class RolloutAgent:
             print(f'Prompt: {prompt!r}, Generated text: {generated_text!r}')
 
 
-class ParameterBufferManager:
+class ParameterBuffer(Buffer):
 
-    def __init__(self, vllm_engines: list[Any]):
-        self.vllm_engines = vllm_engines
-
-    def update_inference_model(self, actor: DistributedGPUActor):
+    def update_inference_model(self, actor: DistributedGPUActor, vllm_engines: list[Any]):
         start_time = time.time()
         print('Before broadcast to vLLM')
         # TODO (infra) instead of direcly broadcasting to vllm, we should
@@ -375,7 +372,7 @@ class ParameterBufferManager:
         # the buffer manager initiate broadcast of parameters to vllm engines
         broadcast_to_vllm(
             actor.ppo_callback.actor_critic,
-            self.vllm_engines,
+            vllm_engines,
             actor.model_update_group,
             device=torch.device('cuda'),
             loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
@@ -384,17 +381,14 @@ class ParameterBufferManager:
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
         dist.barrier()
 
-    def put_parameters(self, actor_group: TrainActorGroup):
-        actor_group.collective_methods.execute(self.update_inference_model)
+    def put(self, struct: dict[str, Any]):
+        struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, vllm_engines=struct['vllm_engines']))
 
 
 
-class ExperienceManager:
+class ExperienceBuffer(Buffer):
 
-    def __init__(self, vllm_engines: list[Any]):
-        self.vllm_engines = vllm_engines
-    
-    def query_inference_engines(self, actor: DistributedGPUActor):
+    def query_inference_engines(self, actor: DistributedGPUActor, vllm_engines: list[Any]):
         """Round trip to inference engines.
 
         Args:
@@ -414,7 +408,7 @@ class ExperienceManager:
             # on the trainer actor, the first half is uesless while
             # the second half should be managed throught a experience manager
             sequences = vllm_generate(
-                vllm_engines=self.vllm_engines,
+                vllm_engines=vllm_engines,
                 batch=batch,
                 max_gen_len=max_gen_len,
                 generation_kwargs=generation_kwargs,
@@ -425,8 +419,8 @@ class ExperienceManager:
         batch['sequences'] = sequences
         actor.ppo_callback.batch_rollouts = batch  # type: ignore
 
-    def put_experience(self, actor_group: TrainActorGroup):
-        actor_group.collective_methods.execute(self.query_inference_engines)
+    def put(self, struct: dict[str, Any]):
+        struct['actor_group'].collective_methods.execute(partial(self.query_inference_engines, vllm_engines=struct['vllm_engines']))
 
 
 class PPOController:
@@ -435,14 +429,14 @@ class PPOController:
         self,
         train_actor: TrainActorGroup,
         inference_client: RolloutAgent,
-        parameter_buffer_manager: ParameterBufferManager,
-        experience_manager: ExperienceManager,
+        parameter_buffer: ParameterBuffer,
+        experience_buffer: ExperienceBuffer,
         pretrain_model_name: str,
     ):
         self.train_actor = train_actor
         self.inference_client = inference_client
-        self.parameter_buffer_manager = parameter_buffer_manager
-        self.experience_manager = experience_manager
+        self.parameter_buffer = parameter_buffer
+        self.experience_buffer = experience_buffer
         self.train_actor.build_models(pretrain_model_name)
         setup_process_groups(
             self.train_actor.master_actor,
@@ -451,8 +445,8 @@ class PPOController:
         )
 
     def train(self):
-        self.parameter_buffer_manager.put_parameters(self.train_actor)
-        self.experience_manager.put_experience(self.train_actor)
+        self.parameter_buffer.put({'actor_group': self.train_actor, 'vllm_engines': self.inference_client.vllm_engines})
+        self.experience_buffer.put({'actor_group': self.train_actor, 'vllm_engines': self.inference_client.vllm_engines})
         self.train_actor.collective_methods.train_1_iter()
 
 
@@ -511,17 +505,13 @@ def _run_single_controller_ppo(
                 vllm_engines,
                 vllm_tensor_parallel_size,
             )
-            parameter_buffer_manager = ParameterBufferManager(
-                vllm_engines,
-            )
-            experience_manager = ExperienceManager(
-                vllm_engines,
-            )
+            parameter_buffer = ParameterBuffer()
+            experience_buffer = ExperienceBuffer()
             ppo_controller = PPOController(
                 train_actor,
                 inference_client,
-                parameter_buffer_manager,
-                experience_manager,
+                parameter_buffer,
+                experience_buffer,
                 pretrain_model_path,
             )
             ppo_controller.train()
