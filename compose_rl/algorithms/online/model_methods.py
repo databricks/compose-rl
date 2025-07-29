@@ -408,6 +408,13 @@ def policy_loss(
         vllm_log_probs = batch['vllm_logprobs']
         vllm_log_diff = online_log_probs - vllm_log_probs
 
+        try:
+            assert vllm_log_probs.shape == old_log_probs.shape
+        except:
+            print(f"vLLM shape: {vllm_log_probs.shape}")
+            print(f"Forward shape: {old_log_probs.shape}")
+            raise Exception("Shapes are off")
+
         #compute KL to pi_ref to keep track the divergence to \pi_ref
         policy_kl_ref_dict = utils.approx_kl(
             log_p=ref_log_probs,
