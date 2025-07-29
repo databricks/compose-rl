@@ -280,37 +280,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             atol=5e-5,
         )
 
-    def query_inference_engines(self, vllm_engines: list[Any]):
-        """Round trip to inference engines.
-
-        Args:
-            vllm_engines (list[Any]): The vllm engines to round trip to.
-        """
-        # TODO (infra): we should use the rollout agent to generate sequences
-        # instead of the trainer actor, e.g,. reimplment _get_next_iter_prompts
-        # in the rollout agent
-        batch = self.ppo_trainer.state.device.batch_to_device(
-            self.ppo_callback._get_next_iter_prompts(),
-        )
-        max_gen_len = self.train_config['variables']['max_gen_len']
-        generation_kwargs = self.train_config['variables']['generation_kwargs']
-        with get_precision_context(self.precision), torch.no_grad():
-            # TODO (infra): refactor this code to isolate gather of
-            # prompts on the trainer actor and gather/scatter of sequences
-            # on the trainer actor, the first half is uesless while
-            # the second half should be managed throught a experience manager
-            sequences = vllm_generate(
-                vllm_engines=vllm_engines,
-                batch=batch,
-                max_gen_len=max_gen_len,
-                generation_kwargs=generation_kwargs,
-                tokenizer=self.tokenizer,  # type: ignore
-                vllm_generate_function='generate',
-            )
-        # Add the prepared sequences to the batch again
-        batch['sequences'] = sequences
-        self.ppo_callback.batch_rollouts = batch  # type: ignore
-
 
 def setup_process_groups(
     master_actor: Any,
@@ -393,7 +362,6 @@ class RolloutAgent:
             print(f'Prompt: {prompt!r}, Generated text: {generated_text!r}')
 
 
-# TODO (infra): implement parameter buffer manager and experience manager
 class ParameterBufferManager:
 
     def __init__(self, vllm_engines: list[Any]):
@@ -420,6 +388,47 @@ class ParameterBufferManager:
         actor_group.collective_methods.execute(self.update_inference_model)
 
 
+
+class ExperienceManager:
+
+    def __init__(self, vllm_engines: list[Any]):
+        self.vllm_engines = vllm_engines
+    
+    def query_inference_engines(self, actor: DistributedGPUActor):
+        """Round trip to inference engines.
+
+        Args:
+            vllm_engines (list[Any]): The vllm engines to round trip to.
+        """
+        # TODO (infra): we should use the rollout agent to generate sequences
+        # instead of the trainer actor, e.g,. reimplment _get_next_iter_prompts
+        # in the rollout agent
+        batch = actor.ppo_trainer.state.device.batch_to_device(
+            actor.ppo_callback._get_next_iter_prompts(),
+        )
+        max_gen_len = actor.train_config['variables']['max_gen_len']
+        generation_kwargs = actor.train_config['variables']['generation_kwargs']
+        with get_precision_context(actor.precision), torch.no_grad():
+            # TODO (infra): refactor this code to isolate gather of
+            # prompts on the trainer actor and gather/scatter of sequences
+            # on the trainer actor, the first half is uesless while
+            # the second half should be managed throught a experience manager
+            sequences = vllm_generate(
+                vllm_engines=self.vllm_engines,
+                batch=batch,
+                max_gen_len=max_gen_len,
+                generation_kwargs=generation_kwargs,
+                tokenizer=actor.tokenizer,  # type: ignore
+                vllm_generate_function='generate',
+            )
+        # Add the prepared sequences to the batch again
+        batch['sequences'] = sequences
+        actor.ppo_callback.batch_rollouts = batch  # type: ignore
+
+    def put_experience(self, actor_group: TrainActorGroup):
+        actor_group.collective_methods.execute(self.query_inference_engines)
+
+
 class PPOController:
 
     def __init__(
@@ -427,11 +436,13 @@ class PPOController:
         train_actor: TrainActorGroup,
         inference_client: RolloutAgent,
         parameter_buffer_manager: ParameterBufferManager,
+        experience_manager: ExperienceManager,
         pretrain_model_name: str,
     ):
         self.train_actor = train_actor
         self.inference_client = inference_client
         self.parameter_buffer_manager = parameter_buffer_manager
+        self.experience_manager = experience_manager
         self.train_actor.build_models(pretrain_model_name)
         setup_process_groups(
             self.train_actor.master_actor,
@@ -441,9 +452,7 @@ class PPOController:
 
     def train(self):
         self.parameter_buffer_manager.put_parameters(self.train_actor)
-        self.train_actor.collective_methods.query_inference_engines(
-            self.inference_client.vllm_engines,
-        )
+        self.experience_manager.put_experience(self.train_actor)
         self.train_actor.collective_methods.train_1_iter()
 
 
@@ -505,10 +514,14 @@ def _run_single_controller_ppo(
             parameter_buffer_manager = ParameterBufferManager(
                 vllm_engines,
             )
+            experience_manager = ExperienceManager(
+                vllm_engines,
+            )
             ppo_controller = PPOController(
                 train_actor,
                 inference_client,
                 parameter_buffer_manager,
+                experience_manager,
                 pretrain_model_path,
             )
             ppo_controller.train()
