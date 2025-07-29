@@ -102,7 +102,6 @@ class BaseDistributedGPUActor:
 
 
 class SPMDActorGroup:
-    # TODO (infra): refactor this to a proper base class
 
     def __init__(self, num_train_actors: int, actor_class: type[BaseDistributedGPUActor]):
         self.num_train_actors = num_train_actors
