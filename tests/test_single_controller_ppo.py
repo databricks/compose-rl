@@ -279,11 +279,13 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.logger.info("Model created successfully")
 
         optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
-        
+
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
         # NOTE: SingleControllerOnPolicyCallback is currently over-writing the iteration_start method
-        self.ppo_callback = SingleControllerOnPolicyCallback(train_config=self.train_config)
+        self.ppo_callback = SingleControllerOnPolicyCallback(
+            train_config=self.train_config,
+        )
 
         self.ppo_trainer = Trainer(
             model=model,
@@ -462,13 +464,6 @@ class TrainActorGroup(SPMDActorGroup):
             actor.init_composer_dist.remote() for actor in self._train_actors
         ]
         ray.get(init_task)
-
-        # # Build reference models
-        # build_ref_model_tasks = [
-        #     actor.build_ref_model.remote() for actor in self._train_actors
-        # ]
-        # ray.get(build_ref_model_tasks)
-        # print('build ref model done')
 
         # Build PPO trainers
         build_ppo_trainer_tasks = [
