@@ -3,8 +3,9 @@
 
 
 # Copy the test file in the root of the repo
-# cd compose-rl && cp tests/test_single_controller_grpo.py .
-# run cmd: VLLM_ATTENTION_BACKEND=FLASH_ATTN composer test_single_controller_grpo.py
+# NOTE: This actually runs GRPO instead of PPO
+# cd compose-rl && cp tests/test_single_controller_ppo.py .
+# run cmd: VLLM_ATTENTION_BACKEND=FLASH_ATTN composer test_single_controller_ppo.py
 # If I do ctrl+c to kill job
 # Check with `ray status` to see if the actors are still running
 # If they are, then run `ray stop`
