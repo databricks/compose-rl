@@ -3,7 +3,7 @@
 
 import os
 from datetime import timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import ray
 import torch.distributed as dist
@@ -106,7 +106,7 @@ class SPMDActorGroup:
     def __init__(self, num_train_actors: int, actor_class: type[BaseDistributedGPUActor]):
         self.num_train_actors = num_train_actors
 
-        self._train_actors = []
+        self._train_actors: list[BaseDistributedGPUActor] = []
         """Create and initialize all training actors."""
         print(f'\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===')
 
@@ -140,3 +140,33 @@ class SPMDActorGroup:
     @property
     def master_actor(self):
         return self._master_actor
+
+    @property
+    def collective_methods(self):
+        """Property that provides easy access to method references.
+        """
+        return _ActorMethodProxy(self)
+
+
+class _ActorMethodProxy:
+    """Proxy class that provides easy access to actor methods.
+    """
+    
+    def __init__(self, actor_group: SPMDActorGroup):
+        self._actor_group = actor_group
+    
+    def __getattr__(self, name: str):
+        """Get a method reference that will be called on all actors."""
+        if not hasattr(self._actor_group.master_actor, name):
+            raise AttributeError(
+                f"Method '{name}' not found on actor class: {self._actor_group.master_actor.__class__}"
+            )
+        
+        # Return a callable that will execute the method on all actors
+        def method_wrapper(*args: Any, **kwargs: Any):
+            # Since all actors are the same class, we can get the same method from each actor
+            # and call it remotely. No validation needed since we validated above.
+            refs = [getattr(actor, name).remote(*args, **kwargs) for actor in self._actor_group.train_actors]
+            return ray.get(refs)
+        
+        return method_wrapper

@@ -373,57 +373,20 @@ def setup_process_groups(
 
 
 class TrainActorGroup(SPMDActorGroup):
-    # TODO: this class is mainly pass through gang scheduler,
-    # we should refactor this class to be more generic and reusable
+    """Group of training actors for PPO."""
 
     def build_models(self, pretrain_model_name: str):
         """Build reference models and PPO trainers for all actors."""
-        build_train_config_tasks = [
-            actor.build_train_config.remote(pretrain_model_name)
-            for actor in self._train_actors
-        ]
-        ray.get(build_train_config_tasks)
-
-        init_task = [
-            actor.init_composer_dist.remote() for actor in self._train_actors
-        ]
-        ray.get(init_task)
+        self.collective_methods.build_train_config(pretrain_model_name)
+        self.collective_methods.init_composer_dist()
 
         # Build reference models
-        build_ref_model_tasks = [
-            actor.build_ref_model.remote() for actor in self._train_actors
-        ]
-        ray.get(build_ref_model_tasks)
+        self.collective_methods.build_ref_model()
         print('build ref model done')
 
         # Build PPO trainers
-        build_ppo_trainer_tasks = [
-            actor.build_ppo_trainer.remote() for actor in self._train_actors
-        ]
-        ray.get(build_ppo_trainer_tasks)
+        self.collective_methods.build_ppo_trainer()
         print('build ppo trainer done')
-
-    def update_inference_model(self, vllm_engines: list[Any]):
-        refs = [
-            actor.update_inference_model.remote(vllm_engines)
-            for actor in self._train_actors
-        ]
-        ray.get(refs)
-        print('update inference model done')
-
-    def query_inference_engines(self, vllm_engines: list[Any]):
-        refs = [
-            actor.query_inference_engines.remote(vllm_engines)
-            for actor in self._train_actors
-        ]
-        ray.get(refs)
-        print('query inference engines done')
-
-    def train_iteration(self):
-        """Run one training iteration on all actors."""
-        refs = [actor.train_1_iter.remote() for actor in self._train_actors]
-        ray.get(refs)
-        print('train 1 iter done')
 
 
 class RolloutAgent:
@@ -467,13 +430,13 @@ class PPOController:
         )
 
     def train(self):
-        self.train_actor.update_inference_model(
+        self.train_actor.collective_methods.update_inference_model(
             self.inference_client.vllm_engines,
         )
-        self.train_actor.query_inference_engines(
+        self.train_actor.collective_methods.query_inference_engines(
             self.inference_client.vllm_engines,
         )
-        self.train_actor.train_iteration()
+        self.train_actor.collective_methods.train_1_iter()
 
 
 def _run_single_controller_ppo(
