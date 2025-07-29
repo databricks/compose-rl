@@ -280,23 +280,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             atol=5e-5,
         )
 
-    def update_inference_model(self, vllm_engines: list[Any]):
-        start_time = time.time()
-        print('Before broadcast to vLLM')
-        # TODO (infra) instead of direcly broadcasting to vllm, we should
-        # push the model parameters to a parameter buffer manager and have
-        # the buffer manager initiate broadcast of parameters to vllm engines
-        broadcast_to_vllm(
-            self.ppo_callback.actor_critic,
-            vllm_engines,
-            self.model_update_group,
-            device=torch.device('cuda'),
-            loss_type=self.ppo_callback.actor_critic.loss_type,  # type: ignore
-        )
-        print('Finished broadcasting to vLLM')
-        print(f'Took: {time.time() - start_time} to broadcast to vllm.')
-        dist.barrier()
-
     def query_inference_engines(self, vllm_engines: list[Any]):
         """Round trip to inference engines.
 
@@ -411,17 +394,44 @@ class RolloutAgent:
 
 
 # TODO (infra): implement parameter buffer manager and experience manager
+class ParameterBufferManager:
+
+    def __init__(self, vllm_engines: list[Any]):
+        self.vllm_engines = vllm_engines
+
+    def update_inference_model(self, actor: DistributedGPUActor):
+        start_time = time.time()
+        print('Before broadcast to vLLM')
+        # TODO (infra) instead of direcly broadcasting to vllm, we should
+        # push the model parameters to a parameter buffer manager and have
+        # the buffer manager initiate broadcast of parameters to vllm engines
+        broadcast_to_vllm(
+            actor.ppo_callback.actor_critic,
+            self.vllm_engines,
+            actor.model_update_group,
+            device=torch.device('cuda'),
+            loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
+        )
+        print('Finished broadcasting to vLLM')
+        print(f'Took: {time.time() - start_time} to broadcast to vllm.')
+        dist.barrier()
+
+    def put_parameters(self, actor_group: TrainActorGroup):
+        actor_group.collective_methods.execute(self.update_inference_model)
+
+
 class PPOController:
 
     def __init__(
         self,
         train_actor: TrainActorGroup,
         inference_client: RolloutAgent,
+        parameter_buffer_manager: ParameterBufferManager,
         pretrain_model_name: str,
     ):
         self.train_actor = train_actor
         self.inference_client = inference_client
-
+        self.parameter_buffer_manager = parameter_buffer_manager
         self.train_actor.build_models(pretrain_model_name)
         setup_process_groups(
             self.train_actor.master_actor,
@@ -430,9 +440,7 @@ class PPOController:
         )
 
     def train(self):
-        self.train_actor.collective_methods.update_inference_model(
-            self.inference_client.vllm_engines,
-        )
+        self.parameter_buffer_manager.put_parameters(self.train_actor)
         self.train_actor.collective_methods.query_inference_engines(
             self.inference_client.vllm_engines,
         )
@@ -494,10 +502,13 @@ def _run_single_controller_ppo(
                 vllm_engines,
                 vllm_tensor_parallel_size,
             )
-
+            parameter_buffer_manager = ParameterBufferManager(
+                vllm_engines,
+            )
             ppo_controller = PPOController(
                 train_actor,
                 inference_client,
+                parameter_buffer_manager,
                 pretrain_model_path,
             )
             ppo_controller.train()

@@ -3,7 +3,7 @@
 
 import os
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import ray
 import torch.distributed as dist
@@ -99,6 +99,9 @@ class BaseDistributedGPUActor:
             rank=rank,
             group_name=group_name,
         )
+    
+    def execute(self, func: Callable[['BaseDistributedGPUActor'], Any]):
+        return func(self)
 
 
 class SPMDActorGroup:
