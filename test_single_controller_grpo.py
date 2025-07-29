@@ -116,7 +116,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
         self.num_batches_per_update = 8
         self.max_seq_len = 10240
-        # self.max_gen_len = 1000
+        # self.max_gen_len = 8192
         self.max_gen_len = 1000
         self.precision = 'amp_bf16'
 
