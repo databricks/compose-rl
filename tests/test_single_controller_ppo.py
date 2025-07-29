@@ -341,7 +341,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # instead of the trainer actor, e.g,. reimplment _get_next_iter_prompts
         # in the rollout agent
         batch = self.ppo_trainer.state.device.batch_to_device(
-            self.ppo_callback._get_next_iter_prompts()
+            self.ppo_callback._get_next_iter_prompts(),
         )
         max_gen_len = self.train_config['variables']['max_gen_len']
         generation_kwargs = self.train_config['variables']['generation_kwargs']
@@ -535,7 +535,6 @@ class PPOController:
             self.inference_client.vllm_tensor_parallel_size,
         )
 
-    
     def train(self):
         for _ in range(5):  # Example: train for 5 iterations
             # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
