@@ -150,3 +150,7 @@ notebooks/
 
 # testing assets
 **/tests/assets/*
+
+# ides
+.vscode/
+.cursor/
