@@ -37,7 +37,7 @@ from compose_rl.algorithms.online.generation_utils import (
 )
 from compose_rl.data import prompt_dataset_collate_fn
 from compose_rl.utils.ray_utils import start_ray_server
-from compose_rl.controllers.actor import BaseDistributedGPUActor, SPMDActorGroup
+from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from tests.common import (
     VerifiablePromptDataset,
     world_size,
