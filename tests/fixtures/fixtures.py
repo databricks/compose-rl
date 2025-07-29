@@ -58,6 +58,33 @@ def tiny_gpt2_config_helper():
     return config_object
 
 
+def tiny_llama_config_helper():
+    pytest.importorskip('transformers')
+    from transformers.models.llama.configuration_llama import LlamaConfig
+    config_dict = {
+        'architectures': ['LlamaForCausalLM'],
+        'bos_token_id': 1,
+        'eos_token_id': 2,
+        'hidden_act': 'silu',
+        'hidden_size': 128,
+        'intermediate_size': 256,
+        'max_position_embeddings': 2048,
+        'model_type': 'llama',
+        'num_attention_heads': 4,
+        'num_hidden_layers': 2,
+        'num_key_value_heads': 4,
+        'rms_norm_eps': 1e-06,
+        'rope_theta': 10000.0,
+        'use_cache': True,
+        'vocab_size': 50258,  # Match GPT-2 tokenizer vocabulary size
+    }
+
+    config_object = LlamaConfig(
+        **config_dict,
+    )
+    return config_object
+
+
 def assets_path():
     rank = os.environ.get('RANK', '0')
     folder_name = 'tokenizers' + (f'_{rank}' if rank != '0' else '')
@@ -144,10 +171,20 @@ def _session_tiny_gpt2_model(_session_tiny_gpt2_config):  # type: ignore
     return causal_lm_model_helper(_session_tiny_gpt2_config)
 
 
+@pytest.fixture(scope='session')
+def _session_tiny_llama_model(_session_tiny_llama_config):  # type: ignore
+    return causal_lm_model_helper(_session_tiny_llama_config)
+
+
 ## SESSION CONFIGS ##
 @pytest.fixture(scope='session')
 def _session_tiny_gpt2_config():  # type: ignore
     return tiny_gpt2_config_helper()
+
+
+@pytest.fixture(scope='session')
+def _session_tiny_llama_config():  # type: ignore
+    return tiny_llama_config_helper()
 
 
 ## SESSION TOKENIZERS ##
@@ -162,6 +199,11 @@ def _session_tiny_gpt2_tokenizer(tokenizers_assets):  # type: ignore
 @pytest.fixture
 def tiny_gpt2_model(_session_tiny_gpt2_model):  # type: ignore
     return copy.deepcopy(_session_tiny_gpt2_model)
+
+
+@pytest.fixture
+def tiny_llama_model(_session_tiny_llama_model):  # type: ignore
+    return copy.deepcopy(_session_tiny_llama_model)
 
 
 ## TOKENIZER FIXTURES ##

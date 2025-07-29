@@ -381,7 +381,7 @@ def broadcast_to_vllm(
     model: nn.Module,
     vllm_engines: list,
     model_update_group: Optional[torch.distributed.ProcessGroup],
-    batch: dict[str, torch.Tensor],
+    device: torch.device,
     loss_type: OnPolicyEnum = OnPolicyEnum.PPO,
     enable_prefix_caching: bool = False,
 ):
@@ -391,7 +391,7 @@ def broadcast_to_vllm(
         model (nn.Module): The model to broadcast
         vllm_engines (list): List of vllm engines
         model_update_group (torch.distributed.ProcessGroup): The process group for model updates
-        batch (dict[str, torch.Tensor]): The batch to use for the forward pass
+        device (torch.device): The device to use for the forward pass
         loss_type (str): The loss type which decides whether to use critic-free or not. Defaults to `ppo`.
         enable_prefix_caching (bool): Whether to enable prefix caching. Defaults to `False`.
     """
@@ -419,9 +419,6 @@ def broadcast_to_vllm(
             engine.reset_prefix_cache.remote() for engine in vllm_engines
         ]
 
-    # This is needed to get the correct model device
-    cur_device = batch['prompt'].device
-
     # These apply to llama modules, it might change for other modules
     valid_non_leaf_module_names = [
         'model.embed_tokens.weight',
@@ -438,17 +435,17 @@ def broadcast_to_vllm(
         # We need this otherwise FSDP throws an error during a standard forward pass.
         dummy_batch = {
             'obs':
-                torch.tensor([[0]], dtype=torch.long, device=cur_device),
+                torch.tensor([[0]], dtype=torch.long, device=device),
             'right_padded_attn_mask':
-                torch.tensor([[1]], dtype=torch.bool, device=cur_device),
+                torch.tensor([[1]], dtype=torch.bool, device=device),
             'actions':
-                torch.tensor([[0]], dtype=torch.long, device=cur_device),
+                torch.tensor([[0]], dtype=torch.long, device=device),
             'prompt_len':
-                torch.tensor([1], device=cur_device),
+                torch.tensor([1], device=device),
             'max_gen_len':
-                torch.tensor([1], device=cur_device),
+                torch.tensor([1], device=device),
             'action_mask':
-                torch.tensor([[0]], dtype=torch.long, device=cur_device),
+                torch.tensor([[0]], dtype=torch.long, device=device),
         }
         model(dummy_batch)
     start_time = time.time()

@@ -100,6 +100,11 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
         )
 
     def loss(self, outputs: MutableMapping, batch: MutableMapping):
+        # Get beta from config if available, otherwise use default
+        additional_kwargs = {}
+        if hasattr(self.config, 'beta'):
+            additional_kwargs['beta'] = self.config.beta
+
         return_dict = online_rl_loss(
             outputs=outputs,
             batch=batch,
@@ -107,10 +112,10 @@ class ComposerMPTPolicyLM(HuggingFaceModel):
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
-            beta=self.config.beta,
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
+            **additional_kwargs,
         )
 
         self.policy_kl.append(return_dict['kl/policy_kl'])
@@ -217,6 +222,11 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
         )
 
     def loss(self, outputs: MutableMapping, batch: MutableMapping):
+        # Get beta from config if available, otherwise use default
+        additional_kwargs = {}
+        if hasattr(self.config, 'beta'):
+            additional_kwargs['beta'] = self.config.beta
+
         return_dict = online_rl_loss(
             outputs=outputs,
             batch=batch,
@@ -224,10 +234,10 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
             value_clip_range=self.config.value_clip_range,
             value_loss_weight=self.config.value_loss_weight,
             policy_clip_ratio=self.config.policy_clip_ratio,
-            beta = self.config.beta,
             add_direct_kl_loss=self.config.compute_kl_loss,
             kl_estimator=self.config.kl_estimator,
             kl_clip_range=self.config.kl_clip_range,
+            **additional_kwargs,
         )
 
         self.policy_kl.append(return_dict['kl/policy_kl'])
