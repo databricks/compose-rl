@@ -144,8 +144,25 @@ def _vllm_generate(
     # Get all of the ray futures
     for i, result in enumerate(results):
         # Each result is a list of responses this assumes one output per input
+        #curr_responses, curr_logprobs = [], []
+        #for resp in result:
+        #    response_tokens = resp.outputs[0].token_ids
+        #    token_logprobs = resp.outputs[0].logprobs
+        #    logprob_values = []
+        #    for token_id, logprob_dict in zip(response_tokens, token_logprobs):
+        #        # Each logprob_dict is a dictionary mapping token IDs to Logprob objects
+        #        # You can access the logprob of a specific token ID like:
+        #        # logprob_value = logprob_dict.get(token_id_of_interest).logprob
+        #        logprob_values.append(logprob_dict[token_id].logprob)
+
+        #    curr_responses.append(response_tokens)
+        #    curr_logprobs.append(logprob_values)
+
+        #all_responses.extend(curr_responses)
+        #all_logprobs.extend(curr_logprobs)
+
         all_responses.extend([resp.outputs[0].token_ids for resp in result])
-        all_logprobs.extend([[list(datum.values())[0] for datum in resp.outputs[0].logprobs] for resp in result])
+        all_logprobs.extend([[list(datum.values())[0].logprob for datum in resp.outputs[0].logprobs] for resp in result])
 
     log.info(
         f'took: {time.time() - start_time} to gather futures',
