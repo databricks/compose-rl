@@ -40,6 +40,7 @@ class BaseDistributedGPUActor:
 
         # Set up basic environment variables
         os.environ['WORLD_SIZE'] = str(world_size)
+        # FIXME: handle LOCAL_WORLD_SIZE for multiple nodes
         os.environ['LOCAL_WORLD_SIZE'] = str(world_size)
         os.environ['RANK'] = str(rank)
 
