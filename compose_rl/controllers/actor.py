@@ -99,3 +99,45 @@ class BaseDistributedGPUActor:
             rank=rank,
             group_name=group_name,
         )
+
+
+class SPMDActorGroup:
+    # TODO (infra): refactor this to a proper base class
+
+    def __init__(self, num_train_actors: int, actor_class: type[BaseDistributedGPUActor]):
+        self.num_train_actors = num_train_actors
+
+        self._train_actors = []
+        """Create and initialize all training actors."""
+        print(f'\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===')
+
+        # Create master actor first
+        self._master_actor = actor_class.remote(
+            0,
+            self.num_train_actors,
+        )
+        self._train_actors.append(self._master_actor)
+
+        # Get master address from rank 0 actor
+        master_addr, master_port = ray.get(
+            self._master_actor.get_master_address.remote(),  # type: ignore
+        )
+        print(f'Master address allocated: {master_addr}:{master_port}')
+
+        # Create remaining actors with the master address/port
+        for i in range(1, self.num_train_actors):
+            actor = actor_class.remote(
+                i,
+                self.num_train_actors,
+                master_addr,  # type: ignore
+                master_port,
+            )
+            self._train_actors.append(actor)
+
+    @property
+    def train_actors(self):
+        return self._train_actors
+
+    @property
+    def master_actor(self):
+        return self._master_actor

@@ -37,8 +37,8 @@ from compose_rl.algorithms.online.generation_utils import (
 )
 from compose_rl.data import prompt_dataset_collate_fn
 from compose_rl.utils.ray_utils import start_ray_server
+from compose_rl.controllers.actor import BaseDistributedGPUActor, SPMDActorGroup
 from tests.common import (
-    BaseDistributedGPUActor,
     VerifiablePromptDataset,
     world_size,
 )
@@ -372,48 +372,6 @@ def setup_process_groups(
     print(ray.get(refs))
 
 
-class SPMDActorGroup:
-    # TODO (infra): refactor this to a proper base class
-
-    def __init__(self, num_train_actors: int):
-        self.num_train_actors = num_train_actors
-
-        self._train_actors = []
-        """Create and initialize all training actors."""
-        print(f'\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===')
-
-        # Create master actor first
-        self._master_actor = DistributedGPUActor.remote(
-            0,
-            self.num_train_actors,
-        )
-        self._train_actors.append(self._master_actor)
-
-        # Get master address from rank 0 actor
-        master_addr, master_port = ray.get(
-            self._master_actor.get_master_address.remote(),  # type: ignore
-        )
-        print(f'Master address allocated: {master_addr}:{master_port}')
-
-        # Create remaining actors with the master address/port
-        for i in range(1, self.num_train_actors):
-            actor = DistributedGPUActor.remote(
-                i,
-                self.num_train_actors,
-                master_addr,  # type: ignore
-                master_port,
-            )
-            self._train_actors.append(actor)
-
-    @property
-    def train_actors(self):
-        return self._train_actors
-
-    @property
-    def master_actor(self):
-        return self._master_actor
-
-
 class TrainActorGroup(SPMDActorGroup):
     # TODO: this class is mainly pass through gang scheduler,
     # we should refactor this class to be more generic and reusable
@@ -546,7 +504,7 @@ def _run_single_controller_ppo(
             if world_size == 0:
                 world_size = dist.get_world_size()
             num_train_actors = world_size // 2
-            train_actor = TrainActorGroup(num_train_actors)
+            train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
             vllm_tensor_parallel_size = world_size - num_train_actors
