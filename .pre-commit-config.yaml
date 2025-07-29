@@ -14,7 +14,7 @@ repos:
     name: yapf
     description: A formatter for Python files.
     entry: yapf
-    args: [-i, -vv, -p]       # inplace
+    args: [--diff]       # inplace
     language: python
     types: [python]
     additional_dependencies:
