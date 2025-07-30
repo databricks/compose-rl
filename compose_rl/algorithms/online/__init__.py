@@ -13,14 +13,12 @@ from compose_rl.algorithms.online.model import (
     ComposerHFPolicyLM,
     ComposerMPTPolicyLM,
 )
-from compose_rl.algorithms.online.model_methods import \
-    CausalLMOutputWithPastAndValues
+from compose_rl.algorithms.online.model_methods import CausalLMOutputWithPastAndValues
 from compose_rl.algorithms.online.policy_configuration import (
     HFPolicyConfig,
     MPTPolicyConfig,
 )
-from compose_rl.algorithms.online.single_controller_callback import \
-    SingleControllerOnPolicyCallback
+from compose_rl.algorithms.online.single_controller_callback import SingleControllerOnPolicyCallback
 from compose_rl.registry import kl_controllers
 
 kl_controllers.register('adaptive', func=AdaptiveKLController)

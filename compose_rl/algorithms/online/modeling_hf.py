@@ -33,9 +33,7 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
 
     See base class for argument documentation.
     """
-    model_cls: Union[
-        type[_BaseAutoModelClass],
-        type[PreTrainedModel]] = AutoModelForCausalLMAsPolicy  # type: ignore
+    model_cls: Union[type[_BaseAutoModelClass], type[PreTrainedModel]] = AutoModelForCausalLMAsPolicy  # type: ignore
     default_train_metrics: tuple = ()
     default_eval_metrics: tuple = ()
 
@@ -153,13 +151,10 @@ class ComposerHFPolicy(BaseHuggingFaceModel):
         if hasattr(model, 'peft_type') and model.peft_type is not None:
             peft_type = model.peft_type.lower()  # type: ignore
             active_adapters = [
-                adapter.lower()
-                for adapter in model.active_adapters  # type: ignore
+                adapter.lower() for adapter in model.active_adapters  # type: ignore
             ]
             for name, module in model.named_modules():
-                if peft_type in name.lower() and any(
-                    adapter in name.lower() for adapter in active_adapters
-                ):
+                if peft_type in name.lower() and any(adapter in name.lower() for adapter in active_adapters):
                     has_parameters = next(module.parameters(), None) is not None
                     has_buffers = next(module.buffers(), None) is not None
                     if has_parameters or has_buffers:

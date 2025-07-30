@@ -86,8 +86,7 @@ def test_load_checkpoint_with_offline_callback(
         # Remove the _load added by the mock
         comparison_dict.pop('_load')
         # The callback passed into the dummy trainer should match the original callback
-        assert mock_trainer.call_args.kwargs['callbacks'][
-            0].__dict__ == comparison_dict
+        assert mock_trainer.call_args.kwargs['callbacks'][0].__dict__ == comparison_dict
 
     load_checkpoint_callback._load.assert_called_once()
 
@@ -307,8 +306,7 @@ def test_checkpoint_reloading(
     trainer1.fit(duration='4ba')
     margins = in_memory_logger.data['loss/train/margin']
     # The first margin should be 0.0
-    assert margins[0][
-        1] == 0.0, 'The margin should be 0.0 in the first trainer fit'
+    assert margins[0][1] == 0.0, 'The margin should be 0.0 in the first trainer fit'
 
     # Restart the training from the intermediate checkpoint
     in_memory_logger = InMemoryLogger()
@@ -328,6 +326,4 @@ def test_checkpoint_reloading(
     trainer2.fit()
     margins = in_memory_logger.data['loss/train/margin']
     # After resuming the training, the first margin should not be 0.0
-    assert margins[0][
-        1
-    ] != 0.0, 'The margin should not be 0.0 in the second trainer fit after resuming'
+    assert margins[0][1] != 0.0, 'The margin should not be 0.0 in the second trainer fit after resuming'

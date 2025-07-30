@@ -93,9 +93,7 @@ def prepare_critic_values_for_training(
     values *= action_mask
 
     if zero_pad:
-        zero_pad_tensor = torch.zeros((bs, 1),
-                                      device=values.device,
-                                      dtype=values.dtype)
+        zero_pad_tensor = torch.zeros((bs, 1), device=values.device, dtype=values.dtype)
         values = torch.cat([values, zero_pad_tensor], dim=-1)
 
     return values
@@ -190,8 +188,7 @@ def critic_loss(
             batch['action_mask'],
         )
 
-        val_error = utils.sample_wise_masked_mean((v_preds - returns)**2,
-                                                  batch['action_mask'])
+        val_error = utils.sample_wise_masked_mean((v_preds - returns)**2, batch['action_mask'])
 
         critic_dict = {
             'loss/value_loss':
@@ -235,8 +232,7 @@ def policy_loss(
 
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
         assert advantages is not None
-        online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
-            'old_log_probs']
+        online_log_probs, old_log_probs = outputs['online_log_probs'], batch['old_log_probs']
         old_entropies = batch['old_entropies']
         gen_logits = utils.get_batched_generated_values(
             batched_values=outputs['logits'],
@@ -247,8 +243,8 @@ def policy_loss(
             logits=gen_logits,
         )
         assert token_entropies.shape == batch['action_mask'].shape, (
-            'Token entropies shape {token_entropies_shape} does not match action mask shape {action_mask_shape}.'
-            .format(
+            'Token entropies shape {token_entropies_shape} does not match action mask shape {action_mask_shape}.'.
+            format(
                 token_entropies_shape=token_entropies.shape,
                 action_mask_shape=batch['action_mask'].shape,
             ),
@@ -262,13 +258,11 @@ def policy_loss(
         flattened_entropies = masked_token_entropies.flatten()
 
         # Calculate entropies at different percentiles
-        percentiles = torch.tensor([0, 20, 40, 60, 80, 100],
-                                   device=token_entropies.device)
+        percentiles = torch.tensor([0, 20, 40, 60, 80, 100], device=token_entropies.device)
         num_entropies = flattened_entropies.numel()
         if num_entropies > 0:
             # Calculate indices for percentiles (excluding 0 and 100)
-            indices = ((percentiles / 100.0) *
-                       (num_entropies - 1)).ceil().long()
+            indices = ((percentiles / 100.0) * (num_entropies - 1)).ceil().long()
 
             # Get sorted values
             sorted_entropies = flattened_entropies.sort().values
@@ -335,59 +329,45 @@ def policy_loss(
             policy_loss = utils.masked_sum(policy_loss, batch['action_mask'])
 
         policy_token_kl_logging_dict = {
-            f'token_kl/policy_token_kl_{k}_estimate':
-                utils.sample_wise_masked_mean(
-                    v,
-                    batch['action_mask'],
-                ) for k, v in policy_kl_dict.items()
+            f'token_kl/policy_token_kl_{k}_estimate': utils.sample_wise_masked_mean(
+                v,
+                batch['action_mask'],
+            ) for k, v in policy_kl_dict.items()
         }
         policy_seq_kl_logging_dict = {
-            f'seq_kl/policy_seq_kl_{k}_estimate':
-                utils.masked_sum(
-                    v,
-                    batch['action_mask'],
-                ) for k, v in policy_kl_dict.items()
+            f'seq_kl/policy_seq_kl_{k}_estimate': utils.masked_sum(
+                v,
+                batch['action_mask'],
+            ) for k, v in policy_kl_dict.items()
         }
         online_ift_token_kl_logging_dict = {
-            f'token_kl/online_ift_token_kl_{k}_estimate':
-                utils.sample_wise_masked_mean(
-                    v,
-                    batch['action_mask'],
-                ) for k, v in online_ift_kl_dict.items()
+            f'token_kl/online_ift_token_kl_{k}_estimate': utils.sample_wise_masked_mean(
+                v,
+                batch['action_mask'],
+            ) for k, v in online_ift_kl_dict.items()
         }
         online_ift_seq_kl_logging_dict = {
-            f'seq_kl/online_ift_seq_kl_{k}_estimate':
-                utils.masked_sum(
-                    v,
-                    batch['action_mask'],
-                ) for k, v in online_ift_kl_dict.items()
+            f'seq_kl/online_ift_seq_kl_{k}_estimate': utils.masked_sum(
+                v,
+                batch['action_mask'],
+            ) for k, v in online_ift_kl_dict.items()
         }
 
         policy_dict = {
-            'loss/policy_loss':
-                policy_loss,
-            'kl/policy_kl':
-                policy_kl,
-            'kl/online_ift_kl':
-                online_ift_kl,
-            'kl/ift_kl_scalar':
-                batch['ift_kl_scalar'],
+            'loss/policy_loss': policy_loss,
+            'kl/policy_kl': policy_kl,
+            'kl/online_ift_kl': online_ift_kl,
+            'kl/ift_kl_scalar': batch['ift_kl_scalar'],
             **policy_token_kl_logging_dict,
             **policy_seq_kl_logging_dict,
             **online_ift_token_kl_logging_dict,
             **online_ift_seq_kl_logging_dict,
-            'policy_loss/clip_frac':
-                policy_clip_frac,
-            'policy_loss/ratio':
-                utils.sample_wise_masked_mean(ratio, batch['action_mask']),
-            'gen/gen_length':
-                batch['action_mask'].sum(dim=1).to(torch.float32),
-            'gen/prev_seq_entropy':
-                old_entropies,
-            'gen/cur_seq_entropy':
-                seq_entropies,
-            'advantages/mean':
-                utils.sample_wise_masked_mean(advantages, batch['action_mask']),
+            'policy_loss/clip_frac': policy_clip_frac,
+            'policy_loss/ratio': utils.sample_wise_masked_mean(ratio, batch['action_mask']),
+            'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
+            'gen/prev_seq_entropy': old_entropies,
+            'gen/cur_seq_entropy': seq_entropies,
+            'advantages/mean': utils.sample_wise_masked_mean(advantages, batch['action_mask']),
         }
         # Add entropy percentiles to policy_dict
         for i, p in enumerate(percentiles):
@@ -429,8 +409,7 @@ def policy_loss(
         assert vstars.size() == rewards.size() == masked_log_probs_diff.size(
         )  # should have the same shape which is (batch_size, )
 
-        policy_loss = ((beta * masked_log_probs_diff -
-                        (rewards - vstars))**2).mean()
+        policy_loss = ((beta * masked_log_probs_diff - (rewards - vstars))**2).mean()
         policy_dict = {
             'loss/policy_loss': policy_loss,
             'kl/policy_kl': policy_kl,
@@ -577,23 +556,17 @@ def online_rl_loss(
     return_dict['total'] = return_dict['loss/policy_loss']
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
         # Add value loss to total loss
-        return_dict['total'] += value_loss_weight * return_dict[
-            'loss/value_loss']  # pyright: ignore
+        return_dict['total'] += value_loss_weight * return_dict['loss/value_loss']  # pyright: ignore
     # If we want to directly minimize the KL Divergence, we can do so here
     # and it will not include the KL in the reward.
     if add_direct_kl_loss:
-        return_dict['total'] += batch['ift_kl_scalar'][0] * return_dict[
-            'kl/online_ift_kl']
-        return_dict['loss/online_ift_kl'] = (
-            batch['ift_kl_scalar'][0] * return_dict['kl/online_ift_kl']
-        )
+        return_dict['total'] += batch['ift_kl_scalar'][0] * return_dict['kl/online_ift_kl']
+        return_dict['loss/online_ift_kl'] = (batch['ift_kl_scalar'][0] * return_dict['kl/online_ift_kl'])
 
     # Entropy Loss. Meant to promote diversity.
     if entropy_loss_weight is not None:
         # We want to maximize entropy so we deduct it from the loss.
-        entropy_loss = -1.0 * (
-            entropy_loss_weight * return_dict['gen/cur_seq_entropy']
-        ).mean()
+        entropy_loss = -1.0 * (entropy_loss_weight * return_dict['gen/cur_seq_entropy']).mean()
         # breakpoint()
         return_dict['loss/entropy'] = entropy_loss
         return_dict['total'] += entropy_loss

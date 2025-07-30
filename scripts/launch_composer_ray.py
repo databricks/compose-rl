@@ -295,8 +295,7 @@ if __name__ == '__main__':
     # This is just a worker to coordinate from global rank 0 on training
     # to signal to inference nodes training is done
     sync_actor = None
-    if os.getenv('NODE_RANK',
-                 None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+    if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
         train_world_size = os.getenv('TRAIN_WORLD_SIZE', None)
         train_num_nodes = os.getenv('TRAIN_NUM_NODES', None)
         master_port = os.getenv('TRAIN_MASTER_PORT', None)
@@ -322,8 +321,7 @@ if __name__ == '__main__':
     if train_num_nodes is not None:
         train_from_yaml(yaml_path, args_list)
         log.info('After calling `train_from_yaml`')
-        if os.getenv('NODE_RANK',
-                     None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+        if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
             status = ray.get(sync_actor.mark_done.remote())  # type: ignore
 
     else:

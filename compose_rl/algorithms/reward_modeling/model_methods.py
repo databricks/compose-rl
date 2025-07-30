@@ -15,8 +15,7 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from compose_rl.algorithms.reward_modeling.hf_utils import \
-    SequenceClassifierOutput
+from compose_rl.algorithms.reward_modeling.hf_utils import SequenceClassifierOutput
 from compose_rl.utils import (
     clear_mb_load_balancing_loss,
     extract_packed_chosen_rejected,
@@ -284,13 +283,10 @@ def pairwise_loss(
     losses = losses.mean()
 
     loss_dict = {
-        'chosen_rewards':
-            chosen_scores.detach(),
-        'rejected_rewards':
-            rejected_scores.detach(),
+        'chosen_rewards': chosen_scores.detach(),
+        'rejected_rewards': rejected_scores.detach(),
         'margin': (chosen_scores - rejected_scores).detach(),
-        'accuracy': (chosen_scores
-                     > rejected_scores).detach().to(torch.float32),
+        'accuracy': (chosen_scores > rejected_scores).detach().to(torch.float32),
     }
 
     loss_dict.update(partial_loss_dict)

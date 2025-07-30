@@ -12,8 +12,7 @@ from compose_rl.algorithms.reward_modeling.functional import OutputLengthReward
 
 def test_expected_registries_exist():
     existing_registries = {
-        name for name in dir(registry)
-        if isinstance(getattr(registry, name), registry_utils.TypedRegistry)
+        name for name in dir(registry) if isinstance(getattr(registry, name), registry_utils.TypedRegistry)
     }
     expected_registry_names = {
         'rewards',

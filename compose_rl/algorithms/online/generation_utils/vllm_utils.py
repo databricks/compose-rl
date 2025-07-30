@@ -32,8 +32,7 @@ from composer.utils import dist
 from ray.exceptions import GetTimeoutError
 from ray.util.placement_group import placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
-from torch.distributed.distributed_c10d import \
-    _new_process_group_helper  # type: ignore
+from torch.distributed.distributed_c10d import _new_process_group_helper  # type: ignore
 from torch.distributed.distributed_c10d import _world  # type: ignore
 from torch.distributed.distributed_c10d import (
     Backend,
@@ -64,9 +63,7 @@ def init_process_group(
     store: Optional[Store] = None,
     group_name: Optional[str] = None,
 ) -> torch.distributed.ProcessGroup:
-    assert (store is None) or (
-        init_method is None
-    ), 'Cannot specify both init_method and store.'
+    assert (store is None) or (init_method is None), 'Cannot specify both init_method and store.'
 
     if store is not None:
         assert world_size > 0, 'world_size must be positive if using store'
@@ -124,8 +121,7 @@ class WorkerWrap:
         backend: str,
     ):
         """Init torch process group for model weights update."""
-        assert torch.distributed.is_initialized(
-        ), 'default torch process group must be initialized'
+        assert torch.distributed.is_initialized(), 'default torch process group must be initialized'
         assert group_name != '', 'group name must not be empty'
 
         rank = torch.distributed.get_rank() + rank_offset
@@ -138,8 +134,8 @@ class WorkerWrap:
         )
         log.info(f'init process group for: {torch.distributed.get_rank()}')
         log.info(
-            f'init_process_group: master_address={master_address}, master_port={master_port}, '
-            + f'rank={rank}, world_size={world_size}, group_name={group_name}',
+            f'init_process_group: master_address={master_address}, master_port={master_port}, ' +
+            f'rank={rank}, world_size={world_size}, group_name={group_name}',
         )
 
     def update_weight(
@@ -415,9 +411,7 @@ def broadcast_to_vllm(
     refss = []
     cache_reset_refss = []
     if enable_prefix_caching and dist.get_global_rank() == 0:
-        cache_reset_refss = [
-            engine.reset_prefix_cache.remote() for engine in vllm_engines
-        ]
+        cache_reset_refss = [engine.reset_prefix_cache.remote() for engine in vllm_engines]
 
     # These apply to llama modules, it might change for other modules
     valid_non_leaf_module_names = [
@@ -434,18 +428,12 @@ def broadcast_to_vllm(
         # Adding a dummy forwards call.
         # We need this otherwise FSDP throws an error during a standard forward pass.
         dummy_batch = {
-            'obs':
-                torch.tensor([[0]], dtype=torch.long, device=device),
-            'right_padded_attn_mask':
-                torch.tensor([[1]], dtype=torch.bool, device=device),
-            'actions':
-                torch.tensor([[0]], dtype=torch.long, device=device),
-            'prompt_len':
-                torch.tensor([1], device=device),
-            'max_gen_len':
-                torch.tensor([1], device=device),
-            'action_mask':
-                torch.tensor([[0]], dtype=torch.long, device=device),
+            'obs': torch.tensor([[0]], dtype=torch.long, device=device),
+            'right_padded_attn_mask': torch.tensor([[1]], dtype=torch.bool, device=device),
+            'actions': torch.tensor([[0]], dtype=torch.long, device=device),
+            'prompt_len': torch.tensor([1], device=device),
+            'max_gen_len': torch.tensor([1], device=device),
+            'action_mask': torch.tensor([[0]], dtype=torch.long, device=device),
         }
         model(dummy_batch)
     start_time = time.time()
@@ -518,8 +506,8 @@ def broadcast_to_vllm(
         # Check if the number of parameters updated is equal to the number of parameters
         # This can only be done on global rank 0, since it is the one that is updating the parameters.
         assert num_params == count, (
-            f'Number of parameters updated {count} does not match the number of parameters {num_params}'
-            + f'This means that some parameters were not updated.'
+            f'Number of parameters updated {count} does not match the number of parameters {num_params}' +
+            f'This means that some parameters were not updated.'
         )
 
     log.info(f'for loop took: {time.time() - start_time}')
@@ -550,6 +538,4 @@ def ray_noset_visible_devices(env_vars: os._Environ = os.environ):
         'RAY_EXPERIMENTAL_NOSET_TPU_VISIBLE_CHIPS',
         'RAY_EXPERIMENTAL_NOSET_ONEAPI_DEVICE_SELECTOR',
     ]
-    return any(
-        env_vars.get(env_var) for env_var in NOSET_VISIBLE_DEVICES_ENV_VARS_LIST
-    )
+    return any(env_vars.get(env_var) for env_var in NOSET_VISIBLE_DEVICES_ENV_VARS_LIST)

@@ -67,8 +67,7 @@ class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
     ) -> None:
         raise ValueError('Eval forward is not implemented for ComposerDPOLM.')
 
-    def loss(self, outputs: CausalLMOutputWithPast,
-             batch: Mapping) -> dict[str, torch.Tensor]:
+    def loss(self, outputs: CausalLMOutputWithPast, batch: Mapping) -> dict[str, torch.Tensor]:
         return pairwise_offline_loss(
             outputs,
             batch,
@@ -119,8 +118,7 @@ class ComposerHFPairwiseOfflinePolicyLM(ComposerHFCausalLM):
     ) -> None:
         raise ValueError('Eval forward is not implemented for ComposerHFDPOLM.')
 
-    def loss(self, outputs: CausalLMOutputWithPast,
-             batch: Mapping) -> dict[str, torch.Tensor]:
+    def loss(self, outputs: CausalLMOutputWithPast, batch: Mapping) -> dict[str, torch.Tensor]:
         return pairwise_offline_loss(
             outputs,
             batch,

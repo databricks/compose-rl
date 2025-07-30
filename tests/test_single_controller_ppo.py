@@ -120,22 +120,14 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 'kl_estimator': 'k1',
                 'kl_clip_range': 40.0,
             },
-            'fsdp_config':
-                self.fsdp_config,
-            'seed':
-                17,
-            'precision':
-                self.precision,
-            'variables':
-                variables,
-            'max_seq_len':
-                self.max_seq_len,
-            'global_train_batch_size':
-                self.device_train_batch_size * self.world_size,
-            'device_train_batch_size':
-                self.device_train_batch_size,
-            'device_train_microbatch_size':
-                self.device_train_batch_size,
+            'fsdp_config': self.fsdp_config,
+            'seed': 17,
+            'precision': self.precision,
+            'variables': variables,
+            'max_seq_len': self.max_seq_len,
+            'global_train_batch_size': self.device_train_batch_size * self.world_size,
+            'device_train_batch_size': self.device_train_batch_size,
+            'device_train_microbatch_size': self.device_train_batch_size,
         }
 
     def build_dataloader(self):
@@ -233,8 +225,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             parallelism_config={'fsdp': self.fsdp_config},
             save_folder=tmp_ref_path,
             save_weights_only=True,
-            device_train_microbatch_size=self.
-            device_train_microbatch_size,  # type: ignore
+            device_train_microbatch_size=self.device_train_microbatch_size,  # type: ignore
         )
 
         temp_trainer.fit()
@@ -421,43 +412,30 @@ class TrainActorGroup(SPMDActorGroup):
     def build_models(self, pretrain_model_name: str):
         """Build reference models and PPO trainers for all actors."""
         build_train_config_tasks = [
-            actor.build_train_config.remote(pretrain_model_name)
-            for actor in self._train_actors
+            actor.build_train_config.remote(pretrain_model_name) for actor in self._train_actors
         ]
         ray.get(build_train_config_tasks)
 
-        init_task = [
-            actor.init_composer_dist.remote() for actor in self._train_actors
-        ]
+        init_task = [actor.init_composer_dist.remote() for actor in self._train_actors]
         ray.get(init_task)
 
         # Build reference models
-        build_ref_model_tasks = [
-            actor.build_ref_model.remote() for actor in self._train_actors
-        ]
+        build_ref_model_tasks = [actor.build_ref_model.remote() for actor in self._train_actors]
         ray.get(build_ref_model_tasks)
         print('build ref model done')
 
         # Build PPO trainers
-        build_ppo_trainer_tasks = [
-            actor.build_ppo_trainer.remote() for actor in self._train_actors
-        ]
+        build_ppo_trainer_tasks = [actor.build_ppo_trainer.remote() for actor in self._train_actors]
         ray.get(build_ppo_trainer_tasks)
         print('build ppo trainer done')
 
     def update_inference_model(self, vllm_engines: list[Any]):
-        refs = [
-            actor.update_inference_model.remote(vllm_engines)
-            for actor in self._train_actors
-        ]
+        refs = [actor.update_inference_model.remote(vllm_engines) for actor in self._train_actors]
         ray.get(refs)
         print('update inference model done')
 
     def query_inference_engines(self, vllm_engines: list[Any]):
-        refs = [
-            actor.query_inference_engines.remote(vllm_engines)
-            for actor in self._train_actors
-        ]
+        refs = [actor.query_inference_engines.remote(vllm_engines) for actor in self._train_actors]
         ray.get(refs)
         print('query inference engines done')
 
@@ -550,9 +528,7 @@ def _run_single_controller_ppo(
 
             # Create vLLM engines (or inference actors)
             vllm_tensor_parallel_size = world_size - num_train_actors
-            num_vllm_engines = (
-                world_size - num_train_actors
-            ) // vllm_tensor_parallel_size
+            num_vllm_engines = (world_size - num_train_actors) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
             vllm_engines = create_vllm_engines(
                 num_engines=num_vllm_engines,

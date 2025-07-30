@@ -103,8 +103,7 @@ def pairwise_preference_dataset_collate_fn(
             cat_batch = torch.cat(
                 [
                     cat_batch,
-                    torch.ones(int(pad_len.item()), dtype=cat_batch.dtype) *
-                    tokenizer.pad_token_id,  # type: ignore
+                    torch.ones(int(pad_len.item()), dtype=cat_batch.dtype) * tokenizer.pad_token_id,  # type: ignore
                 ],
                 dim=-1,  # type: ignore
             )
@@ -113,8 +112,7 @@ def pairwise_preference_dataset_collate_fn(
             torch.eq(cat_batch, tokenizer.pad_token_id),  # type: ignore
         )
 
-        cur_sequence_id = torch.tensor(([0] * chosen_len) +
-                                       ([1] * rejected_len) +
+        cur_sequence_id = torch.tensor(([0] * chosen_len) + ([1] * rejected_len) +
                                        ([-1] * max(0, int(pad_len.item()))),)
         sequence_id.append(cur_sequence_id)
 
@@ -177,11 +175,7 @@ def finegrained_preference_dataset_collate_fn(
         cur_values = [item[key] for item in data]
         if key == 'prompt_mask':
             max_len = max([len(val) for val in cur_values])
-            mask = torch.stack([
-                torch.cat([torch.Tensor(val),
-                           torch.ones(max_len - len(val))])
-                for val in cur_values
-            ])
+            mask = torch.stack([torch.cat([torch.Tensor(val), torch.ones(max_len - len(val))]) for val in cur_values])
             mask = ~mask.to(torch.bool)
             batch[key] = mask.to(torch.int8)
             continue
@@ -221,8 +215,7 @@ class PairwisePreferenceStreamingDataset(StreamingDataset):
             )
             log.info(f'Truncating: {truncated}')
         decoded_arr = torch.from_numpy(
-            np.frombuffer(sample[key],
-                          dtype=np.int64)[:self.max_seq_len].copy(),
+            np.frombuffer(sample[key], dtype=np.int64)[:self.max_seq_len].copy(),
         )
         return decoded_arr
 
@@ -303,8 +296,7 @@ class FinegrainedPreferenceStreamingDataset(StreamingDataset):
             )
             log.info(f'Truncated sample: {truncated}')
             decoded_arr = torch.from_numpy(
-                np.frombuffer(sample[key],
-                              dtype=np.int64)[:self.max_seq_len].copy(),
+                np.frombuffer(sample[key], dtype=np.int64)[:self.max_seq_len].copy(),
             )
         else:
             decoded_arr = torch.from_numpy(

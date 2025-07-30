@@ -59,8 +59,7 @@ def prompt_dataset_collate_fn(
         collated_batch[key] = ref_collate_fn(cur_values)['input_ids']
 
     collated_batch['prompt_attention_mask'] = torch.logical_not(
-        torch.eq(collated_batch['prompt'],
-                 tokenizer.pad_token_id),  # type: ignore
+        torch.eq(collated_batch['prompt'], tokenizer.pad_token_id),  # type: ignore
     )
 
     return collated_batch
@@ -81,8 +80,7 @@ class PromptStreamingDataset(StreamingDataset):
 
     def _read_binary_tokenized_sample(self, sample: dict[str, Any], key: str):
         decoded_arr = torch.from_numpy(
-            np.frombuffer(sample[key],
-                          dtype=np.int64)[:self.max_seq_len].copy(),
+            np.frombuffer(sample[key], dtype=np.int64)[:self.max_seq_len].copy(),
         )
         return decoded_arr
 

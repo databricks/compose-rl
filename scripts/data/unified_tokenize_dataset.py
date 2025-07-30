@@ -44,8 +44,7 @@ class UnifiedTokenizedDataset(IterableDataset):
         split: str,
         tokenizer: PreTrainedTokenizerBase,
         max_length: int,
-        dataset_type: Literal['preference', 'single_prompt',
-                              'verifiable_answers'],
+        dataset_type: Literal['preference', 'single_prompt', 'verifiable_answers'],
         subset: str | None = None,
         token: str | None = None,
     ):
@@ -115,10 +114,8 @@ class UnifiedTokenizedDataset(IterableDataset):
         """
         prompt = sample['prompt']
         messages = [{
-            'role':
-                'user',
-            'content':
-                f'Can you summarize the following content in 50 words or less: {prompt}',
+            'role': 'user',
+            'content': f'Can you summarize the following content in 50 words or less: {prompt}',
         }]
         encoded_prompt = self.tokenizer.apply_chat_template(
             messages,

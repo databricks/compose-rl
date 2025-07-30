@@ -68,11 +68,7 @@ class IncreasingNumbersReward(Reward):
         curr_rewards = []
         for gen_text in all_generated_texts:
             gen_tokens = gen_text.split()
-            number_tokens = [
-                float(token)
-                for token in gen_tokens
-                if IncreasingNumbersReward.is_number(token)
-            ]
+            number_tokens = [float(token) for token in gen_tokens if IncreasingNumbersReward.is_number(token)]
             if len(number_tokens) > 0:
                 sorted_count = 1
                 previous_token = number_tokens[0]
@@ -110,8 +106,7 @@ class ShortResponseReward(Reward):
         self.len_threshold = len_threshold
 
         log.info(
-            f'Adding a reward of {self.reward} if a model generates ' +
-            f'tokens under the length {self.len_threshold}',
+            f'Adding a reward of {self.reward} if a model generates ' + f'tokens under the length {self.len_threshold}',
         )
 
     def __call__(
@@ -165,9 +160,8 @@ class BadGenerationEndReward(Reward):
         self.eos_penalty = eos_penalty
 
         # Extra special tokens for any other formats with pseudo EOS alternatives like ChatML
-        self.extra_special_tokens = [
-            str(tok) for tok in extra_special_tokens
-        ] if extra_special_tokens is not None else []
+        self.extra_special_tokens = [str(tok) for tok in extra_special_tokens
+                                    ] if extra_special_tokens is not None else []
         self.extra_special_token_ids = []
         if self.extra_special_tokens != []:
             self.extra_special_token_ids.extend([

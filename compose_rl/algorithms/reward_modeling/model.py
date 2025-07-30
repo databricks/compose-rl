@@ -16,8 +16,7 @@ from compose_rl.algorithms.reward_modeling.base_reward import (
     RewardModel,
     Tokenizer,
 )
-from compose_rl.algorithms.reward_modeling.hf_utils import \
-    SequenceClassifierOutput
+from compose_rl.algorithms.reward_modeling.hf_utils import SequenceClassifierOutput
 from compose_rl.algorithms.reward_modeling.model_methods import (
     ClassifierRewardEnum,
     PairwiseRewardEnum,
@@ -27,10 +26,8 @@ from compose_rl.algorithms.reward_modeling.model_methods import (
     pairwise_forward,
     pairwise_loss,
 )
-from compose_rl.algorithms.reward_modeling.modeling_hf import \
-    ComposerHFSequenceClassification
-from compose_rl.algorithms.reward_modeling.modeling_mpt import \
-    MPTForSequenceClassification
+from compose_rl.algorithms.reward_modeling.modeling_hf import ComposerHFSequenceClassification
+from compose_rl.algorithms.reward_modeling.modeling_mpt import MPTForSequenceClassification
 
 log = logging.getLogger(__name__)
 
@@ -98,8 +95,7 @@ class ComposerHFPairwiseRewardModel(
     ) -> dict[str, torch.Tensor]:
         return outputs if outputs is not None else self.forward(batch)
 
-    def loss(self, outputs: SequenceClassifierOutput,
-             batch: Mapping) -> dict[str, torch.Tensor]:
+    def loss(self, outputs: SequenceClassifierOutput, batch: Mapping) -> dict[str, torch.Tensor]:
         return pairwise_loss(
             outputs,
             batch,
@@ -164,8 +160,7 @@ class ComposerHFClassifierRewardModel(
     ) -> dict[str, torch.Tensor]:
         return outputs if outputs is not None else self.forward(batch)
 
-    def loss(self, outputs: SequenceClassifierOutput,
-             batch: Mapping) -> dict[str, torch.Tensor]:
+    def loss(self, outputs: SequenceClassifierOutput, batch: Mapping) -> dict[str, torch.Tensor]:
         return classifier_loss(
             outputs,
             batch,
@@ -190,9 +185,7 @@ class ComposerMPTPairwiseRewardModel(ComposerMPTCausalLM, RewardModel):
         self.return_lm_logits = return_lm_logits
         self.return_last = return_last
 
-        kwargs[
-            'loss_fn'
-        ] = 'torch_crossentropy'  # NOTE: passing in dummy value to overwrite
+        kwargs['loss_fn'] = 'torch_crossentropy'  # NOTE: passing in dummy value to overwrite
         super().__init__(
             tokenizer=tokenizer,
             use_train_metrics=use_train_metrics,
@@ -231,8 +224,7 @@ class ComposerMPTPairwiseRewardModel(ComposerMPTCausalLM, RewardModel):
     ) -> dict[str, torch.Tensor]:
         return outputs if outputs is not None else self.forward(batch)
 
-    def loss(self, outputs: SequenceClassifierOutput,
-             batch: Mapping) -> dict[str, torch.Tensor]:
+    def loss(self, outputs: SequenceClassifierOutput, batch: Mapping) -> dict[str, torch.Tensor]:
         return pairwise_loss(
             outputs,
             batch,
@@ -354,8 +346,7 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
             batch,
         )  # type: ignore
 
-    def loss(self, outputs: SequenceClassifierOutput,
-             batch: Mapping) -> dict[str, torch.Tensor]:
+    def loss(self, outputs: SequenceClassifierOutput, batch: Mapping) -> dict[str, torch.Tensor]:
         return classifier_loss(
             outputs,
             batch,
