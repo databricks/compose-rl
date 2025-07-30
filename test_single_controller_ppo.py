@@ -38,6 +38,7 @@ from compose_rl.algorithms.online.generation_utils import (
     vllm_generate,
 )
 from compose_rl.utils.ray_utils import start_ray_server
+from compose_rl.utils import flatten
 from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 
@@ -70,7 +71,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ref_path = None
         self._dataloader = None
         self._tokenizer = None
-        self.ppo_callback = None
+        self.single_controller_callback = None
         self.ppo_trainer: Trainer = None  # type: ignore
 
         self.pretrain_model_name = None
@@ -204,34 +205,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         }
         self.logger.info("Finished build_train_config")
 
-    def build_dataloader(self):
-        # TODO (infra): build prompt dataloader with rollout agent instead of
-        # trainer actor
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp_dataset_dir = f"/tmp/dataset/prompt_{timestamp}/"
-        train_loader_config = {
-            'name': 'prompt',
-            'dataset': {
-                'local': temp_dataset_dir,
-                'split': 'train',
-                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/q7b_open_r1_48k/',
-                'shuffle': True,
-                'max_gen_len': self.max_gen_len,
-                'max_seq_len': self.max_seq_len,
-                'shuffle_seed': 17,
-                'download_timeout': 1800
-            },
-            'drop_last': True,
-            'num_workers': 1,
-        }
-        foundry_dataspec = build_dataloader(
-            cfg = train_loader_config,
-            tokenizer = self.tokenizer,
-            device_batch_size = self.train_config['device_train_batch_size'],
-        )
-        self.logger.info(f"Foundry dataloader built successfully from class {type(foundry_dataspec)}")
-        foundry_dataloader = foundry_dataspec.dataloader
-        return foundry_dataloader
 
     def build_tokenizer(self):
         # TODO (algo): decide if we should use tokens or messages given
@@ -280,14 +253,14 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
         # NOTE: SingleControllerOnPolicyCallback is currently over-writing the iteration_start method
-        self.ppo_callback = SingleControllerOnPolicyCallback(
+        self.single_controller_callback = SingleControllerOnPolicyCallback(
             train_config=self.train_config,
         )
 
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
-            callbacks=self.ppo_callback,
+            callbacks=self.single_controller_callback,
             train_dataloader=self.build_dataloader(),
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
@@ -295,6 +268,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             device_train_microbatch_size=1,
             load_path=self.ref_path,
         )
+    
+    def update_batch_rollouts(self, latest_batch: dict[str, Any]):
+        self.single_controller_callback.batch_rollouts = latest_batch
 
     def train_1_iter(self):
         # TODO (algo): implement the top level PPO algo here instead of the
@@ -395,22 +371,10 @@ class InferenceServer:
         return self.vllm_engines
 
     def generate(self, prompts: list[str]):
+        # Currently using single vllm engine to move fast.
+        # TODO: support multiple vllm engines for better throughput
+        # this might require sharding of the prompts across the vllm engines
         return ray.get(self.vllm_engines[0].generate.remote(prompts))
-
-class RolloutAgent:
-    """Rollout agent for generating sequences from the inference server."""
-
-    def __init__(self, inference_server: InferenceServer):
-        self.inference_server = inference_server
-
-
-    def generate(self, prompts: list[str]):
-        # TODO (infra): try integrate this with the multi-turn rollout repo
-        gen_results = self.inference_server.generate(prompts)
-        for output in gen_results:
-            prompt = output.prompt
-            generated_text = output.outputs[0].text
-            print(f'Prompt: {prompt!r}, Generated text: {generated_text!r}')
 
 
 class ParameterBuffer(Buffer):
@@ -423,11 +387,11 @@ class ParameterBuffer(Buffer):
         # push the model parameters to a parameter buffer manager and have
         # the buffer manager initiate broadcast of parameters to vllm engines
         broadcast_to_vllm(
-            actor.ppo_callback.actor_critic,
+            actor.single_controller_callback.actor_critic,
             inference_server.engines,
             actor.model_update_group,
             device=torch.device('cuda'),
-            loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
+            loss_type=actor.single_controller_callback.actor_critic.loss_type,  # type: ignore
         )
         print('Finished broadcasting to vLLM')
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
@@ -439,44 +403,212 @@ class ParameterBuffer(Buffer):
         struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
 
 
-
+# Right now, the setup is that each actor in the TrainActorGroup is a DistributedGPUActor.
+# Each DistributedGPUActor initializes a Trainer which has a prompt dataloader that distributes the prompts across
+# all of the DistributedGPUActors (and their Trainers) in the group. Each DistributedGPUActor's Trainer has a callback
+# where at the `after_load` part of training, they fill train_prompt_loader_iter with the latest prompts.
+# These prompts are used during the next iteration with `_get_next_iter_prompts`.
+#
+# These prompts are then used with `vllm_generate` on the inference server to get the updated batch of sequences. Then the
+# Trainer in each DistributedGPUActor is updated with the new batch of sequences as part of `batch_rollouts`. This is used in
+# the SingleControllerOnPolicyCallback's `_get_reward` function to compute the rewards for the next iteration.
+# This function updates the trainer's buffer with the new batch of sequences and this is then used in the .fit() call of the Trainer.
+#
+# We want our RolloutAgent instead to get the prompts by initializing the prompt dataloader within the RolloutAgent 
+# and then using the Buffer.put to put the batches in the Buffer.buffer. The Buffer.get will then be used with
+# the collective_methods by the struct['actor_group'].collective_methods.execute to set the trainer's batch_rollouts
+# for each actor in the group.
+#
+# The Buffer.put should generate size_of_train_actor_group * size_of_batch_per_actor and for each
+# actor, also add a rank value to the struct. The Buffer.get will then use that rank to figure out what data should
+# be alloated to the actor.ppo_callback.batch_rollouts variable.
+#
+# During this process, since Trainer does require a dataloader, we can use a dummy dataloader for training that doesn't really do anything.
+# TODO: Validate whether the struct for the Buffer.put should have different generated prompts per actor
+# or if it should be the same. I think the current for the .put should {"{rank}": [prompts]}
 class ExperienceBuffer(Buffer):
     """Buffer for storing experiences."""
 
-    def query_inference_engines(self, actor: DistributedGPUActor, inference_server: InferenceServer):
-        """Round trip to inference engines.
+    def update_batch_rollouts(self, actor: DistributedGPUActor, batch: dict[str, Any]):
+        actor.single_controller_callback.batch_rollouts = batch  # type: ignore
+    
+    def is_full(self):
+        return len(self.buffer) >= self.buffer_size
 
-        Args:
-            inference_server (InferenceServer): The inference server to round trip to.
-        """
-        # TODO (infra): we should use the rollout agent to generate sequences
-        # instead of the trainer actor, e.g,. reimplment _get_next_iter_prompts
-        # in the rollout agent
-        batch = actor.ppo_trainer.state.device.batch_to_device(
-            actor.ppo_callback._get_next_iter_prompts(),
+    def put(self, struct: dict[str, Any]):
+        self.buffer.append(struct)
+
+    def get(self, struct: dict[str, Any]):
+        latest_batch = self.buffer.pop()
+        struct['actor_group'].collective_methods.execute(partial(self.update_batch_rollouts, batch=latest_batch))
+
+
+class PromptDataHandler:
+    def __init__(self, pretrain_model_name: str, num_train_actors: int):
+        self.num_train_actors = num_train_actors
+        self.global_train_batch_size = 64
+        self.device_train_batch_size = self.global_train_batch_size // self.num_train_actors
+
+        self.generations_per_prompt = 8
+        self.num_batches_per_update = 8  # equivalent to num_batches_per_iter
+        self.num_prompts_per_batch = self.global_train_batch_size // self.generations_per_prompt
+        self.num_prompts_per_iter = self.num_prompts_per_batch * self.num_batches_per_update
+
+        self.max_seq_len = 10240
+        self.max_gen_len = 1000
+        self.precision = 'amp_bf16'
+        
+        self.tokenizer = self._build_tokenizer(pretrain_model_name)
+        self.pad_token_idx = self.tokenizer.pad_token_id   # type: ignore
+        self.dataloader = self._build_dataloader()
+        self.train_prompt_loader_iter = iter(self.dataloader)
+    
+    def _build_tokenizer(self, pretrain_model_name: str):
+        kwargs = {
+            'padding': 'longest',
+            'pad_token': '<|endoftext|>',
+            'truncation': True,
+            'padding_side': 'left',
+            'model_max_length': self.max_seq_len,
+            'trust_remote_code': True,
+        }
+        tokenizer = AutoTokenizer.from_pretrained(pretrain_model_name, **kwargs)
+        return tokenizer
+
+    def _build_dataloader(self):
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_dataset_dir = f"/tmp/dataset/prompt_{timestamp}/"
+        train_loader_config = {
+            'name': 'prompt',
+            'dataset': {
+                'local': temp_dataset_dir,
+                'split': 'train',
+                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/q7b_open_r1_48k/',
+                'shuffle': True,
+                'max_gen_len': self.max_gen_len,
+                'max_seq_len': self.max_seq_len,
+                'shuffle_seed': 17,
+                'download_timeout': 1800
+            },
+            'drop_last': True,
+            'num_workers': 1,
+        }
+        # Since we have one instance of the dataloader, the device_batch_size is equal to the global_batch_size
+        # But additionally, since this only contains prompts (of which we get a certain # of generations per prompt),
+        # We use the 
+        foundry_dataspec = build_dataloader(
+            cfg = train_loader_config,
+            tokenizer = self.tokenizer,
+            device_batch_size = self.num_prompts_per_batch,
         )
-        max_gen_len = actor.train_config['variables']['max_gen_len']
-        generation_kwargs = actor.train_config['variables']['generation_kwargs']
-        with get_precision_context(actor.precision), torch.no_grad():
-            # TODO (infra): refactor this code to isolate gather of
-            # prompts on the trainer actor and gather/scatter of sequences
-            # on the trainer actor, the first half is uesless while
-            # the second half should be managed throught a experience manager
+        foundry_dataloader = foundry_dataspec.dataloader
+        return foundry_dataloader
+
+    def _get_single_batch_prompts(self):
+        """Gets a single batch of prompts from the dataloader."""
+        try:
+            return next(self.train_prompt_loader_iter)
+        except StopIteration:
+            self.train_prompt_loader_iter = iter(self.dataloader)
+            return next(self.train_prompt_loader_iter)
+
+    def get_next_iter_prompts(self):
+        """Gets the next iteration's batch of prompts."""
+        # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
+        batches = [self._get_single_batch_prompts() for _ in range(self.num_batches_per_update)]
+
+        ret_batch = {}
+        for key in batches[0].keys():
+            curr_values = []
+
+            max_len = 0
+            if isinstance(batches[0][key], torch.Tensor):
+                max_len = max([batch[key].shape[-1] for batch in batches])
+
+            padding_key = None
+            for batch in batches:
+                # Explode the batch into multiple batches for each generation
+                for _ in range(self.generations_per_prompt):
+                    # For keys that do not require additional processing
+                    if key in [
+                        'prompt_len',
+                        'verified_answer',
+                        'prompt_id',
+                        'vstar',
+                        'messages',
+                    ]:
+                        curr_values.append(batch[key])
+                        continue
+
+                    bs, seq_len = batch[key].shape
+
+                    if key == 'prompt':
+                        padding_key = self.pad_token_idx
+                        if (batch[key][:, -1] == padding_key).any():
+                            raise ValueError(
+                                'The last token in the prompt should not be the pad token. Please double '
+                                +
+                                'check the dataloader and prompt and dataloader.',
+                            )
+                    elif key == 'prompt_attention_mask':
+                        padding_key = False
+
+                    # Compute the required padding and concatenate with the batch tensor
+                    pad = torch.ones(
+                        (bs, max_len - seq_len),
+                        dtype=batch[key].dtype,
+                    ) * padding_key  # type: ignore
+                    curr_values.append(torch.cat([pad, batch[key]], dim=-1))
+
+            # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
+            if isinstance(curr_values[0], torch.Tensor):
+                ret_batch[key] = torch.cat(curr_values)
+            else:
+                if key in ['verified_answer', 'vstar']:
+                    ret_batch[key] = list(flatten(curr_values))
+                else:
+                    ret_batch[key] = curr_values
+
+        return ret_batch
+
+
+class RolloutAgent:
+    """Rollout agent for generating sequences from the inference server."""
+
+    def __init__(self, inference_server: InferenceServer, prompt_data_handler: PromptDataHandler, experience_buffer: Optional[ExperienceBuffer] = None):
+        self.inference_server = inference_server
+        self.prompt_data_handler = prompt_data_handler
+        self.experience_buffer = experience_buffer
+
+    @property
+    def generation_kwargs(self):
+        return {
+                'top_p': 1.0,
+                'use_cache': True,
+                'do_sample': False,
+                'temperature': 1.0,
+            }
+
+    def _query_inference_engines(self):
+        batch = self.prompt_data_handler.get_next_iter_prompts()
+        max_gen_len = self.prompt_data_handler.max_gen_len
+        generation_kwargs = self.generation_kwargs
+        with get_precision_context(self.prompt_data_handler.precision), torch.no_grad():
             sequences = vllm_generate(
-                vllm_engines=inference_server.engines,
+                vllm_engines=self.inference_server.engines,
                 batch=batch,
                 max_gen_len=max_gen_len,
                 generation_kwargs=generation_kwargs,
-                tokenizer=actor.tokenizer,  # type: ignore
+                tokenizer=self.prompt_data_handler.tokenizer,  # type: ignore
                 vllm_generate_function='generate',
             )
-        # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
-        actor.ppo_callback.batch_rollouts = batch  # type: ignore
-
-    def put(self, struct: dict[str, Any]):
-        struct['actor_group'].collective_methods.execute(partial(self.query_inference_engines, inference_server=struct['inference_server']))
-
+        return batch
+    
+    def add_next_batch_to_buffer(self):
+        assert len(self.experience_buffer.buffer) < self.experience_buffer.buffer_size, "Experience buffer is full"
+        batch = self._query_inference_engines()
+        self.experience_buffer.buffer.append(batch)
 
 class PPOController:
     """PPO controller for training the policy and value networks."""
@@ -484,6 +616,7 @@ class PPOController:
     def __init__(
         self,
         train_actor: TrainActorGroup,
+        prompt_data_handler: PromptDataHandler,
         inference_server: InferenceServer,
         rollout_agent: RolloutAgent,
         parameter_buffer: ParameterBuffer,
@@ -492,6 +625,7 @@ class PPOController:
     ):
         self.train_actor = train_actor
         self.inference_server = inference_server
+        self.prompt_data_handler = prompt_data_handler
         self.rollout_agent = rollout_agent
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
@@ -506,7 +640,8 @@ class PPOController:
         for _ in range(5):  # Example: train for 5 iterations
             # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
             self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
-            self.experience_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
+            self.rollout_agent.add_next_batch_to_buffer()
+            self.train_actor.collective_methods.execute(partial(self.train_actor.update_batch_rollouts, latest_batch=self.experience_buffer.buffer.pop()))
             self.train_actor.collective_methods.train_1_iter()
 
 
@@ -531,14 +666,15 @@ def _run_single_controller_ppo(
     ]
 
     with start_ray_server() as _address:
+        # only rank 0 is the master controller
         if dist.get_rank() == 0:
-            # only rank 0 is the master controller
-
+            experience_buffer = ExperienceBuffer()
+            parameter_buffer = ParameterBuffer()
             # create SPMD training actors of the system
             if world_size == 0:
                 world_size = dist.get_world_size()
             num_train_actors = world_size // 2
-            train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
+            train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor) # Build a group of SPMD training actors, each of which is a DistributedGPUActor
 
             # Create vLLM engines (or inference actors)
             vllm_tensor_parallel_size = world_size - num_train_actors
@@ -546,16 +682,20 @@ def _run_single_controller_ppo(
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
+            # TODO: The inference server should manage the dataloader as well
+            # This needs to be thought about pretty carefully.
+            # 1. What prompts are currently sent to the inference server (the rollout agent) to generate
+            # 2. How do we manage the state of the inference server (e.g., what params should be considered)
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
                 vllm_tensor_parallel_size=vllm_tensor_parallel_size,
                 pretrain_model_name=pretrain_model_name,
             )
-            rollout_agent = RolloutAgent(inference_server)
-            parameter_buffer = ParameterBuffer()
-            experience_buffer = ExperienceBuffer()
+            prompt_data_handler = PromptDataHandler(pretrain_model_name, num_train_actors=num_train_actors)
+            rollout_agent = RolloutAgent(inference_server, prompt_data_handler, experience_buffer)
             ppo_controller = PPOController(
                 train_actor,
+                prompt_data_handler,
                 inference_server,
                 rollout_agent,
                 parameter_buffer,
