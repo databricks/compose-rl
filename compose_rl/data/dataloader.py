@@ -145,8 +145,7 @@ def get_num_tokens_in_batch_online(
         return int(relevant_tokens)
     else:
         log.warning(
-            'No action_mask/prompt_len/sequences in batch. ' +
-            'Using default value of 0 for num_tokens_in_batch.',
+            'No action_mask/prompt_len/sequences in batch. ' + 'Using default value of 0 for num_tokens_in_batch.',
         )
         return 0
 

@@ -114,8 +114,7 @@ class InferenceRewardModel(RewardModel):
         deployment_inputs = []
         batch_indices = []
         reward_indices = []
-        for bidx, (seq_input_ids,
-                   seq_reward_indices) in enumerate(zip(input_ids, seq_lens)):
+        for bidx, (seq_input_ids, seq_reward_indices) in enumerate(zip(input_ids, seq_lens)):
             for seq_reward_index in seq_reward_indices:
                 deployment_inputs.append({
                     'input_ids': seq_input_ids[:seq_reward_index + 1],
@@ -146,10 +145,7 @@ class InferenceRewardModel(RewardModel):
             )
             response = response.json()
             # Currently, all outputs will contain a single reward, coming from the last token.
-            rewards = [
-                choice['metadata']['rewards'][-1]
-                for choice in response['choices']
-            ]
+            rewards = [choice['metadata']['rewards'][-1] for choice in response['choices']]
             return rewards
 
         try:
@@ -161,8 +157,7 @@ class InferenceRewardModel(RewardModel):
             # Retry limit has been reached. Raise the error :(
             error_msg = (
                 'REWARD MODEL DEPLOYMENT BACKOFF LIMIT EXCEEDED. ' +
-                'Printing deployment inputs then raising last error...' +
-                f'\nDeployment inputs:\n{deployment_inputs}'
+                'Printing deployment inputs then raising last error...' + f'\nDeployment inputs:\n{deployment_inputs}'
             )
             raise RuntimeError(error_msg) from e
 

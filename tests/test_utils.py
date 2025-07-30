@@ -24,10 +24,8 @@ def test_mask_eos_basic_functionality():
 
     # right_padded_obs structure: [prompt tokens, action tokens, padding]
     right_padded_obs = torch.tensor([
-        [101, 102, 103, 104, 105, 1, 2, 3, 50, 5, 6, 7, 8, 9,
-         10],  # 5 prompt tokens + 10 action tokens
-        [201, 202, 203, 204, 205, 11, 12, 13, 14, 15, 50, 17, 18, 19,
-         20],  # 5 prompt tokens + 10 action tokens
+        [101, 102, 103, 104, 105, 1, 2, 3, 50, 5, 6, 7, 8, 9, 10],  # 5 prompt tokens + 10 action tokens
+        [201, 202, 203, 204, 205, 11, 12, 13, 14, 15, 50, 17, 18, 19, 20],  # 5 prompt tokens + 10 action tokens
     ])
 
     right_padded_attn_mask = torch.ones_like(right_padded_obs, dtype=torch.bool)
@@ -115,10 +113,8 @@ def test_mask_eos_no_eos():
 def test_mask_eos_multiple_eos_tokens():
     # Test with multiple possible EOS tokens
     actions = torch.tensor([
-        [1, 2, 3, 50, 5, 6, 7, 8, 9,
-         10],  # First sequence has EOS (50) at index 3
-        [11, 12, 13, 14, 15, 51, 17, 18, 19,
-         20],  # Second sequence has EOS (51) at index 5
+        [1, 2, 3, 50, 5, 6, 7, 8, 9, 10],  # First sequence has EOS (50) at index 3
+        [11, 12, 13, 14, 15, 51, 17, 18, 19, 20],  # Second sequence has EOS (51) at index 5
     ])
 
     # right_padded_obs includes prompt + actions
@@ -264,10 +260,8 @@ def test_mask_eos_varying_prompt_lengths():
 
     # right_padded_obs with different prompt lengths
     right_padded_obs = torch.tensor([
-        [101, 102, 103, 1, 2, 3, 50, 5, 6, 7, 8, 9, 10, 999,
-         999],  # 3 prompt tokens + 10 action tokens + padding
-        [201, 202, 203, 204, 205, 206, 207, 11, 12, 13, 14, 15, 50, 17,
-         18],  # 7 prompt tokens + 8 action tokens
+        [101, 102, 103, 1, 2, 3, 50, 5, 6, 7, 8, 9, 10, 999, 999],  # 3 prompt tokens + 10 action tokens + padding
+        [201, 202, 203, 204, 205, 206, 207, 11, 12, 13, 14, 15, 50, 17, 18],  # 7 prompt tokens + 8 action tokens
     ])
 
     right_padded_attn_mask = torch.ones_like(right_padded_obs, dtype=torch.bool)
@@ -449,8 +443,7 @@ def test_get_token_entropies_batch_variation():
     # Batch 0 should have high entropy (close to log(vocab_size))
     assert torch.allclose(
         token_entropies[0, :],
-        torch.log(torch.tensor(vocab_size, dtype=torch.float)) *
-        torch.ones(seq_len),
+        torch.log(torch.tensor(vocab_size, dtype=torch.float)) * torch.ones(seq_len),
         atol=1e-5,
     )
 
@@ -600,8 +593,7 @@ def test_get_sequence_entropies_single_item_batch():
     # Calculate expected entropy
     expected_entropy = -(
         0.5 * torch.log(torch.tensor(0.5)) + (vocab_size - 1) *
-        (0.5 /
-         (vocab_size - 1)) * torch.log(torch.tensor(0.5 / (vocab_size - 1)))
+        (0.5 / (vocab_size - 1)) * torch.log(torch.tensor(0.5 / (vocab_size - 1)))
     )
 
     token_entropies = get_token_entropies(logits)
@@ -623,8 +615,7 @@ def mock_batched_generated_values(monkeypatch: pytest.MonkeyPatch):
     ):
         # For test purposes, just return a tensor with the right shape
         batch_size = batched_values.size(0)
-        gen_len = max_gen_len if isinstance(max_gen_len,
-                                            int) else max_gen_len.item()
+        gen_len = max_gen_len if isinstance(max_gen_len, int) else max_gen_len.item()
         gen_len = int(gen_len)
         vocab_size = batched_values.size(2)
         return torch.randn((batch_size, gen_len, vocab_size))
@@ -681,9 +672,7 @@ def test_get_entropies_integration():
 
     # Fill with different distributions
     # For prompt tokens (these shouldn't matter except for the last prompt token)
-    logits[:, :prompt_seq_len, :] = torch.randn(
-        (batch_size, prompt_seq_len, vocab_size),
-    )
+    logits[:, :prompt_seq_len, :] = torch.randn((batch_size, prompt_seq_len, vocab_size),)
 
     # IMPORTANT: get_batched_generated_values will extract tokens from prompt_len-1 to prompt_len+max_gen_len-1
     # This includes the last token of the prompt and excludes the last token of the generation

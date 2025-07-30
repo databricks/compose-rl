@@ -62,8 +62,7 @@ def messages_dataset_collate_fn(
             raise ValueError(f'Invalid key: {key}')
 
     collated_batch['prompt_attention_mask'] = torch.logical_not(
-        torch.eq(collated_batch['prompt'],
-                 tokenizer.pad_token_id),  # type: ignore
+        torch.eq(collated_batch['prompt'], tokenizer.pad_token_id),  # type: ignore
     )
 
     return collated_batch

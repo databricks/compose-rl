@@ -154,9 +154,7 @@ def env_reward(
         # we can pad this with pad tokens, since we switch the padding between left and right
         # padding based on the sequence length + max_sequence_length.
         if prompt_tokens.size(1) + max_gen_len > sequences.size(1):
-            len_to_pad = max_gen_len - (
-                sequences.size(1) - prompt_tokens.size(1)
-            )
+            len_to_pad = max_gen_len - (sequences.size(1) - prompt_tokens.size(1))
 
             extra_padding = torch.ones(
                 (batch_size, len_to_pad),
@@ -206,7 +204,8 @@ def env_reward(
         untokenized_prompt_and_responses = []
         for i in range(batch_size):
             prompt = tokenizer.decode(  # type: ignore
-                right_padded_obs[i, :prompt_len[i]])
+                right_padded_obs[i, :prompt_len[i]],
+            )
             generated_text = tokenizer.decode(  # type:  ignore
                 get_decoded_sequence(actions[i], generated_len[i],
                                             max_gen_len))
@@ -283,8 +282,7 @@ def env_reward(
             value_action_mask = torch.cat([
                 action_mask,
                 torch.zeros((batch_size, 1), device=cur_device),
-            ],
-                                          dim=-1)
+            ], dim=-1)
             device_train_microbatch_values *= value_action_mask
             partial_env_output['values'] = device_train_microbatch_values
         # Future implementations may change the way reward_seq_len is defined
@@ -350,8 +348,7 @@ class OnPolicyCallback(CallbackWithConfig):
             kl_estimator = train_config['model'].get('kl_estimator', 'k1')
         if kl_estimator not in ['k1', 'k2', 'k3', 'k3_offpolicy']:
             raise ValueError(
-                f'Invalid kl estimator: {kl_estimator}. ' +
-                'Valid options are: k1, k2, k3, k3_offpolicy.',
+                f'Invalid kl estimator: {kl_estimator}. ' + 'Valid options are: k1, k2, k3, k3_offpolicy.',
             )
         self.kl_estimator = kl_estimator
 
@@ -366,8 +363,7 @@ class OnPolicyCallback(CallbackWithConfig):
             kl_clip_range = train_config['model'].get('kl_clip_range', 40.0)
         if kl_clip_range <= 0:
             raise ValueError(
-                f'Invalid kl clip range: {kl_clip_range}. ' +
-                'Must be greater than 0.',
+                f'Invalid kl clip range: {kl_clip_range}. ' + 'Must be greater than 0.',
             )
         # check for precision and clip range
         precision = train_config['precision']
@@ -421,8 +417,7 @@ class OnPolicyCallback(CallbackWithConfig):
 
         self.num_unique_prompts_per_iter: int = var_config.get(
             'num_unique_prompts_per_iter',
-            self.num_batches_per_update * self.global_train_batch_size //
-            self.generations_per_prompt,
+            self.num_batches_per_update * self.global_train_batch_size // self.generations_per_prompt,
         )
 
         log.info(
@@ -492,8 +487,7 @@ class OnPolicyCallback(CallbackWithConfig):
                     'vllm_generate_function needs to be either `generate` or `chat`',
                 )
 
-            self.vllm_model_name = train_config['model'][
-                'pretrained_model_name_or_path']
+            self.vllm_model_name = train_config['model']['pretrained_model_name_or_path']
 
             # set vllm tensor parallel size
             total_num_nodes = os.getenv('TOTAL_NUM_NODES', None)
@@ -662,9 +656,7 @@ class OnPolicyCallback(CallbackWithConfig):
         """Gets the next iteration's batch of prompts."""
         # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
         n_unique_batches = self.num_unique_prompts_per_iter // self.global_train_batch_size
-        batches = [
-            self._get_single_batch_prompts() for _ in range(n_unique_batches)
-        ]
+        batches = [self._get_single_batch_prompts() for _ in range(n_unique_batches)]
 
         ret_batch = {}
         for key in batches[0].keys():
@@ -695,8 +687,7 @@ class OnPolicyCallback(CallbackWithConfig):
                         padding_key = self.pad_token_idx
                         if (batch[key][:, -1] == padding_key).any():
                             raise ValueError(
-                                'The last token in the prompt should not be the pad token. Please double '
-                                +
+                                'The last token in the prompt should not be the pad token. Please double ' +
                                 'check the dataloader and prompt and dataloader.',
                             )
                     elif key == 'prompt_attention_mask':
@@ -874,10 +865,7 @@ class OnPolicyCallback(CallbackWithConfig):
         """
         start_idx = idx * minibatch_size
         end_idx = (idx + 1) * minibatch_size
-        curr_gen_batch = {
-            batch_key: tensor[start_idx:end_idx]
-            for batch_key, tensor in batch.items()
-        }
+        curr_gen_batch = {batch_key: tensor[start_idx:end_idx] for batch_key, tensor in batch.items()}
         return curr_gen_batch
 
     def _resolve_outputs(
@@ -989,8 +977,7 @@ class OnPolicyCallback(CallbackWithConfig):
                 env_outs['advantages'] = advantages
             else:
                 raise ValueError(
-                    f'Invalid loss type: {self.actor_critic.loss_type}. ' +
-                    'Valid options are: ppo, grpo.',
+                    f'Invalid loss type: {self.actor_critic.loss_type}. ' + 'Valid options are: ppo, grpo.',
                 )
 
             batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
@@ -1043,11 +1030,10 @@ class OnPolicyCallback(CallbackWithConfig):
             'verified_answer',
         ]
         save_data = [[prompt_id, reward, prompt, generation, verified_answer]
-                     for (prompt_id, reward,
-                          verified_answer), (prompt, generation) in zip(
-                              prompt_ids_rewards_and_answers,
-                              prompts_and_gens,
-                          )]
+                     for (prompt_id, reward, verified_answer), (prompt, generation) in zip(
+                         prompt_ids_rewards_and_answers,
+                         prompts_and_gens,
+                     )]
         # Sort the save_data by reward in descending order
         save_data = sorted(save_data, key=lambda x: x[1], reverse=True)
 
@@ -1067,8 +1053,7 @@ class OnPolicyCallback(CallbackWithConfig):
 
                 artifact.add(text_table, 'predictions')
                 wandb.log_artifact(artifact)
-                wandb.log({'generations': text_table},
-                          step=state.timestamp.batch.value)
+                wandb.log({'generations': text_table}, step=state.timestamp.batch.value)
 
             if self.mlflow_logger is not None:
                 self.mlflow_logger.log_table(
@@ -1088,8 +1073,7 @@ class OnPolicyCallback(CallbackWithConfig):
 
         self.kl_ctl.update(
             ift_kl_update,
-            self.num_batches_per_update * self.device_train_batch_size *
-            dist.get_world_size(),
+            self.num_batches_per_update * self.device_train_batch_size * dist.get_world_size(),
         )
 
         self.kl_ift = []
@@ -1102,8 +1086,7 @@ class OnPolicyCallback(CallbackWithConfig):
         self.model_update_group = None
         self.vllm_engines = []
 
-        if os.getenv('NODE_RANK',
-                     None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+        if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
             log.info('Creating vLLM engines.')
 
             os.environ['NCCL_CUMEM_ENABLE'] = '0'
@@ -1124,7 +1107,7 @@ class OnPolicyCallback(CallbackWithConfig):
             )
             log.info('After creating vLLM engines.')
 
-            master_address = ray._private.services.get_node_ip_address( # type: ignore
+            master_address = ray._private.services.get_node_ip_address(  # type: ignore
             )
             with socket.socket() as sock:
                 sock.bind(('', 0))
@@ -1173,8 +1156,7 @@ class OnPolicyCallback(CallbackWithConfig):
         return {
             'KL_ctl_state_dict': self.kl_ctl.state_dict(),
             'iter_num': self.iter_num,
-            'train_prompt_loader':
-                self.train_prompt_loader.state_dict(),  # pyright: ignore
+            'train_prompt_loader': self.train_prompt_loader.state_dict(),  # pyright: ignore
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]):

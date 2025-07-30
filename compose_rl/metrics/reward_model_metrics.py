@@ -33,8 +33,7 @@ class PairwiseRewardClassificationAccuracy(Metric):
         bs, _ = batch['chosen_scores'].shape
 
         self.total += bs
-        self.correct += (batch['chosen_scores']
-                         > batch['rejected_scores']).sum().detach().cpu()
+        self.correct += (batch['chosen_scores'] > batch['rejected_scores']).sum().detach().cpu()
 
     def compute(self):
         assert isinstance(self.correct, Tensor)

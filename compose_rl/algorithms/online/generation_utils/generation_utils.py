@@ -102,12 +102,9 @@ def _vllm_generate(
     }
 
     # We have to remove all pad tokens here
-    all_prompts = [[
-        token
-        for token in prompt.detach().cpu().tolist()
-        if token != pad_token_id
+    all_prompts = [
+        [token for token in prompt.detach().cpu().tolist() if token != pad_token_id] for prompt in all_prompts
     ]
-                   for prompt in all_prompts]
 
     # Generate with vllm
     # Calculate the base batch size
@@ -177,12 +174,9 @@ def _vllm_chat(
     }
 
     # We have to remove all pad tokens here. Keep here to check
-    all_prompts = [[
-        token
-        for token in prompt.detach().cpu().tolist()
-        if token != pad_token_id
+    all_prompts = [
+        [token for token in prompt.detach().cpu().tolist() if token != pad_token_id] for prompt in all_prompts
     ]
-                   for prompt in all_prompts]
 
     # Generate with vllm
     # Calculate the base batch size
@@ -227,10 +221,7 @@ def _vllm_chat(
     )
 
     # Remove pad tokens from vllm prompts
-    all_vllm_prompts = [[token
-                         for token in prompt
-                         if token != pad_token_id]
-                        for prompt in all_vllm_prompts]
+    all_vllm_prompts = [[token for token in prompt if token != pad_token_id] for prompt in all_vllm_prompts]
 
     # Checking vllm prompts with all prompts
     assert all_prompts == all_vllm_prompts

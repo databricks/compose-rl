@@ -58,9 +58,7 @@ class ReferencePolicyCallback(CallbackWithConfig):
                 strict_model_weights=callback.strict_model_weights,
                 ignore_keys=callback.ignore_keys,
                 event=callback.event,
-            )
-            for callback in state.callbacks
-            if isinstance(callback, LoadCheckpoint)
+            ) for callback in state.callbacks if isinstance(callback, LoadCheckpoint)
         ]
 
         # For HF checkpoint, load_path is unset and should be handled in llmfoundry code.

@@ -210,10 +210,7 @@ def pairwise_offline_loss(
 
     losses = torch.zeros_like(logits)
     if loss_type == PairwiseOfflineEnum.DPO:
-        losses = (
-            -F.logsigmoid(beta * logits) * (1 - label_smoothing) -
-            F.logsigmoid(-beta * logits) * label_smoothing
-        )
+        losses = (-F.logsigmoid(beta * logits) * (1 - label_smoothing) - F.logsigmoid(-beta * logits) * label_smoothing)
     elif loss_type == PairwiseOfflineEnum.RCDPO:
         # Adding reward-difference based label_smoothing = 1 - reward_bt_prob
         chosen_reward = outputs['chosen_reward']
@@ -239,9 +236,8 @@ def pairwise_offline_loss(
         logsigmoid_not_a = F.logsigmoid(-beta * logits)
         logsigmoid_not_b = F.logsigmoid(-eta * reward_diff)
 
-        losses = torch.exp(logsigmoid_b) * (
-            logsigmoid_b - logsigmoid_a
-        ) + torch.exp(logsigmoid_not_b) * (logsigmoid_not_b - logsigmoid_not_a)
+        losses = torch.exp(logsigmoid_b) * (logsigmoid_b - logsigmoid_a
+                                           ) + torch.exp(logsigmoid_not_b) * (logsigmoid_not_b - logsigmoid_not_a)
     elif loss_type == PairwiseOfflineEnum.REBEL:
         # Reproducing the REBEL loss from paper: https://arxiv.org/pdf/2404.16767 page 4
         # Code: https://github.com/ZhaolinGao/REBEL/blob/e0a6a190108a45c70b4920b58a4ccac8a09ab22b/src/tldr/rebel.py#L761-L777
@@ -259,8 +255,7 @@ def pairwise_offline_loss(
         losses = (logits - 1 / (2 * beta))**2
     elif loss_type == PairwiseOfflineEnum.KTO:
         chosen_KL = (policy_chosen_logp - ref_chosen_logp).mean().clamp(min=0)
-        rejected_KL = (policy_rejected_logp -
-                       ref_rejected_logp).mean().clamp(min=0)
+        rejected_KL = (policy_rejected_logp - ref_rejected_logp).mean().clamp(min=0)
 
         chosen_logratios = policy_chosen_logp - ref_chosen_logp
         rejected_logratios = policy_rejected_logp - ref_rejected_logp
@@ -283,8 +278,7 @@ def pairwise_offline_loss(
     losses = losses.mean()
 
     chosen_rewards = beta * (policy_chosen_logp - ref_chosen_logp).detach()
-    rejected_rewards = beta * (policy_rejected_logp -
-                               ref_rejected_logp).detach()
+    rejected_rewards = beta * (policy_rejected_logp - ref_rejected_logp).detach()
 
     # Logging KL margins for comparing different methods
     chosen_KL = (policy_chosen_logp - ref_chosen_logp).detach()

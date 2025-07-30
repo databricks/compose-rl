@@ -109,12 +109,8 @@ class VerifiableMessagesDataset(Dataset):
         }]  # bit of a hack, but it works
         mock_prompt = torch.ones((len(messages[0]['content']),)).int()
         return {
-            'messages':
-                messages,
-            'prompt':
-                mock_prompt,
-            'prompt_len':
-                torch.Tensor([len(messages[0]['content'])]).to(torch.int64),
-            'verified_answer':
-                'Paris',
+            'messages': messages,
+            'prompt': mock_prompt,
+            'prompt_len': torch.Tensor([len(messages[0]['content'])]).to(torch.int64),
+            'verified_answer': 'Paris',
         }

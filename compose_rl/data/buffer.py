@@ -131,4 +131,5 @@ class MinibatchRolloutBuffer(DataLoader):
         state_dict['epoch'] = epoch
         log.info(f'Saving state dict to: {state_dict}')
         self.dataset.set_state_dict(  # pyright: ignore[reportGeneralTypeIssues]
-            state_dict)
+            state_dict,
+        )

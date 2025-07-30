@@ -176,8 +176,7 @@ def get_token_entropies(
     """
     # Calculate entropy using the logsumexp trick
     pd = F.softmax(logits, dim=-1)
-    token_entropies = torch.logsumexp(logits,
-                                      dim=-1) - torch.sum(pd * logits, dim=-1)
+    token_entropies = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
 
     return token_entropies
 
@@ -236,10 +235,7 @@ def remove_left_padding(
         max_gen_len (int): the maximum generation length.
     """
     batch_size, _ = sequences.shape
-    unpadded_obs = [
-        sequences[i, -(seq_length[i] + max_gen_len):]
-        for i in range(batch_size)
-    ]
+    unpadded_obs = [sequences[i, -(seq_length[i] + max_gen_len):] for i in range(batch_size)]
     return unpadded_obs
 
 
@@ -258,8 +254,7 @@ def add_right_padding(
     right_padded_obs = [
         torch.cat([
             seq,
-            torch.ones(max_len - len(seq), device=seq.device, dtype=seq.dtype) *
-            pad_token,
+            torch.ones(max_len - len(seq), device=seq.device, dtype=seq.dtype) * pad_token,
         ]) for seq in unpadded_sequences
     ]
     return torch.stack(right_padded_obs, dim=0)
@@ -285,8 +280,7 @@ def get_batched_generated_values(
             assert not curr_max_gen_len.is_floating_point()
 
         generations.append(
-            batched_values[i, prompt_len[i] - 1:prompt_len[i] +
-                           curr_max_gen_len - 1],
+            batched_values[i, prompt_len[i] - 1:prompt_len[i] + curr_max_gen_len - 1],
         )
     return torch.stack(generations, dim=0)
 
@@ -466,7 +460,8 @@ def get_training_dataloader_state_dict(
     ):
         num_samples = per_iter_global_train_batch_size * cur_dataloader_iter
         state_dict: dict = dataset.state_dict(  # pyright: ignore[reportGeneralTypeIssues]
-            num_samples, True)
+            num_samples, True,
+        )
         return state_dict
     else:
         warnings.warn(
@@ -514,8 +509,7 @@ def mask_eos(
             seen_eos_batches.add(batch_idx)
 
             # We need to refix all of the padding since we now always generate max_gen_len tokens
-            req_pad_start_idx = prompt_len[eos_idx[0]
-                                          ] + generated_len[eos_idx[0]]
+            req_pad_start_idx = prompt_len[eos_idx[0]] + generated_len[eos_idx[0]]
             right_padded_obs[eos_idx[0], req_pad_start_idx:] = pad_token
             right_padded_attn_mask[eos_idx[0], req_pad_start_idx:] = False
 
@@ -535,9 +529,7 @@ def get_decoded_sequence(
 
 def split_text_to_sentences(long_text: str, parser: spacy.Language):
     doc = parser(long_text)
-    return [0] + [
-        sent.end_char for sent in doc.sents if len(str(sent).strip()) > 0
-    ]
+    return [0] + [sent.end_char for sent in doc.sents if len(str(sent).strip()) > 0]
 
 
 def split_text_to_subsentences(
@@ -610,8 +602,7 @@ def split_text_to_subsentences(
         sentence_start_char_idxs[:-1],
     ):
 
-        sentence = long_text[
-            sentence_start_char_idx:sentence_start_char_idxs[sentence_idx + 1]]
+        sentence = long_text[sentence_start_char_idx:sentence_start_char_idxs[sentence_idx + 1]]
 
         tokens_with_indices = tokenize_with_indices(sentence)
 
@@ -692,10 +683,7 @@ def process_fine_granularities(
         end_char_idxs = [0, len(generated)]
     else:
         raise NotImplementedError(f'{granularity=} is not supported.')
-    generated_sequences = [
-        generated[end_char_idxs[i]:end_char_idxs[i + 1]]
-        for i in range(len(end_char_idxs) - 1)
-    ]
+    generated_sequences = [generated[end_char_idxs[i]:end_char_idxs[i + 1]] for i in range(len(end_char_idxs) - 1)]
 
     # Initialize an empty list to store the end token indices of each sentence
     unaligned_end_indices = []
@@ -719,9 +707,7 @@ def process_fine_granularities(
     tokenized_reward_input = [
         t for t in tokenized_reward_input if t is not None  # type: ignore
     ]
-    concatenated_subseq_tokens = [
-        t for t in concatenated_subseq_tokens if t is not None
-    ]
+    concatenated_subseq_tokens = [t for t in concatenated_subseq_tokens if t is not None]
     # Truncate here to prevent scatter gather indices from going over
     tokenized_reward_input = tokenized_reward_input[:max_seq_len]
 
@@ -756,8 +742,7 @@ def process_fine_granularities(
             )
 
     # The original tokenized obses RL training sees, without the decode step
-    original_generated_token_ids = original_obs[prompt_len:prompt_len +
-                                                generated_len]
+    original_generated_token_ids = original_obs[prompt_len:prompt_len + generated_len]
     original_generated_tokens = tokenizer.convert_ids_to_tokens(
         original_generated_token_ids,  # type: ignore
     )
@@ -790,21 +775,13 @@ def process_fine_granularities(
             )
             failed_align_end_idxs.append(i)
     # Get rid of indices in the final gather where the sequence alignment fails
-    end_indices_aligned_gather = [
-        u for i, u in enumerate(end_indices_aligned_gather)
-        if i not in failed_align_end_idxs
-    ]
+    end_indices_aligned_gather = [u for i, u in enumerate(end_indices_aligned_gather) if i not in failed_align_end_idxs]
     assert len(end_indices_aligned_gather) == len(end_indices_aligned_scatter)
 
     # last token cutoffs and additions
-    end_indices_aligned_gather = [
-        min(item, reward_generated_len - 1)
-        for item in end_indices_aligned_gather
-    ]
+    end_indices_aligned_gather = [min(item, reward_generated_len - 1) for item in end_indices_aligned_gather]
 
-    end_indices_aligned_scatter = [
-        min(item, generated_len - 1) for item in end_indices_aligned_scatter
-    ]
+    end_indices_aligned_scatter = [min(item, generated_len - 1) for item in end_indices_aligned_scatter]
 
     # Special edge case for document level rewards
     if granularity == 'document':
@@ -962,13 +939,10 @@ def scatter_gather_rewards(
     for i in range(batch_size):
         # Prompt length and generated length together should gives us sequence length
         assert (prompt_lens[i] + generated_lens[i]).item() == seq_lens[i].item()
-        assert (reward_prompt_lens[i] +
-                reward_generated_lens[i]).item() == reward_seq_lens[i].item()
+        assert (reward_prompt_lens[i] + reward_generated_lens[i]).item() == reward_seq_lens[i].item()
         # The number of indices you gather rews from outputs is same as scatter
         assert end_idxs_scatter[i].shape[-1] == end_idxs_gather[i].shape[-1]
-        batch_curr_rewards = curr_rewards[
-            i, reward_prompt_lens[i]:reward_prompt_lens[i] +
-            reward_generated_lens[i]]
+        batch_curr_rewards = curr_rewards[i, reward_prompt_lens[i]:reward_prompt_lens[i] + reward_generated_lens[i]]
         gathered_rewards = batch_curr_rewards.gather(
             dim=0,
             index=end_idxs_gather[i],
@@ -1100,8 +1074,7 @@ def extract_packed_chosen_rejected(
         )
         chosen_values.append(padded_chosen)
 
-        unpadded_rejected = input_tensor[i, chosen_len[i]:chosen_len[i] +
-                                         rejected_len[i]]
+        unpadded_rejected = input_tensor[i, chosen_len[i]:chosen_len[i] + rejected_len[i]]
         padded_rejected = make_padded_tensor(
             unpadded_rejected,
             max_seq_len,
@@ -1134,8 +1107,7 @@ def make_padded_tensor(
             dtype=input_tensor.dtype,
         ) * pad_token_id
     elif len(input_tensor.shape) == 2:
-        pad_tensor = torch.ones((pad_len, input_tensor.size(1)),
-                                device=input_tensor.device,
+        pad_tensor = torch.ones((pad_len, input_tensor.size(1)), device=input_tensor.device,
                                 dtype=input_tensor.dtype) * pad_token_id
     else:
         raise NotImplementedError(

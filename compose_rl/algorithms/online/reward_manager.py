@@ -89,8 +89,7 @@ class RewardManager:
         self.functional_rewards: list[str] = []
         self.local_reward_models: list[str] = []
 
-        ref_model_config: dict[str,
-                               Any] = self.ref_config.get('model_config', None)
+        ref_model_config: dict[str, Any] = self.ref_config.get('model_config', None)
 
         self.reference_model = self.initialize_composer_model(
             model_config=ref_model_config,
@@ -165,8 +164,7 @@ class RewardManager:
         self.pool = None
         if self.inference_rewards or self.functional_rewards:
             self.pool = Pool(
-                processes=len(self.inference_rewards) +
-                len(self.functional_rewards),
+                processes=len(self.inference_rewards) + len(self.functional_rewards),
                 context=get_context('spawn'),
             )
 
@@ -258,12 +256,9 @@ class RewardManager:
         # We need to do this to handle getting rewards at multiple points in a
         # single input sequence with a deployed RM.
         if isinstance(reward_model, InferenceRewardModel):
-            rm_seq_lens = [
-                [idx + prompt_len
-                 for idx in gather_indices]
-                for gather_indices, prompt_len in
-                zip(batch['end_idxs_gather'], batch['reward_prompt_lens'])
-            ]
+            rm_seq_lens = [[idx + prompt_len
+                            for idx in gather_indices]
+                           for gather_indices, prompt_len in zip(batch['end_idxs_gather'], batch['reward_prompt_lens'])]
         else:
             rm_seq_lens = batch['reward_seq_lens']
 
@@ -459,8 +454,7 @@ class RewardManager:
             }
         elif isinstance(reward_model, RewardModel):
             granularity = self.granularities[reward_name]
-            curr_inputs = processed_inputs['end_reward_inputs_dict'][granularity
-                                                                    ]
+            curr_inputs = processed_inputs['end_reward_inputs_dict'][granularity]
             tok_formatted_reward_inputs = torch.tensor(
                 curr_inputs.input_ids,
             ).type(base_batch['input_ids'].dtype)
@@ -469,26 +463,16 @@ class RewardManager:
             ).type(base_batch['attention_mask'].dtype)
 
             return {
-                'tok_formatted_reward_inputs':
-                    tok_formatted_reward_inputs,
-                'tok_formatted_reward_attn_masks':
-                    tok_formatted_reward_attn_masks,
-                'reward_seq_lens':
-                    processed_inputs['reward_seq_lens_dict'][granularity],
-                'reward_prompt_lens':
-                    processed_inputs['reward_prompt_lens_dict'][granularity],
-                'reward_generated_lens':
-                    processed_inputs['reward_generated_lens_dict'][granularity],
-                'end_idxs_gather':
-                    processed_inputs['end_idxs_gather_dict'][granularity],
-                'end_idxs_scatter':
-                    processed_inputs['end_idxs_scatter_dict'][granularity],
-                'prompt_lens':
-                    base_batch['prompt_len'],
-                'generated_lens':
-                    base_batch['generated_lens'],
-                'seq_lens':
-                    base_batch['seq_lens'],
+                'tok_formatted_reward_inputs': tok_formatted_reward_inputs,
+                'tok_formatted_reward_attn_masks': tok_formatted_reward_attn_masks,
+                'reward_seq_lens': processed_inputs['reward_seq_lens_dict'][granularity],
+                'reward_prompt_lens': processed_inputs['reward_prompt_lens_dict'][granularity],
+                'reward_generated_lens': processed_inputs['reward_generated_lens_dict'][granularity],
+                'end_idxs_gather': processed_inputs['end_idxs_gather_dict'][granularity],
+                'end_idxs_scatter': processed_inputs['end_idxs_scatter_dict'][granularity],
+                'prompt_lens': base_batch['prompt_len'],
+                'generated_lens': base_batch['generated_lens'],
+                'seq_lens': base_batch['seq_lens'],
             }
         else:
             raise TypeError(
@@ -594,9 +578,7 @@ class RewardManager:
                 bad_end_generation_name = name
                 bad_generation_row_mask = torch.any(resolved_reward != 0, dim=1)
 
-                bad_end_generation_mask = (
-                    ~bad_generation_row_mask
-                ).unsqueeze(1).expand_as(resolved_reward)
+                bad_end_generation_mask = (~bad_generation_row_mask).unsqueeze(1).expand_as(resolved_reward)
                 bad_end_generation_mask = bad_end_generation_mask.to(
                     device=device,
                 )

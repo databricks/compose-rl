@@ -102,9 +102,7 @@ class KLPIDController(BaseKLController):
         device: str = 'cpu',
     ):
         super().__init__(device=device)
-        self._value: torch.Tensor = torch.tensor([init_kl_coef],
-                                                 requires_grad=True,
-                                                 device=self.device)
+        self._value: torch.Tensor = torch.tensor([init_kl_coef], requires_grad=True, device=self.device)
         self._target = target
         self._horizon = horizon
         self._optim = torch.optim.Adam([self._value], lr=kl_lr)
@@ -161,9 +159,7 @@ class BallKLController(BaseKLController):
         device: str = 'cpu',
     ):
         super().__init__(device=device)
-        self._value: torch.Tensor = torch.tensor([init_kl_coef],
-                                                 requires_grad=True,
-                                                 device=self.device)
+        self._value: torch.Tensor = torch.tensor([init_kl_coef], requires_grad=True, device=self.device)
         self._target = target
         self._horizon = horizon
         self._optim = torch.optim.Adam([self._value], lr=kl_lr)

@@ -55,10 +55,8 @@ def prepare_ultrafeedback_summarization_messages(
 ) -> tuple[list[dict[str, str]], dict]:
     prompt = sample['prompt']
     messages = [{
-        'role':
-            'user',
-        'content':
-            f'Can you summarize the following content in 50 words or less: {prompt}',
+        'role': 'user',
+        'content': f'Can you summarize the following content in 50 words or less: {prompt}',
     }]
     return messages, {}
 

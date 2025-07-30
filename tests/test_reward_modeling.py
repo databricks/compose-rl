@@ -24,8 +24,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 from transformers.models.llama.modeling_llama import LlamaAttention
 
-from compose_rl.algorithms.reward_modeling.hf_utils import \
-    AutoModelForCausalLMWithRM
+from compose_rl.algorithms.reward_modeling.hf_utils import AutoModelForCausalLMWithRM
 from compose_rl.data import (
     finegrained_preference_dataset_collate_fn,
     pairwise_preference_dataset_collate_fn,
@@ -146,18 +145,14 @@ def gen_random_batch(
         size=(batch_size, test_cfg.max_seq_len * 2),
         dtype=torch.int64,
     ).to(device)
-    batch['chosen_len'] = (
-        torch.ones(
-            size=(batch_size,),
-            dtype=torch.int64,
-        ) * test_cfg.max_seq_len
-    ).to(device)
-    batch['rejected_len'] = (
-        torch.ones(
-            size=(batch_size,),
-            dtype=torch.int64,
-        ) * test_cfg.max_seq_len
-    ).to(device)
+    batch['chosen_len'] = (torch.ones(
+        size=(batch_size,),
+        dtype=torch.int64,
+    ) * test_cfg.max_seq_len).to(device)
+    batch['rejected_len'] = (torch.ones(
+        size=(batch_size,),
+        dtype=torch.int64,
+    ) * test_cfg.max_seq_len).to(device)
     return batch
 
 
@@ -189,8 +184,7 @@ def test_forward_backward_hf_automodel():
         pytest.param(
             'tests/yamls/testing_hf_classifier.yaml',
             marks=pytest.mark.skip(
-                reason=
-                'TODO: reenable. temporarily skipping to turn GPU CI back on.',
+                reason='TODO: reenable. temporarily skipping to turn GPU CI back on.',
             ),
         ),
     ],
@@ -398,10 +392,8 @@ def test_flashattention2(world_size: int):
             out_flash = {k: v.to('cpu') for k, v in out_flash.items()}
 
             assert torch.all(
-                out['chosen_scores'].bfloat16()
-                != out['rejected_scores'].bfloat16(),
+                out['chosen_scores'].bfloat16() != out['rejected_scores'].bfloat16(),
             )
             assert torch.all(
-                out_flash['chosen_scores'].bfloat16()
-                != out_flash['rejected_scores'].bfloat16(),
+                out_flash['chosen_scores'].bfloat16() != out_flash['rejected_scores'].bfloat16(),
             )

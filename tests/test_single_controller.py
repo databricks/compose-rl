@@ -136,9 +136,7 @@ def test_distributed_ray_actors(
             assert results == [num_train_actors] * num_train_actors
 
             vllm_tensor_parallel_size = world_size - num_train_actors
-            num_vllm_engines = (
-                world_size - num_train_actors
-            ) // vllm_tensor_parallel_size
+            num_vllm_engines = (world_size - num_train_actors) // vllm_tensor_parallel_size
             logger.info(f'num_vllm_engines: {num_vllm_engines}')
             vllm_engines = create_vllm_engines(
                 num_engines=num_vllm_engines,
