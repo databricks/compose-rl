@@ -271,6 +271,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         kl_estimator: str = 'k3',
         kl_clip_range: float = 40.0,
         temperature: float = 1.0,
+        use_vllm_logprobs: bool = False,
         **kwargs: Any,
     ):
         """Initialize the ComposerHFCriticFreePolicyModel.
@@ -305,6 +306,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.kl_clip_range = kl_clip_range
         self.entropy_loss_weight = entropy_loss_weight
         self.temperature = temperature
+        self.use_vllm_logprobs = use_vllm_logprobs
 
     def forward(self, batch: MutableMapping):
         ret_val = composer_online_rl_forward(
@@ -333,6 +335,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             kl_estimator=self.kl_estimator,
             kl_clip_range=self.kl_clip_range,
             entropy_loss_weight=self.entropy_loss_weight,
+            use_vllm_logprobs=self.use_vllm_logprobs,
         )
 
         self.policy_kl.append(return_dict['kl/policy_kl'])

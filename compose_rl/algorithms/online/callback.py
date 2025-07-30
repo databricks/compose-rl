@@ -753,7 +753,7 @@ class OnPolicyCallback(CallbackWithConfig):
         with get_precision_context(self.precision), torch.no_grad():
             # If vllm engines are available, we use them to generate sequences in one go
             if self.vllm_engines is not None:
-                sequences = vllm_generate(
+                sequences, vllm_logprobs = vllm_generate(
                     vllm_engines=self.vllm_engines,
                     batch=batch,
                     max_gen_len=max_gen_len,
@@ -800,6 +800,7 @@ class OnPolicyCallback(CallbackWithConfig):
                 sequences = torch.cat(padded_sequences, dim=0)
         # Add the prepared sequences to the batch again
         batch['sequences'] = sequences
+        batch['vllm_logprobs'] = vllm_logprobs
 
         env_outputs, prompts_and_gens, ref_outputs, all_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore

@@ -233,6 +233,7 @@ def policy_loss(
     length_normalize_policy_loss: bool = True,
     kl_estimator: Optional[str] = 'k3',
     kl_clip_range: Optional[float] = 40.0,
+    use_vllm_logprobs: bool = False,
 ) -> MutableMapping:
 
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
@@ -404,6 +405,16 @@ def policy_loss(
         log_diff_to_ref = online_log_probs - ref_log_probs
         old_entropies = batch['old_entropies']
 
+        vllm_log_probs = batch['vllm_logprobs']
+        vllm_log_diff = online_log_probs - vllm_log_probs
+
+        try:
+            assert vllm_log_probs.shape == old_log_probs.shape
+        except:
+            print(f"vLLM shape: {vllm_log_probs.shape}")
+            print(f"Forward shape: {old_log_probs.shape}")
+            raise Exception("Shapes are off")
+
         #compute KL to pi_ref to keep track the divergence to \pi_ref
         policy_kl_ref_dict = utils.approx_kl(
             log_p=ref_log_probs,
@@ -439,11 +450,20 @@ def policy_loss(
                 dim = -1,
             )
         elif loss_type == OnPolicyEnum.SMD:
-            masked_log_probs_diff = utils.masked_sum(
-                log_diff_to_old, 
-                batch['action_mask'],
-                dim = -1,
-            )
+            if not use_vllm_logprobs:
+                masked_log_probs_diff = utils.masked_sum(
+                    log_diff_to_old, 
+                    batch['action_mask'],
+                    dim = -1,
+                )
+            else:
+                # Using vLLM log probs
+                masked_log_probs_diff = utils.masked_sum(
+                    vllm_log_diff,
+                    batch['action_mask'],
+                    dim = -1,
+                )
+
         assert advantages.shape == masked_log_probs_diff.shape
         policy_loss = ((beta * masked_log_probs_diff - advantages)**2).mean()
 
@@ -452,6 +472,21 @@ def policy_loss(
             batch['action_mask'],
             dim=-1,
         )
+
+        # precision of logprobs
+        seq_old_logprobs = utils.masked_sum(
+            old_log_probs,
+            batch['action_mask'],
+            dim=-1,
+        )
+        seq_vllm_logprobs = utils.masked_sum(
+            vllm_log_probs,
+            batch['action_mask'],
+            dim=-1,
+        )
+
+        logprob_tol = torch.mean(torch.abs(seq_old_logprobs - seq_vllm_logprobs))
+        prob_tol = torch.mean(torch.abs(torch.exp(seq_old_logprobs) - torch.exp(seq_vllm_logprobs)))
 
         policy_dict = {
             'loss/policy_loss': policy_loss,
@@ -465,6 +500,11 @@ def policy_loss(
             'advantage/mean': torch.mean(
                 advantages,
             ),  #compute the average of the vstar of the current batch
+            'vllm_abs_log_tol': logprob_tol,
+            'vllm_abs_tol': prob_tol,
+            'log_diff/min': torch.min(masked_log_probs_diff),
+            'log_diff/max': torch.max(masked_log_probs_diff),
+            'log_diff/mean': torch.mean(masked_log_probs_diff),
         }
         return policy_dict
 
@@ -486,6 +526,7 @@ def online_rl_loss(
     entropy_loss_weight: float | None = None,
     kl_estimator: Optional[str] = 'k3',
     kl_clip_range: Optional[float] = 40.0,
+    use_vllm_logprobs: bool = False,
 ) -> MutableMapping:
     """Compute the online RL loss.
 
@@ -562,6 +603,7 @@ def online_rl_loss(
         length_normalize_policy_loss=length_normalize_policy_loss,
         kl_estimator=kl_estimator,
         kl_clip_range=kl_clip_range,
+        use_vllm_logprobs=use_vllm_logprobs,
     )
 
     return_dict.update(**policy_dict)
