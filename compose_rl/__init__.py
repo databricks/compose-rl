@@ -10,11 +10,12 @@ except ImportError:
         'When installing plugins, please use one of the extras depending on which version of llmfoundry you are using.',
     )
 
-from compose_rl import algorithms, data, metrics, utils
+from compose_rl import algorithms, controllers, data, metrics, utils
 
 __all__ = [
     'algorithms',
-    'utils',
+    'controllers',
     'data',
     'metrics',
+    'utils',
 ]

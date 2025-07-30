@@ -3,7 +3,7 @@
 
 import os
 from datetime import timedelta
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import ray
 import torch.distributed as dist
@@ -100,3 +100,79 @@ class BaseDistributedGPUActor:
             rank=rank,
             group_name=group_name,
         )
+    
+    def execute(self, func: Callable[['BaseDistributedGPUActor'], Any]):
+        """Dispatch a serializable function to this actor."""
+        return func(self)
+
+
+class SPMDActorGroup:
+    """Group managers of SPMD actors."""
+
+    def __init__(self, num_train_actors: int, actor_class: type[BaseDistributedGPUActor], num_gpus_per_actor: int = 1):
+        self.num_train_actors = num_train_actors
+        self._train_actors: list[BaseDistributedGPUActor] = []
+        """Create and initialize all training actors."""
+        print(f'\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===')
+
+        remote_actor_class = ray.remote(num_gpus=num_gpus_per_actor)(actor_class)
+        # Create master actor first
+        self._master_actor = remote_actor_class.remote(
+            0,
+            self.num_train_actors,
+        )
+        self._train_actors.append(self._master_actor)
+
+        # Get master address from rank 0 actor
+        master_addr, master_port = ray.get(
+            self._master_actor.get_master_address.remote(),  # type: ignore
+        )
+        print(f'Master address allocated: {master_addr}:{master_port}')
+
+        # Create remaining actors with the master address/port
+        for i in range(1, self.num_train_actors):
+            actor = remote_actor_class.remote(
+                i,
+                self.num_train_actors,
+                master_addr,  # type: ignore
+                master_port,
+            )
+            self._train_actors.append(actor)
+
+    @property
+    def train_actors(self):
+        return self._train_actors
+
+    @property
+    def master_actor(self):
+        return self._master_actor
+
+    @property
+    def collective_methods(self):
+        """Property that provides easy access to method references.
+        """
+        return _ActorMethodProxy(self)
+
+
+class _ActorMethodProxy:
+    """Proxy class that provides easy access to actor methods.
+    """
+    
+    def __init__(self, actor_group: SPMDActorGroup):
+        self._actor_group = actor_group
+    
+    def __getattr__(self, name: str):
+        """Get a method reference that will be called on all actors."""
+        if not hasattr(self._actor_group.master_actor, name):
+            raise AttributeError(
+                f"Method '{name}' not found on actor class: {self._actor_group.master_actor.__class__}"
+            )
+        
+        # Return a callable that will execute the method on all actors
+        def method_wrapper(*args: Any, **kwargs: Any):
+            # Since all actors are the same class, we can get the same method from each actor
+            # and call it remotely. No validation needed since we validated above.
+            refs = [getattr(actor, name).remote(*args, **kwargs) for actor in self._actor_group.train_actors]
+            return ray.get(refs)
+        
+        return method_wrapper
