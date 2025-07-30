@@ -105,6 +105,7 @@ class BaseDistributedGPUActor:
 
 
 class SPMDActorGroup:
+    """Group managers of SPMD actors."""
 
     def __init__(self, num_train_actors: int, actor_class: type[BaseDistributedGPUActor], num_gpus_per_actor: int = 1):
         self.num_train_actors = num_train_actors

@@ -342,6 +342,7 @@ class TrainActorGroup(SPMDActorGroup):
 
 
 class InferenceServer:
+    """Inference server with vLLM engines."""
 
     def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str):
         self.num_vllm_engines = num_vllm_engines
@@ -370,6 +371,7 @@ class InferenceServer:
         return ray.get(self.vllm_engines[0].generate.remote(prompts))
 
 class RolloutAgent:
+    """Rollout agent for generating sequences from the inference server."""
 
     def __init__(self, inference_server: InferenceServer):
         self.inference_server = inference_server
@@ -385,6 +387,7 @@ class RolloutAgent:
 
 
 class ParameterBuffer(Buffer):
+    """Buffer for updating the inference model."""
 
     def update_inference_model(self, actor: DistributedGPUActor, inference_server: InferenceServer):
         start_time = time.time()
@@ -409,6 +412,7 @@ class ParameterBuffer(Buffer):
 
 
 class ExperienceBuffer(Buffer):
+    """Buffer for storing experiences."""
 
     def query_inference_engines(self, actor: DistributedGPUActor, inference_server: InferenceServer):
         """Round trip to inference engines.
@@ -447,6 +451,7 @@ class ExperienceBuffer(Buffer):
 
 
 class PPOController:
+    """PPO controller for training the policy and value networks."""
 
     def __init__(
         self,
