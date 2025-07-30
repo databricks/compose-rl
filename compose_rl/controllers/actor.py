@@ -102,6 +102,7 @@ class BaseDistributedGPUActor:
         )
     
     def execute(self, func: Callable[['BaseDistributedGPUActor'], Any]):
+        """Dispatch a serializable function to this actor."""
         return func(self)
 
 

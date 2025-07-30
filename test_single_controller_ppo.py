@@ -434,6 +434,8 @@ class ParameterBuffer(Buffer):
         dist.barrier()
 
     def put(self, struct: dict[str, Any]):
+        # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
+        # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
         struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
 
 
