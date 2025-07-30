@@ -9,6 +9,7 @@ from functools import partial
 from typing import Any, Mapping, MutableMapping, Optional, Union
 
 import torch
+from composer.distributed.shared_utils import get_summon_params_fn
 from composer.utils import is_model_fsdp
 from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 
@@ -241,7 +242,6 @@ class ComposerMPTPairwiseRewardModel(ComposerMPTCausalLM, RewardModel):
 
 
 class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
-
     default_train_metrics: tuple = ()
     default_eval_metrics: tuple = ()
 
@@ -292,9 +292,9 @@ class ComposerHFCausalClassifierRewardModel(ComposerHFCausalLM, RewardModel):
 
         context_manager = nullcontext
         if is_model_fsdp(self.model):
-            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+            summon_full_params = get_summon_params_fn(self.model)
             context_manager = partial(
-                FSDP.summon_full_params,
+                summon_full_params,
                 self.model,
                 writeback=True,
                 recurse=False,

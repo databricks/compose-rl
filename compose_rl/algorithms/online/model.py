@@ -8,6 +8,7 @@ import logging
 from typing import Any, MutableMapping, Optional, Union
 
 import torch
+from composer.distributed.shared_utils import get_summon_params_fn
 from composer.models import HuggingFaceModel
 from composer.utils import dist, is_model_fsdp
 from llmfoundry.models import ComposerHFCausalLM
@@ -191,14 +192,13 @@ class ComposerHFPolicyLM(ComposerHFPolicy):
         # Note: it seems as if we need to summon FSDP parameters here to ensure that we don't break
         # the standard actor critic forward pass.
         if is_model_fsdp(self.model):
-            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-
-            # Note: We need to use the FSDP.summon_full_params context manager here because the generate function
+            # Note: We need to use the summon_full_params context manager here because the generate function
             # does not seem to gather the weights for the LM head. This solution works because the tied weights of the LM head
             # are in the root FSDP module, and are summoned by the below context manager. See https://github.com/pytorch/pytorch/issues/100069
             # for more info.
             # Note: We use recurse=False here so that we only summon full params for the LM head, not the entire model.
-            with FSDP.summon_full_params(
+            summon_full_params = get_summon_params_fn(self.model)
+            with summon_full_params(
                 self.model,
                 writeback=False,
                 recurse=False,

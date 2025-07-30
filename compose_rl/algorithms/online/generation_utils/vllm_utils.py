@@ -28,6 +28,7 @@ import ray
 import torch
 import torch.distributed
 import torch.nn as nn
+from composer.distributed.shared_utils import get_summon_params_fn
 from composer.utils import dist
 from ray.exceptions import GetTimeoutError
 from ray.util.placement_group import placement_group
@@ -42,7 +43,9 @@ from torch.distributed.distributed_c10d import (
     default_pg_timeout,
     rendezvous,
 )
+from torch.distributed.fsdp import FSDPModule
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.tensor import DTensor
 
 from compose_rl.algorithms.online.generation_utils.vllm_actor import LLMRayActor
 from compose_rl.algorithms.online.model_methods import (
@@ -277,33 +280,6 @@ def create_vllm_engines(
     return vllm_engines
 
 
-def build_param_fullnames(top_module: nn.Module) -> dict:
-    """Builds a mapping of parameter objects to their fully-qualified names.
-
-    Traverses the entire model from the top level and map each parameter
-    object to its fully-qualified name (e.g.,
-    "lm_backbone.layer1.mlp.down_proj.weight").
-
-    Args:
-        top_module (nn.Module): The top-level module to traverse.
-    """
-    param2fullname = {}
-
-    def _dfs(current_module: nn.Module, prefix: str = ''):
-        # Get local parameters (without recursing into children).
-        for local_name, param in current_module.named_parameters(recurse=False):
-            full_name = f'{prefix}.{local_name}' if prefix else local_name
-            param2fullname[param] = full_name
-
-        # Recurse on child modules.
-        for child_name, child_module in current_module.named_children():
-            child_prefix = f'{prefix}.{child_name}' if prefix else child_name
-            _dfs(child_module, prefix=child_prefix)
-
-    _dfs(top_module)
-    return param2fullname
-
-
 def simplify_param_path(path: str) -> str:
     """Simplifies the parameter path by removing unnecessary parts.
 
@@ -333,15 +309,15 @@ def simplify_param_path(path: str) -> str:
 
 
 def is_fsdp_leaf(module: nn.Module) -> bool:
-    """Check if the module is a leaf in the FSDP hierarchy.
+    """Check if the module is a leaf in the FSDP(1/2) hierarchy.
 
     Args:
         module (nn.Module): The torch module to check
     """
-    if not isinstance(module, FSDP):
+    if not isinstance(module, (FSDP, FSDPModule)):
         return False
     for subm in module.modules():
-        if subm is not module and isinstance(subm, FSDP):
+        if subm is not module and isinstance(subm, (FSDP, FSDPModule)):
             return False
     return True
 
@@ -377,6 +353,19 @@ def should_update_torch_module(
     return False
 
 
+def get_name_for_param(model: nn.Module, param: torch.Tensor) -> str:
+    """Get the full name of a parameter in the model.
+
+    Args:
+        model (nn.Module): The model that contains the parameter
+        param (torch.Tensor): The parameter to get the name for
+    """
+    for name, p in model.named_parameters():
+        if p is param:
+            return name
+    raise ValueError(f'Parameter {param} not found in model {model}')
+
+
 def broadcast_to_vllm(
     model: nn.Module,
     vllm_engines: list,
@@ -399,19 +388,21 @@ def broadcast_to_vllm(
     torch.cuda.empty_cache()
     if loss_type == OnPolicyEnum.PPO:
         # Extract the lm_backbone params from the model
-        count, num_params = 0, len(
+        num_params = len(
             list(model.model.lm_backbone.named_parameters()),  # type: ignore
         )
     elif loss_type in ALGORITHM_TYPE.CRITIC_FREE:
         # Directly use the model params
-        count, num_params = 0, len(
+        num_params = len(
             list(model.model.named_parameters()),  # type: ignore
         )
     else:
         raise ValueError(
             f'Unsupported loss type: {loss_type}. Supported types are: ppo, grpo',
         )
+    count = 0
 
+    # Reset prefix caching if enabled
     refss = []
     cache_reset_refss = []
     if enable_prefix_caching and dist.get_global_rank() == 0:
@@ -427,8 +418,6 @@ def broadcast_to_vllm(
     ]
     seen_fsdp_modules = set()
     seen_updated_parsed_names = set()
-    count = 0
-    param_2_full_name = build_param_fullnames(model)
 
     with torch.no_grad():
         # Adding a dummy forwards call.
@@ -451,67 +440,96 @@ def broadcast_to_vllm(
     start_time = time.time()
     update_time = 0
 
+    # Getting the correct summon_full_params function based on whether
+    # the model is FSDP1 vs FSDP2.
+    summon_full_params = get_summon_params_fn(model)
+
     for module_name, module in model.named_modules():
-        if isinstance(module, FSDP):
-            # This is needed otherwise FSDP will materialize parameters of size 0.
-            # So just for the joint actor critic models we have to actually skip this module.
-            if module_name == 'model' and loss_type == OnPolicyEnum.PPO:
-                continue
+        # Skip non-FSDP modules
+        if not isinstance(module, (FSDP, FSDPModule)):
+            continue
 
-            # Only update if we haven't updated this module before
-            if module not in seen_fsdp_modules:
-                seen_fsdp_modules.add(module)
+        # This is needed otherwise FSDP will materialize parameters of size 0.
+        # So just for the joint actor critic models we have to actually skip this module.
+        if module_name == 'model' and loss_type == OnPolicyEnum.PPO:
+            continue
 
-                # Materializes parameters for this specific FSDP module
-                with FSDP.summon_full_params(
+        # Only update if we haven't updated this module before
+        if module in seen_fsdp_modules:
+            continue
+        seen_fsdp_modules.add(module)
+
+        # Materializes parameters for this specific FSDP module only BUT THIS
+        # INCLUDES any parameters from submodules that are not FSDP-wrapped themselves.
+        # We don't want to materialize the entire model to avoid potential OOM.
+        # View NestedFSDPModel in the Composer repo and the related test in
+        # for an example of why this logic is needed.
+        with summon_full_params(
+            module,
+            writeback=False,
+            rank0_only=False,
+            recurse=False,
+        ):
+            # Note: For the following module.named_parameters(), we have to use recurse=True
+            # since the following case is possible where we still need NonFSDP_Child's params
+            # FSDP_Module
+            #   |- direct_param (found with recurse=False)
+            #   |- NonFSDP_Child
+            #   |   |- child_param (missed with recurse=False)
+            for _, param in module.named_parameters(recurse=True):
+                # Only distribute on rank 0
+                if not dist.get_global_rank() == 0:
+                    continue
+
+                # Skip DTensor params at this level since they were not summoned
+                # and we only want to broadcast the summoned parameters.
+                # Encountering this conditional implies that a FSDP-wrapped submodule
+                # exists and will later be summoned to materialize this parameter.
+                if isinstance(param, DTensor):
+                    continue
+
+                full_name = get_name_for_param(model, param)
+                parsed_name = simplify_param_path(full_name)
+
+                if parsed_name in seen_updated_parsed_names:
+                    continue
+
+                if 'critic_head' in parsed_name:
+                    log.info('Critic head found, skipping sending')
+                    continue
+
+                update = should_update_torch_module(
+                    parsed_name,
+                    full_name,
                     module,
-                    writeback=False,
-                    rank0_only=True,
-                    recurse=False,
-                ):
-                    for _, param in module.named_parameters(recurse=True):
-                        if dist.get_global_rank() == 0:
-                            full_name = param_2_full_name[param]
-                            parsed_name = simplify_param_path(full_name)
+                    loss_type,
+                    valid_non_leaf_module_names,
+                )
 
-                            if 'critic_head' in parsed_name:
-                                log.info('Critic head found, skipping sending')
-                                continue
+                if not update:
+                    continue
 
-                            update = should_update_torch_module(
-                                parsed_name,
-                                full_name,
-                                module,
-                                loss_type,
-                                valid_non_leaf_module_names,
-                            )
+                start_update_time = time.time()
+                seen_updated_parsed_names.add(parsed_name)
 
-                            # We've already updated this module before,
-                            if parsed_name in seen_updated_parsed_names:
-                                continue
+                count += 1
+                shape = param.shape
+                refs = [
+                    engine.update_weight.remote(
+                        parsed_name,
+                        dtype=param.dtype,
+                        shape=shape,
+                        empty_cache=(count == num_params),
+                    ) for engine in vllm_engines
+                ]
+                refss.extend(refs)
 
-                            # Usually if we have to skip a module, it's because we cannot
-                            if update:
-                                start_update_time = time.time()
-                                seen_updated_parsed_names.add(parsed_name)
-
-                                count += 1
-                                shape = param.shape
-                                refs = [
-                                    engine.update_weight.remote(
-                                        parsed_name,
-                                        dtype=param.dtype,
-                                        shape=shape,
-                                        empty_cache=(count == num_params),
-                                    ) for engine in vllm_engines
-                                ]
-                                refss.extend(refs)
-                                torch.distributed.broadcast(
-                                    param.data,
-                                    0,
-                                    group=model_update_group,
-                                )
-                                update_time += time.time() - start_update_time
+                torch.distributed.broadcast(
+                    param.data,
+                    0,
+                    group=model_update_group,
+                )
+                update_time += time.time() - start_update_time
 
     # Issue (#67): Note this code will likely need to be updated for PEFT for efficiency reasons.
     if dist.get_global_rank() == 0:
