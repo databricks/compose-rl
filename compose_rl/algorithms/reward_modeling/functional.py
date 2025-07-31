@@ -481,3 +481,41 @@ class MCQAVerifierReward(BaseVerifierReward):
     def score_generations(self, answer: str, label: str) -> float:
         """Score based on exact match."""
         return self.reward if answer == label else 0.0
+
+
+class TagFormatVerifierReward(BaseVerifierReward):
+
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        reward: float = 1.0,
+        tag_keyword: str = 'think',
+    ):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+        self.start_tag = f'<{tag_keyword}>'
+        self.end_tag = f'</{tag_keyword}>'
+        self._start_len = len(self.start_tag)
+
+    def needs_extraction(self) -> bool:
+        """Indicate that this verifier doesn't need extraction."""
+        return False
+
+    def score_generations(self, answer: str, label: str) -> float:
+        """Ensures <tag>...</tag> format is present in the answer in that order.
+
+        Generalizable to any tag provided. So we can use this, for example, to
+        reward the model for using the <think>...</think> tag to indicate its
+        thinking process and the <answer>...</answer> tag to indicate its final
+        answer.
+        """
+        start = answer.find(self.start_tag)
+        if start == -1:
+            return 0.0
+
+        start += self._start_len  # jump just after `<tag>`
+        end = answer.find(self.end_tag, start)  # search forward only
+        if end == -1:
+            return 0.0
+
+        # Require at least one non‑space visible char between tags
+        return self.reward if answer[start:end].strip() else 0.0

@@ -5,6 +5,7 @@ from compose_rl.algorithms.reward_modeling.base_reward import (
     BaseReward,
     Reward,
     RewardModel,
+    Tokenizer,
 )
 from compose_rl.algorithms.reward_modeling.functional import (
     BadGenerationEndReward,
@@ -16,6 +17,7 @@ from compose_rl.algorithms.reward_modeling.functional import (
     MCQAVerifierReward,
     OutputLengthReward,
     ShortResponseReward,
+    TagFormatVerifierReward,
 )
 from compose_rl.algorithms.reward_modeling.hf_utils import (
     AutoModelForCausalLMWithRM,
@@ -49,11 +51,13 @@ rewards.register('gsm8k_format_verifier', func=GSM8KFormatVeriferReward)
 rewards.register('math_verifier', func=MATHVerifierReward)
 rewards.register('math_format_verifier', func=MATHFormatVerifierReward)
 rewards.register('mcqa_verifier', func=MCQAVerifierReward)
+rewards.register('tag_format_verifier', func=TagFormatVerifierReward)
 
 __all__ = [
     'BaseReward',
     'Reward',
     'RewardModel',
+    'Tokenizer',
     'ComposerMPTPairwiseRewardModel',
     'ComposerHFPairwiseRewardModel',
     'ComposerHFClassifierRewardModel',
@@ -68,4 +72,5 @@ __all__ = [
     'MATHVerifierReward',
     'MATHFormatVerifierReward',
     'MCQAVerifierReward',
+    'TagFormatVerifierReward',
 ]
