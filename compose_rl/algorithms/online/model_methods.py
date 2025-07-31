@@ -406,6 +406,14 @@ def policy_loss(
         old_entropies = batch['old_entropies']
 
         vllm_log_probs = batch['vllm_logprobs']
+        bs, gen_len = online_log_probs.shape
+        if vllm_log_probs.size(1) < gen_len:
+            # Pad
+            vllm_log_probs = torch.cat([
+                vllm_log_probs,
+                torch.zeros((bs, gen_len - vllm_log_probs.size(1)), dtype=vllm_log_probs.dtype, device=vllm_log_probs.device)
+            ], dim=1)
+
         vllm_log_diff = online_log_probs - vllm_log_probs
 
         try:

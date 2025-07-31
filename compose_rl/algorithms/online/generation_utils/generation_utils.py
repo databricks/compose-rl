@@ -415,14 +415,15 @@ def vllm_generate(
 
     # LOGPROBS
     padded_logprobs = []
-    for sequence in local_logprobs:  # type: ignore
-        sequence = list(sequence)
-        if len(sequence) < max_vllm_generated_len:
-            sequence = sequence + [
+    for logprob in local_logprobs:  # type: ignore
+        logprob = list(logprob)
+        if len(logprob) < max_vllm_generated_len:
+            logprob = logprob + [
                 0,
-            ] * (max_vllm_generated_len - len(sequence))
+            ] * (max_vllm_generated_len - len(logprob))
 
-        padded_logprobs.append(sequence)
+        padded_logprobs.append(logprob)
+
     vllm_logprobs = torch.tensor(
         padded_logprobs,
         dtype=torch.float,
