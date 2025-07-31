@@ -1,6 +1,7 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
+from asyncio import Event
 import logging
 import os
 import socket
@@ -80,6 +81,64 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
     return address
 
 
+@ray.remote
+class _Barrier:
+    """A barrier for synchronizing between multiple ray clients.
+
+    NOTE: There is no timeout for this barrier.
+    """
+    def __init__(self, num_parties: int):
+        """
+        Initializes the barrier for a given number of parties.
+        """
+        self._num_parties = num_parties
+        self._num_parties_arrived = 0
+        self._event = Event()
+
+    async def wait(self):
+        """
+        Await is blocked until all parties have called this method.
+        """
+        print(f'Rank {ray.get_runtime_context().get_actor_id()} is waiting for the barrier')
+        self._num_parties_arrived += 1
+        if self._num_parties_arrived == self._num_parties:
+            # All parties have arrived, notify them to proceed.
+            print(f'Rank {ray.get_runtime_context().get_actor_id()} is proceeding')
+            self._event.set()
+        else:
+            # Wait for the event to be set by the last arriving party.
+            await self._event.wait()
+
+    def reset(self):
+        """
+        Resets the barrier for reuse.
+        """
+        self._num_parties_arrived = 0
+        self._event.clear()
+
+
+def barrier(world_size: int, rank: int):
+    """
+    A barrier for synchronizing between multiple ray clients with unlimited timeout.
+    """
+    NAME_SPACE = '_synchronization'
+    DEFAULT_ACTOR_NAME = '_barrier'
+    if rank == 0:
+        # Create the barrier actor - Ray will handle any naming conflicts appropriately
+        barrier = _Barrier.options(name=DEFAULT_ACTOR_NAME, namespace=NAME_SPACE).remote(world_size)
+    else:
+        while True:
+            try:
+                barrier = ray.get_actor(DEFAULT_ACTOR_NAME, namespace=NAME_SPACE)
+                break
+            except ValueError:  # Actor not found
+                time.sleep(1)  # Retry after a short delay
+    ray.get(barrier.wait.remote())
+    if rank == 0:
+        # close the ray actor
+        ray.kill(barrier)
+
+
 @contextmanager
 def start_ray_server():
     """Context manager for Ray server in a torch distributed environment.
@@ -114,7 +173,7 @@ def start_ray_server():
         # once the processes on a node exit
         # this may time out too quick for a real world run, if so we might need to reuse the original
         # SyncActor based approach
-        dist.barrier()
+        barrier(dist.get_world_size(), dist.get_rank())
     finally:
         if dist.get_rank() == 0:
             ray.shutdown()
