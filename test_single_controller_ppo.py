@@ -270,9 +270,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
 
     def update_batch_rollouts(self, latest_iter_data: dict[str, Any]):
-        # TODO: Figure out if we need different data per dataloader or if it's fine if
-        # we use the same data for all DistributedGPUActors' dataloaders.
-        self.ppo_callback.batch_rollouts = latest_iter_data['iter_data']
+        """Use the latest iter data to update the batch rollouts for the current rank."""
+        current_rank = dist.get_rank()
+        self.ppo_callback.batch_rollouts = latest_iter_data['iter_data'][current_rank]
 
     def train_1_iter(self):
         # TODO (algo): implement the top level PPO algo here instead of the
@@ -372,12 +372,6 @@ class InferenceServer:
     def engines(self):
         return self.vllm_engines
 
-    def generate(self, prompts: list[str]):
-        # Currently using single vllm engine to move fast.
-        # TODO: support multiple vllm engines for better throughput
-        # this might require sharding of the prompts across the vllm engines
-        return ray.get(self.vllm_engines[0].generate.remote(prompts))
-
 
 class ParameterBuffer(Buffer):
     """Buffer for updating the inference model."""
@@ -405,6 +399,7 @@ class ParameterBuffer(Buffer):
         struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
 
 
+
 class ExperienceBuffer(Buffer):
     """Buffer for storing experiences."""
 
@@ -415,8 +410,7 @@ class ExperienceBuffer(Buffer):
         return self.buffer.pop()
 
 class PromptDataHandler:
-    def __init__(self, pretrain_model_name: str, num_train_actors: int):
-        self.num_train_actors = num_train_actors
+    def __init__(self, pretrain_model_name: str): # TODO: Maybe just have this take in a tokenizer
         self.global_train_batch_size = 64
 
         self.generations_per_prompt = 8
@@ -426,7 +420,6 @@ class PromptDataHandler:
 
         self.max_seq_len = 10240
         self.max_gen_len = 1000
-        self.precision = 'amp_bf16'
 
         self.tokenizer = self._build_tokenizer(pretrain_model_name)
         self.pad_token_idx = self.tokenizer.pad_token_id   # type: ignore
@@ -545,10 +538,17 @@ class PromptDataHandler:
 class RolloutAgent:
     """Rollout agent for generating sequences from the inference server."""
 
-    def __init__(self, inference_server: InferenceServer, prompt_data_handler: PromptDataHandler, experience_buffer: Optional[ExperienceBuffer] = None):
+    def __init__(self,
+        num_train_actors: int,
+        inference_server: InferenceServer,
+        experience_buffer: ExperienceBuffer,
+        pretrain_model_name: str = 'Qwen/Qwen2.5-1.5B-Instruct',
+    ):
+        self.num_train_actors = num_train_actors
         self.inference_server = inference_server
-        self.prompt_data_handler = prompt_data_handler
         self.experience_buffer = experience_buffer
+        self.prompt_data_handler = PromptDataHandler(pretrain_model_name)
+        self.precision = 'amp_bf16'
         self.generation_kwargs = {
             'top_p': 1.0,
             'use_cache': True,
@@ -556,11 +556,16 @@ class RolloutAgent:
             'temperature': 1.0,
         }
 
-    def query_inference_engines(self):
+    def get_next_rollouts(self):
+        """
+        Gets the next rollouts from the inference server.
+
+        Since all ranks should see different data, we need to get the rollouts for each rank.
+        """
         iter_data = self.prompt_data_handler.get_next_iter_prompts()
         max_gen_len = self.prompt_data_handler.max_gen_len
         generation_kwargs = self.generation_kwargs
-        with get_precision_context(self.prompt_data_handler.precision), torch.no_grad():
+        with get_precision_context(self.precision), torch.no_grad():
             sequences = vllm_generate(
                 vllm_engines=self.inference_server.engines,
                 batch=iter_data,
@@ -573,9 +578,10 @@ class RolloutAgent:
         return iter_data
 
     def add_next_iter_data_to_buffer(self):
+        # TODO: We might need cleaner error handling here.
         if self.experience_buffer.is_full():
             raise RuntimeError("Experience buffer is full")
-        iter_data = self.query_inference_engines()
+        iter_data = [self.get_next_rollouts() for _ in range(self.num_train_actors)]
         self.experience_buffer.put({'iter_data': iter_data})
 
 class PPOController:
@@ -660,11 +666,9 @@ def _run_single_controller_ppo(
                 vllm_tensor_parallel_size=vllm_tensor_parallel_size,
                 pretrain_model_name=pretrain_model_name,
             )
-            prompt_data_handler = PromptDataHandler(pretrain_model_name, num_train_actors=num_train_actors)
-            rollout_agent = RolloutAgent(inference_server, prompt_data_handler, experience_buffer)
+            rollout_agent = RolloutAgent(num_train_actors, inference_server, pretrain_model_name, experience_buffer)
             ppo_controller = PPOController(
                 train_actor,
-                prompt_data_handler,
                 inference_server,
                 rollout_agent,
                 parameter_buffer,
@@ -672,8 +676,6 @@ def _run_single_controller_ppo(
                 pretrain_model_name,
             )
             ppo_controller.train()
-
-            rollout_agent.generate(prompts)
 
 
 if __name__ == '__main__':
