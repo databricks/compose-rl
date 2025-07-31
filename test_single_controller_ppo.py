@@ -35,7 +35,7 @@ from compose_rl.algorithms.online import (
 from compose_rl.algorithms.online.generation_utils import (
     broadcast_to_vllm,
     create_vllm_engines,
-    vllm_generate,
+    _vllm_generate,
 )
 from compose_rl.utils.ray_utils import start_ray_server
 from compose_rl.utils import flatten
@@ -43,10 +43,8 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 
 
-
-class DistributedGPUActor(BaseDistributedGPUActor):
+class DistributedTrainActor(BaseDistributedGPUActor):
     """Distributed GPU actor for testing."""
-
     def __init__(
         self,
         rank: int,
@@ -205,7 +203,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         }
         self.logger.info("Finished build_train_config")
 
-
     def build_tokenizer(self):
         # TODO (algo): decide if we should use tokens or messages given
         # we may need token level log prob
@@ -271,8 +268,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def update_batch_rollouts(self, latest_iter_data: dict[str, Any]):
         """Use the latest iter data to update the batch rollouts for the current rank."""
+        # TODO: Fix this
         current_rank = dist.get_rank()
-        self.ppo_callback.batch_rollouts = latest_iter_data['iter_data'][current_rank]
+        self.ppo_callback.batch_rollouts = latest_iter_data['iter_data']
 
     def train_1_iter(self):
         # TODO (algo): implement the top level PPO algo here instead of the
@@ -376,7 +374,7 @@ class InferenceServer:
 class ParameterBuffer(Buffer):
     """Buffer for updating the inference model."""
 
-    def update_inference_model(self, actor: DistributedGPUActor, inference_server: InferenceServer):
+    def update_inference_model(self, actor: DistributedTrainActor, inference_server: InferenceServer):
         start_time = time.time()
         print('Before broadcast to vLLM')
         # TODO (infra) instead of direcly broadcasting to vllm, we should
@@ -399,7 +397,6 @@ class ParameterBuffer(Buffer):
         struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
 
 
-
 class ExperienceBuffer(Buffer):
     """Buffer for storing experiences."""
 
@@ -409,22 +406,48 @@ class ExperienceBuffer(Buffer):
     def pop(self, struct: Optional[dict[str, Any]] = None):
         return self.buffer.pop()
 
-class PromptDataHandler:
-    def __init__(self, pretrain_model_name: str): # TODO: Maybe just have this take in a tokenizer
-        self.global_train_batch_size = 64
 
-        self.generations_per_prompt = 8
-        self.num_batches_per_update = 8  # equivalent to num_batches_per_iter
-        self.num_prompts_per_batch = self.global_train_batch_size // self.generations_per_prompt
-        self.num_prompts_per_iter = self.num_prompts_per_batch * self.num_batches_per_update
-
-        self.max_seq_len = 10240
-        self.max_gen_len = 1000
+class PromptHandler:
+    """
+    This class is responsible for handling the prompt data for the PPO controller.
+    It is responsible for sharing the prompts for the next (entire) iteration with the rollout agent.
+    The rollout agent is responsible for connecting to the inference server and getting the rollouts for the next (entire) iteration.
+    """
+    def __init__(
+        self,
+        pretrain_model_name: str = 'Qwen/Qwen2.5-1.5B-Instruct',
+        prompt_handler_config: Optional[dict[str, Any]] = None,
+    ):
+        self.prompt_handler_config = self._validate_prompt_handler_config(prompt_handler_config)
+        self.num_prompts_per_iter = self.prompt_handler_config['num_prompts_per_iter']
 
         self.tokenizer = self._build_tokenizer(pretrain_model_name)
         self.pad_token_idx = self.tokenizer.pad_token_id   # type: ignore
         self.prompt_dataloader = self._build_prompt_dataloader()
         self.prompt_dataloader_iter = iter(self.prompt_dataloader)
+    
+    def _validate_prompt_handler_config(self, prompt_handler_config: Optional[dict[str, Any]]):
+        """Validates the prompt handler config and returns the config with defaults if needed."""
+        if prompt_handler_config is None:
+            prompt_handler_config = {}
+        defaults = {
+            "global_train_batch_size": 64,
+            "generations_per_prompt": 8,
+            "num_batches_per_update": 8,
+            "max_seq_len": 10240,
+            "max_gen_len": 1000,
+        }
+        for key, value in defaults.items():
+            prompt_handler_config[key] = prompt_handler_config.get(key, value)
+        
+        # Validating that we can get the right number of prompts per iteration
+        global_train_batch_size = prompt_handler_config['global_train_batch_size']
+        generations_per_prompt = prompt_handler_config['generations_per_prompt']
+        num_batches_per_update = prompt_handler_config['num_batches_per_update']
+        total_num_generations = global_train_batch_size * num_batches_per_update
+        assert total_num_generations % generations_per_prompt == 0, "total_num_generations must be divisible by generations_per_prompt"
+        prompt_handler_config['num_prompts_per_iter'] = total_num_generations // generations_per_prompt
+        return prompt_handler_config
 
     def _build_tokenizer(self, pretrain_model_name: str):
         kwargs = {
@@ -432,7 +455,7 @@ class PromptDataHandler:
             'pad_token': '<|endoftext|>',
             'truncation': True,
             'padding_side': 'left',
-            'model_max_length': self.max_seq_len,
+            'model_max_length': self.prompt_handler_config['max_seq_len'],
             'trust_remote_code': True,
         }
         tokenizer = AutoTokenizer.from_pretrained(pretrain_model_name, **kwargs)
@@ -449,27 +472,25 @@ class PromptDataHandler:
                 'split': 'train',
                 'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/q7b_open_r1_48k/',
                 'shuffle': True,
-                'max_gen_len': self.max_gen_len,
-                'max_seq_len': self.max_seq_len,
+                'max_gen_len': self.prompt_handler_config['max_gen_len'],
+                'max_seq_len': self.prompt_handler_config['max_seq_len'],
                 'shuffle_seed': 17,
                 'download_timeout': 1800
             },
             'drop_last': True,
             'num_workers': 1,
         }
-        # Since this is the prompt dataloader, we only need to return the number of prompts per batch.
-        # Therefore, when vllm_generate is called, it will return num_prompts_per_batch * generations_per_prompt sequences
-        # which will equal the total number of generations for the next iteration
-        foundry_dataspec = build_dataloader(
-            cfg = train_loader_config,
-            tokenizer = self.tokenizer,
-            device_batch_size = self.num_prompts_per_batch,
-        )
-        foundry_dataloader = foundry_dataspec.dataloader
+        with use_single_rank():
+            foundry_dataspec = build_dataloader(
+                cfg = train_loader_config,
+                tokenizer = self.tokenizer,
+                device_batch_size = self.num_prompts_per_iter, # Each batch contains the global number of prompts per iteration
+            )
+        foundry_dataloader = foundry_dataspec.dataloader  # type: ignore
         return foundry_dataloader
 
-    def _get_single_batch_prompts(self):
-        """Gets a single batch of prompts from the dataloader."""
+    def _get_single_iter_prompts(self):
+        """Gets a single iteration's prompts from the dataloader."""
         try:
             return next(self.prompt_dataloader_iter)
         except StopIteration:
@@ -477,9 +498,11 @@ class PromptDataHandler:
             return next(self.prompt_dataloader_iter)
 
     def get_next_iter_prompts(self):
-        """Gets the next iteration's batch of prompts."""
-        batches = [self._get_single_batch_prompts() for _ in range(self.num_batches_per_update)]
+        """Gets the next iteration's prompts across all ranks and prepares them for the rollout agent."""
+        batches = [self._get_single_iter_prompts()]
 
+        # TODO: We should be able to simplify the following since we only have 1 batch in `batches` (which contains
+        # global prompts per iteration instead)
         ret_batch = {}
         for key in batches[0].keys():
             curr_values = []
@@ -491,7 +514,7 @@ class PromptDataHandler:
             padding_key = None
             for batch in batches:
                 # Explode the batch into multiple batches for each generation
-                for _ in range(self.generations_per_prompt):
+                for _ in range(self.prompt_handler_config['generations_per_prompt']):
                     # For keys that do not require additional processing
                     if key in [
                         'prompt_len',
@@ -535,6 +558,39 @@ class PromptDataHandler:
         return ret_batch
 
 
+class DistributedStreamingActor(BaseDistributedGPUActor):
+    def __init__(self, pretrain_model_name: str, prompt_handler_config: Optional[dict[str, Any]] = None):
+        super().__init__(
+            rank=0,
+            world_size=1,
+            master_addr=None,
+            master_port=None,
+        )
+        self.prompt_handler = PromptHandler(
+            pretrain_model_name=pretrain_model_name,
+            prompt_handler_config=prompt_handler_config,
+        )
+        self.pretrain_model_name = pretrain_model_name
+        self.prompt_handler_config = self.prompt_handler.prompt_handler_config
+    
+    def get_next_iter_prompts(self):
+        return self.prompt_handler.get_next_iter_prompts()
+    
+    def get_pretrain_model_name(self):
+        return self.pretrain_model_name
+    
+    def get_prompt_handler_config(self):
+        return self.prompt_handler_config
+    
+def create_distributed_streaming_actor(
+    pretrain_model_name: str,
+    prompt_handler_config: Optional[dict[str, Any]] = None,
+):
+    return ray.remote(num_gpus=0)(DistributedStreamingActor).remote(
+        pretrain_model_name=pretrain_model_name,
+        prompt_handler_config=prompt_handler_config,
+    )
+
 class RolloutAgent:
     """Rollout agent for generating sequences from the inference server."""
 
@@ -542,12 +598,14 @@ class RolloutAgent:
         num_train_actors: int,
         inference_server: InferenceServer,
         experience_buffer: ExperienceBuffer,
-        pretrain_model_name: str = 'Qwen/Qwen2.5-1.5B-Instruct',
+        streaming_actor: DistributedStreamingActor,
     ):
         self.num_train_actors = num_train_actors
         self.inference_server = inference_server
         self.experience_buffer = experience_buffer
-        self.prompt_data_handler = PromptDataHandler(pretrain_model_name)
+        self.streaming_actor = streaming_actor
+
+
         self.precision = 'amp_bf16'
         self.generation_kwargs = {
             'top_p': 1.0,
@@ -555,73 +613,80 @@ class RolloutAgent:
             'do_sample': False,
             'temperature': 1.0,
         }
+        self.pretrain_model_name = ray.get(self.streaming_actor.get_pretrain_model_name.remote())
+        self.tokenizer = self._build_tokenizer(self.pretrain_model_name)
+        self.prompt_handler_config = ray.get(self.streaming_actor.get_prompt_handler_config.remote())
+        self.max_gen_len = self.prompt_handler_config['max_gen_len']
+        self.num_generations_per_prompt = self.prompt_handler_config['generations_per_prompt']
+    
+    def _build_tokenizer(self, pretrain_model_name: str):
+        kwargs = {
+            'padding': 'longest',
+            'pad_token': '<|endoftext|>',
+            'truncation': True,
+            'padding_side': 'left',
+            'model_max_length': self.prompt_handler_config['max_seq_len'],
+            'trust_remote_code': True,
+        }
+        tokenizer = AutoTokenizer.from_pretrained(pretrain_model_name, **kwargs)
+        return tokenizer
 
-    def get_next_rollouts(self):
+    def get_next_iter_rollouts(self):
         """
         Gets the next rollouts from the inference server.
 
         Since all ranks should see different data, we need to get the rollouts for each rank.
         """
-        iter_data = self.prompt_data_handler.get_next_iter_prompts()
-        max_gen_len = self.prompt_data_handler.max_gen_len
-        generation_kwargs = self.generation_kwargs
+        iter_data = ray.get(self.streaming_actor.get_next_iter_prompts.remote())
         with get_precision_context(self.precision), torch.no_grad():
-            sequences = vllm_generate(
+            sequences = _vllm_generate(
                 vllm_engines=self.inference_server.engines,
                 batch=iter_data,
-                max_gen_len=max_gen_len,
-                generation_kwargs=generation_kwargs,
-                tokenizer=self.prompt_data_handler.tokenizer,  # type: ignore
+                max_gen_len=self.max_gen_len,
+                generation_kwargs=self.generation_kwargs,
+                tokenizer=self.tokenizer,
                 vllm_generate_function='generate',
             )
         iter_data['sequences'] = sequences
         return iter_data
 
     def add_next_iter_data_to_buffer(self):
-        # TODO: We might need cleaner error handling here.
         if self.experience_buffer.is_full():
             raise RuntimeError("Experience buffer is full")
-        iter_data = [self.get_next_rollouts() for _ in range(self.num_train_actors)]
-        self.experience_buffer.put({'iter_data': iter_data})
+        self.experience_buffer.put({'iter_data': self.get_next_iter_rollouts()})
+
 
 class PPOController:
     """PPO controller for training the policy and value networks."""
 
     def __init__(
         self,
-        train_actor: TrainActorGroup,
-        prompt_data_handler: PromptDataHandler,
+        train_actor_group: TrainActorGroup,
         inference_server: InferenceServer,
         rollout_agent: RolloutAgent,
         parameter_buffer: ParameterBuffer,
         experience_buffer: ExperienceBuffer,
         pretrain_model_name: str,
     ):
-        self.train_actor = train_actor
+        self.train_actor_group = train_actor_group
         self.inference_server = inference_server
-        self.prompt_data_handler = prompt_data_handler
         self.rollout_agent = rollout_agent
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
-        self.train_actor.build_models(pretrain_model_name)
+        self.train_actor_group.build_models(pretrain_model_name)
         setup_process_groups(
-            self.train_actor.master_actor,
+            self.train_actor_group.master_actor,
             inference_server.engines,
             inference_server.vllm_tensor_parallel_size,
         )
 
     def train(self):
         for _ in range(5):  # Example: train for 5 iterations
-            # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
-            self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
-            # Populate the experience buffer with the next batch of prompts and collect it on rank 0
+            self.parameter_buffer.put({'actor_group': self.train_actor_group, 'inference_server': self.inference_server})
             self.rollout_agent.add_next_iter_data_to_buffer()
             latest_iter_data = self.experience_buffer.pop()
-            # Update the batch rollouts for all actors in the group which, at `iteration_start`, will use this latest batch_rollouts to create the
-            # dataloader for the next iteration.
-            # TODO: See if there's a way for the TrainActorGroup to handle this (maybe with ExperienceBuffer.get instead of pop?) 
-            self.train_actor.collective_methods.execute(partial(self.train_actor.update_batch_rollouts, latest_iter_data=latest_iter_data))
-            self.train_actor.collective_methods.train_1_iter()
+            self.train_actor_group.collective_methods.execute(partial(DistributedTrainActor.update_batch_rollouts, latest_iter_data=latest_iter_data))
+            self.train_actor_group.collective_methods.train_1_iter()
 
 
 def _run_single_controller_ppo(
@@ -639,11 +704,6 @@ def _run_single_controller_ppo(
     # takes too long to jit compile
     os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
 
-    prompts = [
-        'what is RAY?',
-        'what is vLLM?',
-    ]
-
     with start_ray_server() as _address:
         # only rank 0 is the master controller
         if dist.get_rank() == 0:
@@ -653,7 +713,12 @@ def _run_single_controller_ppo(
             if world_size == 0:
                 world_size = dist.get_world_size()
             num_train_actors = world_size // 2
-            train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
+            train_actor_group = TrainActorGroup(num_train_actors, DistributedTrainActor)
+
+            # Create Streaming Actor on rank 0
+            streaming_actor = create_distributed_streaming_actor(
+                pretrain_model_name=pretrain_model_name,
+            )
 
             # Create vLLM engines (or inference actors)
             vllm_tensor_parallel_size = world_size - num_train_actors
@@ -666,9 +731,14 @@ def _run_single_controller_ppo(
                 vllm_tensor_parallel_size=vllm_tensor_parallel_size,
                 pretrain_model_name=pretrain_model_name,
             )
-            rollout_agent = RolloutAgent(num_train_actors, inference_server, pretrain_model_name, experience_buffer)
+            rollout_agent = RolloutAgent(
+                num_train_actors,
+                inference_server,
+                experience_buffer,
+                streaming_actor,
+            )
             ppo_controller = PPOController(
-                train_actor,
+                train_actor_group,
                 inference_server,
                 rollout_agent,
                 parameter_buffer,

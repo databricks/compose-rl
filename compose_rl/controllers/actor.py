@@ -16,6 +16,14 @@ from compose_rl.utils.ray_utils import (
 )
 
 
+class StreamingActor:
+    def __init__(self):
+        pass
+
+    def build_dataloader(self):
+        pass
+
+
 class BaseDistributedGPUActor:
 
     def __init__(
@@ -57,6 +65,7 @@ class BaseDistributedGPUActor:
 
         self.model = None
         self.model_update_group = None
+        self.streaming_group = None
 
     def _allocate_master_address(self):
         """Allocate master address and port for rank 0."""
@@ -101,6 +110,24 @@ class BaseDistributedGPUActor:
             group_name=group_name,
         )
     
+    def add_streaming_process_group(
+        self,
+        backend: str,
+        master_addr: str,
+        master_port: int,
+        world_size: int,
+        rank: int,
+        group_name: str,
+    ):
+        """Initialize the process group on streaming actor rank 0."""
+        self.streaming_group = init_process_group(
+            backend=backend,
+            init_method=f'tcp://{master_addr}:{master_port}',
+            world_size=world_size,
+            rank=rank,
+            group_name=group_name,
+        )
+
     def execute(self, func: Callable[['BaseDistributedGPUActor'], Any]):
         """Dispatch a serializable function to this actor."""
         return func(self)
@@ -109,9 +136,9 @@ class BaseDistributedGPUActor:
 class SPMDActorGroup:
     """Group managers of SPMD actors."""
 
-    def __init__(self, num_train_actors: int, actor_class: type[BaseDistributedGPUActor], num_gpus_per_actor: int = 1):
-        self.num_train_actors = num_train_actors
-        self._train_actors: list[BaseDistributedGPUActor] = []
+    def __init__(self, num_actors: int, actor_class: type[BaseDistributedGPUActor], num_gpus_per_actor: int = 1):
+        self.num_actors = num_actors
+        self._actors: list[BaseDistributedGPUActor] = []
         """Create and initialize all training actors."""
         print(f'\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===')
 
@@ -119,9 +146,9 @@ class SPMDActorGroup:
         # Create master actor first
         self._master_actor = remote_actor_class.remote(
             0,
-            self.num_train_actors,
+            self.num_actors,
         )
-        self._train_actors.append(self._master_actor)
+        self._actors.append(self._master_actor)
 
         # Get master address from rank 0 actor
         master_addr, master_port = ray.get(
@@ -130,18 +157,18 @@ class SPMDActorGroup:
         print(f'Master address allocated: {master_addr}:{master_port}')
 
         # Create remaining actors with the master address/port
-        for i in range(1, self.num_train_actors):
+        for i in range(1, self.num_actors):
             actor = remote_actor_class.remote(
                 i,
-                self.num_train_actors,
+                self.num_actors,
                 master_addr,  # type: ignore
                 master_port,
             )
-            self._train_actors.append(actor)
+            self._actors.append(actor)
 
     @property
-    def train_actors(self):
-        return self._train_actors
+    def actors(self):
+        return self._actors
 
     @property
     def master_actor(self):
@@ -172,7 +199,7 @@ class _ActorMethodProxy:
         def method_wrapper(*args: Any, **kwargs: Any):
             # Since all actors are the same class, we can get the same method from each actor
             # and call it remotely. No validation needed since we validated above.
-            refs = [getattr(actor, name).remote(*args, **kwargs) for actor in self._actor_group.train_actors]
+            refs = [getattr(actor, name).remote(*args, **kwargs) for actor in self._actor_group.actors]
             return ray.get(refs)
         
         return method_wrapper
