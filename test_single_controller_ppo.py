@@ -478,6 +478,18 @@ class ExperienceBuffer(Buffer):
         struct['actor_group'].collective_methods.execute(partial(self.query_inference_engines, inference_server=struct['inference_server']))
 
 
+class StreamingActor(BaseDistributedGPUActor):
+    """Streaming actor for streaming data to the experience buffer."""
+
+    def __init__(self):
+        super().__init__(
+            rank=0,
+            world_size=1,
+            master_addr=None,
+            master_port=None,
+        )
+
+
 class PPOController:
     """PPO controller for training the policy and value networks."""
 
@@ -531,17 +543,24 @@ def _run_single_controller_ppo(
     ]
 
     with start_ray_server() as _address:
+        # only rank 0 is the master controller
         if dist.get_rank() == 0:
-            # only rank 0 is the master controller
-
-            # create SPMD training actors of the system
             if world_size == 0:
                 world_size = dist.get_world_size()
-            num_train_actors = world_size // 2
+
+            # We are using a GPU instance for the StreamingActor since otherwise,
+            # errors related to environment setup are thrown.
+            streaming_actor = ray.remote(num_gpus=1)(StreamingActor).remote()
+            ray.get(streaming_actor.say_hello.remote())
+
+            # create SPMD training actors of the system
+            # Using 1 less actor since we are using a GPU instance for the StreamingActor
+            num_train_actors = (world_size // 2) - 1
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = world_size - num_train_actors
+            # Using 1 less actor since we are using a GPU instance for the StreamingActor
+            vllm_tensor_parallel_size = world_size - (num_train_actors + 1)
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
