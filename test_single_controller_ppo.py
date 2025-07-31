@@ -261,7 +261,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model=model,
             optimizers=optimizer,
             callbacks=self.ppo_callback,
-            train_dataloader=self.build_dataloader(),
+            train_dataloader=None,  # TODO: Figure out if we need a dummy dataloader or if None is fine
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
             max_duration='5iter',
@@ -270,6 +270,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
 
     def update_batch_rollouts(self, latest_iter_data: dict[str, Any]):
+        # TODO: Figure out if we need different data per dataloader or if it's fine if
+        # we use the same data for all DistributedGPUActors' dataloaders.
         self.ppo_callback.batch_rollouts = latest_iter_data['iter_data']
 
     def train_1_iter(self):
@@ -645,7 +647,7 @@ def _run_single_controller_ppo(
             if world_size == 0:
                 world_size = dist.get_world_size()
             num_train_actors = world_size // 2
-            train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor) # Build a group of SPMD training actors, each of which is a DistributedGPUActor
+            train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
             vllm_tensor_parallel_size = world_size - num_train_actors
@@ -653,10 +655,6 @@ def _run_single_controller_ppo(
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
-            # TODO: The inference server should manage the dataloader as well
-            # This needs to be thought about pretty carefully.
-            # 1. What prompts are currently sent to the inference server (the rollout agent) to generate
-            # 2. How do we manage the state of the inference server (e.g., what params should be considered)
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
                 vllm_tensor_parallel_size=vllm_tensor_parallel_size,
