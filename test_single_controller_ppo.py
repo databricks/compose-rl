@@ -71,7 +71,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ref_path = None
         self._dataloader = None
         self._tokenizer = None
-        self.single_controller_callback = None
+        self.ppo_callback = None
         self.ppo_trainer: Trainer = None  # type: ignore
 
         self.pretrain_model_name = None
@@ -253,14 +253,14 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
         # NOTE: SingleControllerOnPolicyCallback is currently over-writing the iteration_start method
-        self.single_controller_callback = SingleControllerOnPolicyCallback(
+        self.ppo_callback = SingleControllerOnPolicyCallback(
             train_config=self.train_config,
         )
 
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
-            callbacks=self.single_controller_callback,
+            callbacks=self.ppo_callback,
             train_dataloader=self.build_dataloader(),
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
@@ -268,9 +268,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             device_train_microbatch_size=1,
             load_path=self.ref_path,
         )
-    
-    def update_batch_rollouts(self, latest_batch: dict[str, Any]):
-        self.single_controller_callback.batch_rollouts = latest_batch
+
+    def update_batch_rollouts(self, latest_iter_data: dict[str, Any]):
+        self.ppo_callback.batch_rollouts = latest_iter_data['iter_data']
 
     def train_1_iter(self):
         # TODO (algo): implement the top level PPO algo here instead of the
@@ -387,11 +387,11 @@ class ParameterBuffer(Buffer):
         # push the model parameters to a parameter buffer manager and have
         # the buffer manager initiate broadcast of parameters to vllm engines
         broadcast_to_vllm(
-            actor.single_controller_callback.actor_critic,
+            actor.ppo_callback.actor_critic,
             inference_server.engines,
             actor.model_update_group,
             device=torch.device('cuda'),
-            loss_type=actor.single_controller_callback.actor_critic.loss_type,  # type: ignore
+            loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
         )
         print('Finished broadcasting to vLLM')
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
@@ -403,51 +403,19 @@ class ParameterBuffer(Buffer):
         struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
 
 
-# Right now, the setup is that each actor in the TrainActorGroup is a DistributedGPUActor.
-# Each DistributedGPUActor initializes a Trainer which has a prompt dataloader that distributes the prompts across
-# all of the DistributedGPUActors (and their Trainers) in the group. Each DistributedGPUActor's Trainer has a callback
-# where at the `after_load` part of training, they fill train_prompt_loader_iter with the latest prompts.
-# These prompts are used during the next iteration with `_get_next_iter_prompts`.
-#
-# These prompts are then used with `vllm_generate` on the inference server to get the updated batch of sequences. Then the
-# Trainer in each DistributedGPUActor is updated with the new batch of sequences as part of `batch_rollouts`. This is used in
-# the SingleControllerOnPolicyCallback's `_get_reward` function to compute the rewards for the next iteration.
-# This function updates the trainer's buffer with the new batch of sequences and this is then used in the .fit() call of the Trainer.
-#
-# We want our RolloutAgent instead to get the prompts by initializing the prompt dataloader within the RolloutAgent 
-# and then using the Buffer.put to put the batches in the Buffer.buffer. The Buffer.get will then be used with
-# the collective_methods by the struct['actor_group'].collective_methods.execute to set the trainer's batch_rollouts
-# for each actor in the group.
-#
-# The Buffer.put should generate size_of_train_actor_group * size_of_batch_per_actor and for each
-# actor, also add a rank value to the struct. The Buffer.get will then use that rank to figure out what data should
-# be alloated to the actor.ppo_callback.batch_rollouts variable.
-#
-# During this process, since Trainer does require a dataloader, we can use a dummy dataloader for training that doesn't really do anything.
-# TODO: Validate whether the struct for the Buffer.put should have different generated prompts per actor
-# or if it should be the same. I think the current for the .put should {"{rank}": [prompts]}
 class ExperienceBuffer(Buffer):
     """Buffer for storing experiences."""
-
-    def update_batch_rollouts(self, actor: DistributedGPUActor, batch: dict[str, Any]):
-        actor.single_controller_callback.batch_rollouts = batch  # type: ignore
-    
-    def is_full(self):
-        return len(self.buffer) >= self.buffer_size
 
     def put(self, struct: dict[str, Any]):
         self.buffer.append(struct)
 
-    def get(self, struct: dict[str, Any]):
-        latest_batch = self.buffer.pop()
-        struct['actor_group'].collective_methods.execute(partial(self.update_batch_rollouts, batch=latest_batch))
-
+    def pop(self, struct: Optional[dict[str, Any]] = None):
+        return self.buffer.pop()
 
 class PromptDataHandler:
     def __init__(self, pretrain_model_name: str, num_train_actors: int):
         self.num_train_actors = num_train_actors
         self.global_train_batch_size = 64
-        self.device_train_batch_size = self.global_train_batch_size // self.num_train_actors
 
         self.generations_per_prompt = 8
         self.num_batches_per_update = 8  # equivalent to num_batches_per_iter
@@ -457,12 +425,12 @@ class PromptDataHandler:
         self.max_seq_len = 10240
         self.max_gen_len = 1000
         self.precision = 'amp_bf16'
-        
+
         self.tokenizer = self._build_tokenizer(pretrain_model_name)
         self.pad_token_idx = self.tokenizer.pad_token_id   # type: ignore
-        self.dataloader = self._build_dataloader()
-        self.train_prompt_loader_iter = iter(self.dataloader)
-    
+        self.prompt_dataloader = self._build_prompt_dataloader()
+        self.prompt_dataloader_iter = iter(self.prompt_dataloader)
+
     def _build_tokenizer(self, pretrain_model_name: str):
         kwargs = {
             'padding': 'longest',
@@ -475,7 +443,8 @@ class PromptDataHandler:
         tokenizer = AutoTokenizer.from_pretrained(pretrain_model_name, **kwargs)
         return tokenizer
 
-    def _build_dataloader(self):
+    def _build_prompt_dataloader(self):
+        """Builds the prompt dataloader that will populate the experience buffer."""
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_dataset_dir = f"/tmp/dataset/prompt_{timestamp}/"
         train_loader_config = {
@@ -493,9 +462,9 @@ class PromptDataHandler:
             'drop_last': True,
             'num_workers': 1,
         }
-        # Since we have one instance of the dataloader, the device_batch_size is equal to the global_batch_size
-        # But additionally, since this only contains prompts (of which we get a certain # of generations per prompt),
-        # We use the 
+        # Since this is the prompt dataloader, we only need to return the number of prompts per batch.
+        # Therefore, when vllm_generate is called, it will return num_prompts_per_batch * generations_per_prompt sequences
+        # which will equal the total number of generations for the next iteration
         foundry_dataspec = build_dataloader(
             cfg = train_loader_config,
             tokenizer = self.tokenizer,
@@ -507,14 +476,13 @@ class PromptDataHandler:
     def _get_single_batch_prompts(self):
         """Gets a single batch of prompts from the dataloader."""
         try:
-            return next(self.train_prompt_loader_iter)
+            return next(self.prompt_dataloader_iter)
         except StopIteration:
-            self.train_prompt_loader_iter = iter(self.dataloader)
-            return next(self.train_prompt_loader_iter)
+            self.prompt_dataloader_iter = iter(self.prompt_dataloader)
+            return next(self.prompt_dataloader_iter)
 
     def get_next_iter_prompts(self):
         """Gets the next iteration's batch of prompts."""
-        # Sample fewer batches for the Online RL interation depending on the number of generations per prompt
         batches = [self._get_single_batch_prompts() for _ in range(self.num_batches_per_update)]
 
         ret_batch = {}
@@ -579,36 +547,34 @@ class RolloutAgent:
         self.inference_server = inference_server
         self.prompt_data_handler = prompt_data_handler
         self.experience_buffer = experience_buffer
+        self.generation_kwargs = {
+            'top_p': 1.0,
+            'use_cache': True,
+            'do_sample': False,
+            'temperature': 1.0,
+        }
 
-    @property
-    def generation_kwargs(self):
-        return {
-                'top_p': 1.0,
-                'use_cache': True,
-                'do_sample': False,
-                'temperature': 1.0,
-            }
-
-    def _query_inference_engines(self):
-        batch = self.prompt_data_handler.get_next_iter_prompts()
+    def query_inference_engines(self):
+        iter_data = self.prompt_data_handler.get_next_iter_prompts()
         max_gen_len = self.prompt_data_handler.max_gen_len
         generation_kwargs = self.generation_kwargs
         with get_precision_context(self.prompt_data_handler.precision), torch.no_grad():
             sequences = vllm_generate(
                 vllm_engines=self.inference_server.engines,
-                batch=batch,
+                batch=iter_data,
                 max_gen_len=max_gen_len,
                 generation_kwargs=generation_kwargs,
                 tokenizer=self.prompt_data_handler.tokenizer,  # type: ignore
                 vllm_generate_function='generate',
             )
-        batch['sequences'] = sequences
-        return batch
-    
-    def add_next_batch_to_buffer(self):
-        assert len(self.experience_buffer.buffer) < self.experience_buffer.buffer_size, "Experience buffer is full"
-        batch = self._query_inference_engines()
-        self.experience_buffer.buffer.append(batch)
+        iter_data['sequences'] = sequences
+        return iter_data
+
+    def add_next_iter_data_to_buffer(self):
+        if self.experience_buffer.is_full():
+            raise RuntimeError("Experience buffer is full")
+        iter_data = self.query_inference_engines()
+        self.experience_buffer.put({'iter_data': iter_data})
 
 class PPOController:
     """PPO controller for training the policy and value networks."""
@@ -640,8 +606,13 @@ class PPOController:
         for _ in range(5):  # Example: train for 5 iterations
             # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
             self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
-            self.rollout_agent.add_next_batch_to_buffer()
-            self.train_actor.collective_methods.execute(partial(self.train_actor.update_batch_rollouts, latest_batch=self.experience_buffer.buffer.pop()))
+            # Populate the experience buffer with the next batch of prompts and collect it on rank 0
+            self.rollout_agent.add_next_iter_data_to_buffer()
+            latest_iter_data = self.experience_buffer.pop()
+            # Update the batch rollouts for all actors in the group which, at `iteration_start`, will use this latest batch_rollouts to create the
+            # dataloader for the next iteration.
+            # TODO: See if there's a way for the TrainActorGroup to handle this (maybe with ExperienceBuffer.get instead of pop?) 
+            self.train_actor.collective_methods.execute(partial(self.train_actor.update_batch_rollouts, latest_iter_data=latest_iter_data))
             self.train_actor.collective_methods.train_1_iter()
 
 

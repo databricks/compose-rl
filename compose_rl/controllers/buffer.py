@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 class Buffer:
     """Placeholder class for Async RL"""
@@ -12,3 +12,9 @@ class Buffer:
 
     def get(self, struct: dict[str, Any]):
         raise NotImplementedError
+
+    def pop(self, struct: Optional[dict[str, Any]] = None):
+        raise NotImplementedError
+
+    def is_full(self):
+        return len(self.buffer) >= self.buffer_size
