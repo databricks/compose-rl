@@ -51,6 +51,7 @@ from compose_rl.utils.utils import (
     split_text_to_sentences,
     split_text_to_subsentences,
     switch_left_to_right_padding,
+    print_batch_shapes,
 )
 
 __all__ = [
@@ -101,4 +102,5 @@ __all__ = [
     'prepare_math_prompt',
     'remove_boxed',
     'ray_utils',
+    'print_batch_shapes',
 ]

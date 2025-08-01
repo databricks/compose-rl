@@ -236,3 +236,29 @@ def is_cuda_visible_devices_set():
         'RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES',
         '0',
     ) == '0'
+
+# TODO: Since this uninstallation deals specifically with ray,
+# added the function here instead of the regular utils.py file
+# We need to investigate this further after the hackathon since
+# this is a super hacky solution to support CPU workers
+def uninstall_megablocks_if_exists():
+    """
+    Megablocks exists on the ray workers but is not supported on CPU.
+    We need to uninstall it to avoid errors.
+
+    Note: Installing `llm-foundry[all-cpu]` (which doesn't have megablocks)
+    on the StreamingDatasetActor worker through ray runtime options
+    doesn't seem to actually resolve this issue even though it's supposed
+    to set up a new environment...
+    TODO: Figure out why that's the case and if there's a better way to
+    resolve this issue.
+    """
+    import sys
+    import subprocess
+
+    # First uninstall megablocks package (if it exists)
+    command = [sys.executable, "-m", "pip", "uninstall", "megablocks", "-y"]
+    subprocess.run(command, check=False, capture_output=True, text=True)
+    # Then remove from sys.modules if present
+    if 'megablocks' in sys.modules:
+        del sys.modules['megablocks']
