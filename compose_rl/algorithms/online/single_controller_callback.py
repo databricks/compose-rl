@@ -56,7 +56,7 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
 
         # Update IFT KL
         self._update_ift_kl()
-   
+
     def iteration_end(self, state: State, logger: Logger):
         del logger  # unused
         self._log_generations_to_logger(state)
