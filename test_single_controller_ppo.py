@@ -489,6 +489,8 @@ class StreamingActor(BaseDistributedGPUActor):
             master_port=None,
         )
 
+    def display_info(self):
+        print(f'rank: {self.rank}, world_size: {self.world_size}, master_addr: {self.master_addr}, master_port: {self.master_port}')
 
 class PPOController:
     """PPO controller for training the policy and value networks."""
@@ -551,7 +553,7 @@ def _run_single_controller_ppo(
             # We are using a GPU instance for the StreamingActor since otherwise,
             # errors related to environment setup are thrown.
             streaming_actor = ray.remote(num_gpus=1)(StreamingActor).remote()
-            ray.get(streaming_actor.say_hello.remote())
+            ray.get(streaming_actor.display_info.remote())
 
             # create SPMD training actors of the system
             # Using 1 less actor since we are using a GPU instance for the StreamingActor
@@ -561,9 +563,7 @@ def _run_single_controller_ppo(
             # Create vLLM engines (or inference actors)
             # Using 1 less actor since we are using a GPU instance for the StreamingActor
             vllm_tensor_parallel_size = world_size - (num_train_actors + 1)
-            num_vllm_engines = (
-                world_size - num_train_actors
-            ) // vllm_tensor_parallel_size
+            num_vllm_engines = (world_size - (num_train_actors + 1)) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,

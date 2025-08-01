@@ -583,6 +583,7 @@ class OnPolicyCallback(CallbackWithConfig):
 
     def before_load(self, state: State, logger: Logger):
         del logger
+        print("[AT BEFORE LOAD] train_prompt_loader: ", next(iter(state.train_dataloader)).keys())
         self.train_prompt_loader = state.train_dataloader
 
     def after_load(self, state: State, logger: Logger):
@@ -609,11 +610,13 @@ class OnPolicyCallback(CallbackWithConfig):
         self.train_prompt_loader_iter = iter(
             self.train_prompt_loader,  # pyright: ignore
         )
+        print("[AT AFTER LOAD] train_prompt_loader_iter: ", next(self.train_prompt_loader_iter).keys())
 
         if self.train_prompt_loader_state_dict is not None:
             self.train_prompt_loader.load_state_dict( # pyright: ignore
                 self.train_prompt_loader_state_dict,
             )
+        print("[AT AFTER LOAD] train_prompt_loader_iter after state_dict: ", next(self.train_prompt_loader_iter).keys())
 
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
@@ -665,6 +668,7 @@ class OnPolicyCallback(CallbackWithConfig):
         batches = [
             self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
+        print("[AT GET NEXT ITER PROMPTS] batches: ", batches[0].keys())
 
         ret_batch = {}
         for key in batches[0].keys():

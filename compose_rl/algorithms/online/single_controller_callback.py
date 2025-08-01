@@ -39,6 +39,7 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
+        print("[AT ITERATION START] batch_rollouts: ", self.batch_rollouts.keys())
         self._get_reward(self.batch_rollouts)  # type: ignore
 
         # Reset and initialize state train dataloader
