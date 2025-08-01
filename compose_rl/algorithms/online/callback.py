@@ -606,15 +606,6 @@ class OnPolicyCallback(CallbackWithConfig):
                 'pad_token_id is in eos_token_ids list. Be careful with any data processing going forward!',
             )
 
-        self.train_prompt_loader_iter = iter(
-            self.train_prompt_loader,  # pyright: ignore
-        )
-
-        if self.train_prompt_loader_state_dict is not None:
-            self.train_prompt_loader.load_state_dict( # pyright: ignore
-                self.train_prompt_loader_state_dict,
-            )
-
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
@@ -816,6 +807,11 @@ class OnPolicyCallback(CallbackWithConfig):
             kl_estimator=self.kl_estimator,
             kl_clip_range=self.kl_clip_range,
         )
+
+        print("[AT CALLBACK] env_outputs: ", env_outputs.keys())
+        print("[AT CALLBACK] ref_outputs: ", ref_outputs.keys())
+        print("[AT CALLBACK] all_rewards_dict: ", all_rewards_dict.keys())
+        print("[AT CALLBACK] prompts_and_gens: ", prompts_and_gens.keys())
 
         self.prompts_and_gens.extend(prompts_and_gens)
 

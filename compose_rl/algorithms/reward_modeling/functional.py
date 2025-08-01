@@ -293,6 +293,8 @@ class BaseVerifierReward(Reward):
         Returns:
             torch.tensor: rewards of shape <batch_size, seq_len>
         """
+        print("[AT VERIFIER REWARD] batch: ", batch.keys())
+
         assert 'zero_rewards' in batch.keys()
         assert 'raw_untokenized_texts' in batch.keys()
         assert 'verified_answers' in batch.keys()

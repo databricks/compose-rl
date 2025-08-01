@@ -254,11 +254,17 @@ class DistributedTrainActor(BaseDistributedGPUActor):
             train_config=self.train_config,
         )
 
+        # Create a dummy dataloader with random batch size
+        # This is just needed to make sure trainer can call .fit() with
+        # the dataloader that exists at ITERATION_START
+        dummy_dataset = torch.utils.data.TensorDataset(torch.randn(16, 1))
+        dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, batch_size=4)
+        
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
             callbacks=self.ppo_callback,
-            train_dataloader=None,  # TODO: Figure out if we need a dummy dataloader or if None is fine
+            train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
             max_duration='5iter',
@@ -266,11 +272,38 @@ class DistributedTrainActor(BaseDistributedGPUActor):
             load_path=self.ref_path,
         )
 
+    def get_current_rank_data(self, latest_iter_data: dict[str, Any]):
+        """Get the current rank's data from the latest iter data."""
+        latest_iter_data = latest_iter_data['iter_data']
+        per_rank_batch_size = latest_iter_data['prompt'].shape[0] // self.world_size
+        current_rank_start = self.rank * per_rank_batch_size
+        current_rank_end = (self.rank + 1) * per_rank_batch_size
+        self.logger.info(f'rank: {self.rank}')  # expect 0
+        self.logger.info(f'world_size: {self.world_size}')  # expect 1
+        self.logger.info(f'total_data_size: {latest_iter_data["prompt"].shape[0]}')  # expect 512
+        self.logger.info(f'per_rank_size: {per_rank_batch_size}')  # expect 512
+        self.logger.info(f'current_rank_start: {current_rank_start}')  # expect 0
+        self.logger.info(f'current_rank_end: {current_rank_end}')  # expect 512
+        current_rank_data = {
+            key: value[current_rank_start:current_rank_end].to(torch.device('cuda'))
+            for key, value in latest_iter_data.items()
+            if isinstance(value, torch.Tensor)
+        }
+        return current_rank_data
+    
+    def print_data_shapes(self, data: dict[str, Any], prefix: str = ''):
+        """Print the shapes of the data."""
+        tensor_shapes = {
+            k: v.shape for k, v in data.items() if isinstance(v, torch.Tensor)
+        }
+        self.logger.info(f'{prefix}: tensor_shapes: {tensor_shapes}')
+
     def update_batch_rollouts(self, latest_iter_data: dict[str, Any]):
         """Use the latest iter data to update the batch rollouts for the current rank."""
-        # TODO: Fix this
-        current_rank = dist.get_rank()
-        self.ppo_callback.batch_rollouts = latest_iter_data['iter_data']
+        self.print_data_shapes(latest_iter_data['iter_data'], 'pre_split')
+        current_rank_data = self.get_current_rank_data(latest_iter_data)
+        self.print_data_shapes(current_rank_data, 'post_split')
+        self.ppo_callback.batch_rollouts = current_rank_data
 
     def train_1_iter(self):
         # TODO (algo): implement the top level PPO algo here instead of the
@@ -480,12 +513,11 @@ class PromptHandler:
             'drop_last': True,
             'num_workers': 1,
         }
-        with use_single_rank():
-            foundry_dataspec = build_dataloader(
-                cfg = train_loader_config,
-                tokenizer = self.tokenizer,
-                device_batch_size = self.num_prompts_per_iter, # Each batch contains the global number of prompts per iteration
-            )
+        foundry_dataspec = build_dataloader(
+            cfg = train_loader_config,
+            tokenizer = self.tokenizer,
+            device_batch_size = self.num_prompts_per_iter, # Each batch contains the global number of prompts per iteration
+        )
         foundry_dataloader = foundry_dataspec.dataloader  # type: ignore
         return foundry_dataloader
 
@@ -500,6 +532,13 @@ class PromptHandler:
     def get_next_iter_prompts(self):
         """Gets the next iteration's prompts across all ranks and prepares them for the rollout agent."""
         batches = [self._get_single_iter_prompts()]
+        
+        current_batch = batches[0]
+        shapes = {
+            k: v.shape for k, v in current_batch.items() if isinstance(v, torch.Tensor)
+        }
+        print(f'[AT DATALOADER] shapes: {shapes}')
+
 
         # TODO: We should be able to simplify the following since we only have 1 batch in `batches` (which contains
         # global prompts per iteration instead)
@@ -586,7 +625,9 @@ def create_distributed_streaming_actor(
     pretrain_model_name: str,
     prompt_handler_config: Optional[dict[str, Any]] = None,
 ):
-    return ray.remote(num_gpus=0)(DistributedStreamingActor).remote(
+    # We have to use a GPU instance for the StreamingActor since otherwise,
+    # errors related to environment setup are thrown.
+    return ray.remote(num_gpus=1)(DistributedStreamingActor).remote(
         pretrain_model_name=pretrain_model_name,
         prompt_handler_config=prompt_handler_config,
     )
@@ -605,7 +646,6 @@ class RolloutAgent:
         self.experience_buffer = experience_buffer
         self.streaming_actor = streaming_actor
 
-
         self.precision = 'amp_bf16'
         self.generation_kwargs = {
             'top_p': 1.0,
@@ -613,22 +653,27 @@ class RolloutAgent:
             'do_sample': False,
             'temperature': 1.0,
         }
+
+        # Get the streaming actor's config and pretrain_model_name
         self.pretrain_model_name = ray.get(self.streaming_actor.get_pretrain_model_name.remote())
-        self.tokenizer = self._build_tokenizer(self.pretrain_model_name)
         self.prompt_handler_config = ray.get(self.streaming_actor.get_prompt_handler_config.remote())
+
+        # Get the streaming actor's related variables and make the tokenizer
         self.max_gen_len = self.prompt_handler_config['max_gen_len']
         self.num_generations_per_prompt = self.prompt_handler_config['generations_per_prompt']
+        self.max_seq_len = self.prompt_handler_config['max_seq_len']
+        self.tokenizer = self._build_tokenizer()
     
-    def _build_tokenizer(self, pretrain_model_name: str):
+    def _build_tokenizer(self):
         kwargs = {
             'padding': 'longest',
             'pad_token': '<|endoftext|>',
             'truncation': True,
             'padding_side': 'left',
-            'model_max_length': self.prompt_handler_config['max_seq_len'],
+            'model_max_length': self.max_seq_len,
             'trust_remote_code': True,
         }
-        tokenizer = AutoTokenizer.from_pretrained(pretrain_model_name, **kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name, **kwargs)
         return tokenizer
 
     def get_next_iter_rollouts(self):
@@ -638,16 +683,35 @@ class RolloutAgent:
         Since all ranks should see different data, we need to get the rollouts for each rank.
         """
         iter_data = ray.get(self.streaming_actor.get_next_iter_prompts.remote())
+        all_prompts = iter_data['prompt']
+
         with get_precision_context(self.precision), torch.no_grad():
             sequences = _vllm_generate(
                 vllm_engines=self.inference_server.engines,
-                batch=iter_data,
                 max_gen_len=self.max_gen_len,
                 generation_kwargs=self.generation_kwargs,
-                tokenizer=self.tokenizer,
-                vllm_generate_function='generate',
+                pad_token_id=self.tokenizer.pad_token_id,
+                all_prompts=all_prompts,
+                batch_sizes=[len(all_prompts)],
             )
-        iter_data['sequences'] = sequences
+        
+        sequences = sequences[0]
+        max_vllm_generated_len = max([len(response) for response in sequences])
+        padded_responses = []
+        for sequence in sequences:
+            sequence = list(sequence)
+            if len(sequence) < max_vllm_generated_len:
+                sequence = sequence + [self.tokenizer.pad_token_id] * (max_vllm_generated_len - len(sequence))
+            padded_responses.append(sequence)
+
+        padded_responses = torch.tensor(
+            padded_responses,
+            dtype=all_prompts.dtype,
+            device=torch.device('cpu'),
+        )
+
+        processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
+        iter_data['sequences'] = processed_sequences
         return iter_data
 
     def add_next_iter_data_to_buffer(self):
@@ -707,24 +771,29 @@ def _run_single_controller_ppo(
     with start_ray_server() as _address:
         # only rank 0 is the master controller
         if dist.get_rank() == 0:
+            # Create buffers first since they don't depend on anything else
             experience_buffer = ExperienceBuffer()
             parameter_buffer = ParameterBuffer()
-            # create SPMD training actors of the system
-            if world_size == 0:
-                world_size = dist.get_world_size()
-            num_train_actors = world_size // 2
-            train_actor_group = TrainActorGroup(num_train_actors, DistributedTrainActor)
 
             # Create Streaming Actor on rank 0
             streaming_actor = create_distributed_streaming_actor(
                 pretrain_model_name=pretrain_model_name,
             )
 
+            # create SPMD training actors of the system
+            # Using 1 less actor since we are using a GPU instance for the StreamingActor
+            if world_size == 0:
+                world_size = dist.get_world_size()
+            num_train_actors = (world_size // 2) - 1
+            train_actor_group = TrainActorGroup(num_train_actors, DistributedTrainActor)
+
             # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = world_size - num_train_actors
+            # Using 1 less actor since we are using a GPU instance for the StreamingActor
+            vllm_tensor_parallel_size = world_size - (num_train_actors + 1)
             num_vllm_engines = (
-                world_size - num_train_actors
+                world_size - (num_train_actors + 1)
             ) // vllm_tensor_parallel_size
+
             # TODO: Encapsulate this into a inference server manager class
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
