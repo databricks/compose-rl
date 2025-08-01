@@ -348,7 +348,6 @@ class TrainActorGroup(SPMDActorGroup):
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        self.experience_buffer = None
 
     def build_models(self, pretrain_model_name: str):
         """Build reference models and PPO trainers for all actors."""
@@ -701,6 +700,8 @@ def _run_single_controller_ppo(
             # 3) Setting up ray actors with correct environments (which
             # would involve creating a BaseDistributedActor instead of a
             # BaseDistributedGPUActor so that we can use CPUs)
+            # We uninstall megablocks after the Train Actors have been
+            # created so that those actors have megablocks functionality.
             uninstall_megablocks_if_exists()
             streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote()
             rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor)
