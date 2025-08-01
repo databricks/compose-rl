@@ -520,6 +520,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
 
     def __init__(self):
         # Setting up the distributed environment (WORLD_SIZE = 1)
+        self._uninstall_megablocks_if_exists()
         super().__init__(
             rank=0,
             world_size=1,
@@ -579,6 +580,27 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         self.tokenizer = self._build_tokenizer()
         self.dataloader = self._build_dataloader()
         self.dataloader_iter = iter(self.dataloader)
+
+    def _uninstall_megablocks_if_exists(self):
+        """
+        Megablocks exists on the workers but is not supported on CPU.
+        We need to delete it from the sys.modules cache to avoid errors.
+
+        Note: Installing `llm-foundry[cpu]` (which doesn't have megablocks)
+        on the StreamingDatasetActor worker doesn't seem to actually resolve
+        this issue even though it's supposed to set up a new environment.
+        TODO: Figure out why that's the case and if there's a better way to
+        resolve this issue.
+        """
+        import sys
+        import subprocess
+
+        # First uninstall megablocks package (if it exists)
+        command = [sys.executable, "-m", "pip", "uninstall", "megablocks", "-y"]
+        subprocess.run(command, check=False, capture_output=True, text=True)
+        # Then remove from sys.modules if present
+        if 'megablocks' in sys.modules:
+            del sys.modules['megablocks']
 
     def _build_dataloader(self):
         foundry_dataspec = build_dataloader(
@@ -674,23 +696,19 @@ def _run_single_controller_ppo(
             parameter_buffer = ParameterBuffer()
             experience_buffer = ExperienceBuffer()
 
-            # We are creating a custom StreamingActor that uses a WORLD_SIZE of 1
-            # to add data to the experience buffer.
-            # We are using a GPU instance for the StreamingActor since otherwise,
-            # errors related to environment setup are thrown.
-            # e.g. turbo or triton setup issues
-            streaming_dataset_actor = ray.remote(num_gpus=1)(StreamingDatasetActor).remote()
+            # We are using a CPU worker for the StreamingActor
+            streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote()
 
             # create SPMD training actors of the system
             # using 1 less actor since we are using a GPU instance for the StreamingActor
             # and then setting the experience buffer on the train actor
-            num_train_actors = (world_size - 1) // 2
+            num_train_actors = world_size // 2
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
             # Using 1 less actor since we are using a GPU instance for the StreamingActor
-            vllm_tensor_parallel_size = world_size - (num_train_actors + 1)
-            num_vllm_engines = (world_size - (num_train_actors + 1)) // vllm_tensor_parallel_size
+            vllm_tensor_parallel_size = world_size - num_train_actors
+            num_vllm_engines = (world_size - num_train_actors) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
