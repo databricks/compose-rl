@@ -572,5 +572,5 @@ if __name__ == '__main__':
     # to a separate trainer actor above and this main single controller
     # function.
     _run_single_controller_ppo(
-        pretrain_model_name='Qwen/Qwen2.5-1.5B-Instruct',
+        pretrain_model_name='Qwen/Qwen2.5-7B-Instruct',
     )

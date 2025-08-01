@@ -6,7 +6,7 @@ scheduling:
 
 compute:
   gpus: 16
-  cluster: r5z2p3
+  cluster: r5z2p2
 
 integrations:
 - integration_type: git_repo
@@ -26,4 +26,4 @@ image: mosaicml/dle:nightly-latest
 command: |-
   cd /workspace/compose-rl
 
-  composer test_single_controller_ppo.py
+  CUDA_VISIBLE_DEVICES=0,1,2,3 WORLD_SIZE=8 LOCAL_WORLD_SIZE=4 composer test_single_controller_ppo.py
