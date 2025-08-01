@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import Any, Callable, Optional
 
 import ray
+import torch
 import torch.distributed as dist
 
 from compose_rl.algorithms.online.generation_utils import init_process_group
@@ -45,8 +46,15 @@ class BaseDistributedGPUActor:
         os.environ['RANK'] = str(rank)
 
         # Set LOCAL_RANK based on Ray GPU allocation
-        os.environ['LOCAL_RANK'] = '0' if is_cuda_visible_devices_set(
-        ) else str(ray.get_gpu_ids()[0])
+        if is_cuda_visible_devices_set():
+            print(f'CUDA_VISIBLE_DEVICES: {os.environ["CUDA_VISIBLE_DEVICES"]}')
+            os.environ['LOCAL_RANK'] = '0'
+        else:
+            gpu_id = ray.get_gpu_ids()[0]
+            print(f'setting LOCAL_RANK to {gpu_id}')
+            os.environ['LOCAL_RANK'] = str(gpu_id)
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+            torch.cuda.set_device(gpu_id)
 
         # If this is rank 0 and no master_addr/master_port provided, allocate them
         if rank == 0 and (master_addr is None or master_port is None):
