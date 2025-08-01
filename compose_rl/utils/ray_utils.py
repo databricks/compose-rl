@@ -175,8 +175,7 @@ def start_ray_server():
         # NOTE we have to keep all the MCT orchestrator started processes alive with this barrier
         # until the ray cluster is stopped, otherwise the MCT orchestrator will reclaim the resources
         # once the processes on a node exit
-        dist.barrier()
-        # _barrier(dist.get_world_size(), dist.get_rank(), 'mcloud_barrier')
+        _barrier(dist.get_world_size(), dist.get_rank(), 'mcloud_barrier')
     finally:
         if dist.get_rank() == 0:
             ray.shutdown()
