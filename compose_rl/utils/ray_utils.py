@@ -97,7 +97,7 @@ class _Barrier:
 
     async def wait(self):
         """
-        Await is blocked until all parties have called this method.
+        await is blocked until all parties have called this method.
         """
         print(f'Rank {ray.get_runtime_context().get_actor_id()} is waiting for the barrier')
         self._num_parties_arrived += 1
@@ -117,26 +117,30 @@ class _Barrier:
         self._event.clear()
 
 
-def barrier(world_size: int, rank: int):
+def _barrier(world_size: int, rank: int, name: str, namespace: str = '_synchronization'):
     """
     A barrier for synchronizing between multiple ray clients with unlimited timeout.
+
+    Args:
+        world_size (int): The number of parties to synchronize.
+        rank (int): The rank of the current process.
+        name (str): The agreed name of the barrier actor.
+        namespace (str): The agreed namespace of the barrier actor.
     """
-    NAME_SPACE = '_synchronization'
-    DEFAULT_ACTOR_NAME = '_barrier'
     if rank == 0:
         # Create the barrier actor - Ray will handle any naming conflicts appropriately
-        barrier = _Barrier.options(name=DEFAULT_ACTOR_NAME, namespace=NAME_SPACE).remote(world_size)
+        barrier = _Barrier.options(name=name, namespace=namespace).remote(world_size)
     else:
         while True:
             try:
-                barrier = ray.get_actor(DEFAULT_ACTOR_NAME, namespace=NAME_SPACE)
+                barrier = ray.get_actor(name, namespace=namespace)
                 break
             except ValueError:  # Actor not found
                 time.sleep(1)  # Retry after a short delay
     ray.get(barrier.wait.remote())
     if rank == 0:
         # close the ray actor
-        ray.kill(barrier)
+        barrier.__ray_terminate__.remote()
 
 
 @contextmanager
@@ -171,9 +175,7 @@ def start_ray_server():
         # NOTE we have to keep all the MCT orchestrator started processes alive with this barrier
         # until the ray cluster is stopped, otherwise the MCT orchestrator will reclaim the resources
         # once the processes on a node exit
-        # this may time out too quick for a real world run, if so we might need to reuse the original
-        # SyncActor based approach
-        barrier(dist.get_world_size(), dist.get_rank())
+        _barrier(dist.get_world_size(), dist.get_rank(), 'mcloud_barrier')
     finally:
         if dist.get_rank() == 0:
             ray.shutdown()
