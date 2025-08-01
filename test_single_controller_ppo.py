@@ -260,7 +260,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # the dataloader that exists at ITERATION_START. This dataloader
         # will NOT be used for training.
         dummy_dataset = torch.utils.data.TensorDataset(torch.randn(16, 1))
-        dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, batch_size=4)
+        dummy_distributed_sampler = torch.utils.data.distributed.DistributedSampler(dummy_dataset)
+        dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, sampler=dummy_distributed_sampler)
 
         self.ppo_trainer = Trainer(
             model=model,
@@ -683,7 +684,7 @@ def _run_single_controller_ppo(
             # create SPMD training actors of the system
             # using 1 less actor since we are using a GPU instance for the StreamingActor
             # and then setting the experience buffer on the train actor
-            num_train_actors = (world_size // 2) - 1
+            num_train_actors = (world_size - 1) // 2
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
