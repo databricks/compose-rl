@@ -1237,3 +1237,16 @@ def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
                 yield subc
         else:
             yield i
+
+def print_batch_shapes(batch: dict[str, Any]):
+    def get_shape(value: Any):
+        if isinstance(value, torch.Tensor):
+            return value.shape
+        elif isinstance(value, list):
+            return len(value)
+        else:
+            return f"{type(value)} isn't supported"
+    shape_dict = {
+        k: get_shape(v) for k, v in batch.items()
+    }
+    print(f'Batch shapes: {shape_dict}')
