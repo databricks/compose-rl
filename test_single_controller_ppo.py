@@ -275,9 +275,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             load_path=self.ref_path,
         )
 
-    def add_rollouts(self, rollouts: list[dict[str, Any]]):
+    def add_rollouts(self, partitioned_rollouts: list[dict[str, Any]]):
         """Adds the current rank's rollouts to the callback."""
-        current_rank_rollouts = rollouts[self.rank]
+        current_rank_rollouts = partitioned_rollouts[self.rank]
         for k, v in current_rank_rollouts.items():
             assert isinstance(v, torch.Tensor) or isinstance(v, list), f"Expected a tensor or list, got {type(v)}"
             if isinstance(v, torch.Tensor):
