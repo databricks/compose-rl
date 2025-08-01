@@ -13,17 +13,9 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   git_branch: ethantang-db/scaling_ppo
-  pip_install:  '".[dev]" --no-deps'
-
-env_variables:
-  TQDM_DISABLE: 1
-  NCCL_DEBUG: INFO
-  CUDA_MODULE_LOADING: LAZY
-  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
 
 image: mosaicml/dle:nightly-latest
 
 command: |-
   cd /workspace/compose-rl
-
-  CUDA_VISIBLE_DEVICES=0,1,2,3 WORLD_SIZE=8 LOCAL_WORLD_SIZE=4 composer test_single_controller_ppo.py
+  composer test_single_controller_ppo.py
