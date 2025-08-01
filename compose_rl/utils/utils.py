@@ -1238,6 +1238,7 @@ def flatten(coll: Union[Iterable[Any], str]) -> Generator[Any, None, None]:
         else:
             yield i
 
+# TODO: Remove this function after the hackathon
 def print_batch_shapes(batch: dict[str, Any]):
     def get_shape(value: Any):
         if isinstance(value, torch.Tensor):

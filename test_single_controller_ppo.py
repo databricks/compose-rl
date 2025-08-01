@@ -274,16 +274,13 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             load_path=self.ref_path,
         )
 
-    def add_rollouts(self, rollouts: dict[str, Any]):
-        per_rank_data_size = rollouts['prompt'].shape[0] // self.world_size
-        current_rank_start = self.rank * per_rank_data_size
-        current_rank_end = (self.rank + 1) * per_rank_data_size
-        current_rank_rollouts = {}
-        for k, v in rollouts.items():
+    def add_rollouts(self, rollouts: list[dict[str, Any]]):
+        """Adds the current rank's rollouts to the callback."""
+        current_rank_rollouts = rollouts[self.rank]
+        for k, v in current_rank_rollouts.items():
             assert isinstance(v, torch.Tensor) or isinstance(v, list), f"Expected a tensor or list, got {type(v)}"
-            current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
-            if isinstance(current_rank_rollouts[k], torch.Tensor):
-                current_rank_rollouts[k] = current_rank_rollouts[k].to(torch.device('cuda'))
+            if isinstance(v, torch.Tensor):
+                current_rank_rollouts[k] = v.to(torch.device('cuda'))
         self.ppo_callback.batch_rollouts = current_rank_rollouts
 
     def train_1_iter(self):
@@ -361,14 +358,28 @@ class TrainActorGroup(SPMDActorGroup):
         self.collective_methods.build_ppo_trainer()
         print('build ppo trainer done')
 
-    def set_experience_buffer(self, experience_buffer: "ExperienceBuffer"):
-        self.experience_buffer = experience_buffer
+    def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]):
+        """Partition the rollouts across all actors."""
+        partitioned_rollouts = []
+        per_rank_data_size = rollouts['prompt'].shape[0] // self.num_train_actors
+        for i in range(self.num_train_actors):
+            current_rank_start = i * per_rank_data_size
+            current_rank_end = (i + 1) * per_rank_data_size
+            current_rank_rollouts = {}
+            for k, v in rollouts.items():
+                assert isinstance(v, torch.Tensor) or isinstance(v, list), f"Expected a tensor or list, got {type(v)}"
+                current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
+            partitioned_rollouts.append(current_rank_rollouts)
+        return partitioned_rollouts
 
-    def add_latest_rollouts(self):
-        assert self.experience_buffer is not None, "Experience buffer is not set"
-        assert len(self.experience_buffer) > 0, "Experience buffer is empty"
-        latest_rollouts = self.experience_buffer.popleft()
-        self.collective_methods.add_rollouts(latest_rollouts)
+    def add_latest_rollouts_from_buffer(self, experience_buffer: "ExperienceBuffer"):
+        assert experience_buffer is not None, "Experience buffer is not set"
+        assert len(experience_buffer) > 0, "Experience buffer is empty"
+        latest_rollouts = experience_buffer.popleft()
+        partitioned_rollouts = self._partition_rollouts_across_ranks(latest_rollouts)
+        assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
+        self.collective_methods.add_rollouts(partitioned_rollouts)
+
 
 class InferenceServer:
     """Inference server with vLLM engines."""
@@ -414,7 +425,7 @@ class RolloutAgent:
             'temperature': 1.0,
         }
         self.precision = 'amp_bf16'
-        self.tokenizer = ray.get(self.streaming_dataset_actor.get_tokenizer.remote())
+        self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
         self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
         self.max_gen_len = self.prompt_handler_config['max_gen_len']
 
@@ -427,12 +438,14 @@ class RolloutAgent:
         iter_data = ray.get(self.streaming_dataset_actor.get_next_iter_prompts.remote())
         all_prompts = iter_data['prompt']
 
+        # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
+        # we should move this to the separate util file.
         with get_precision_context(self.precision), torch.no_grad():
             sequences = _vllm_generate(
                 vllm_engines=self.inference_server.engines,
                 max_gen_len=self.max_gen_len,
                 generation_kwargs=self.generation_kwargs,
-                pad_token_id=self.tokenizer.pad_token_id,
+                pad_token_id=self.tokenizer_pad_token_id,
                 all_prompts=all_prompts,
                 batch_sizes=[len(all_prompts)],
             )
@@ -443,7 +456,7 @@ class RolloutAgent:
         for sequence in sequences:
             sequence = list(sequence)
             if len(sequence) < max_vllm_generated_len:
-                sequence = sequence + [self.tokenizer.pad_token_id] * (max_vllm_generated_len - len(sequence))
+                sequence = sequence + [self.tokenizer_pad_token_id] * (max_vllm_generated_len - len(sequence))
             padded_responses.append(sequence)
 
         padded_responses = torch.tensor(
@@ -483,6 +496,8 @@ class ParameterBuffer(Buffer):
         struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
 
 
+# TODO: Move this experience buffer earlier so that we can avoid
+# using "ExperienceBuffer" (with quotes) as a type hint.
 class ExperienceBuffer(Buffer):
     """Buffer for storing experiences."""
 
@@ -579,8 +594,8 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
     def get_prompt_handler_config(self):
         return self.prompt_handler_config
 
-    def get_tokenizer(self):
-        return self.tokenizer
+    def get_tokenizer_pad_token_id(self):
+        return self.tokenizer.pad_token_id
 
     def _get_single_iter_prompts(self):
         """Gets a single iteration's prompts from the dataloader."""
@@ -615,7 +630,6 @@ class PPOController:
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
         self.train_actor.build_models(pretrain_model_name)
-        self.train_actor.set_experience_buffer(experience_buffer)
         setup_process_groups(
             self.train_actor.master_actor,
             inference_server.engines,
@@ -629,7 +643,7 @@ class PPOController:
             # Simple example of adding elements to the experience buffer
             self.experience_buffer.put(self.rollout_agent.get_next_iter_rollouts())
             # Populate the train actor group with the rollouts and then train
-            self.train_actor.add_latest_rollouts()
+            self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
             self.train_actor.collective_methods.train_1_iter()
 
 
