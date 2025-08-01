@@ -54,6 +54,7 @@ class BaseDistributedGPUActor:
             print(f'setting LOCAL_RANK to {gpu_id}')
             os.environ['LOCAL_RANK'] = str(gpu_id)
             os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+            # torch has already been initialized with the incorrect "CUDA_VISIBLE_DEVICES" so we have to set the device manually
             torch.cuda.set_device(gpu_id)
 
         # If this is rank 0 and no master_addr/master_port provided, allocate them
