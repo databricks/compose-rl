@@ -37,7 +37,7 @@ from compose_rl.algorithms.online.generation_utils import (
     create_vllm_engines,
     _vllm_generate,
 )
-from compose_rl.utils.ray_utils import start_ray_server
+from compose_rl.utils.ray_utils import start_ray_server, uninstall_megablocks_if_exists
 from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
@@ -520,7 +520,6 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
 
     def __init__(self):
         # Setting up the distributed environment (WORLD_SIZE = 1)
-        self._uninstall_megablocks_if_exists()
         super().__init__(
             rank=0,
             world_size=1,
@@ -580,28 +579,6 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         self.tokenizer = self._build_tokenizer()
         self.dataloader = self._build_dataloader()
         self.dataloader_iter = iter(self.dataloader)
-
-    def _uninstall_megablocks_if_exists(self):
-        """
-        Megablocks exists on the workers but is not supported on CPU.
-        We need to uninstall it to avoid errors.
-
-        Note: Installing `llm-foundry[cpu]` (which doesn't have megablocks)
-        on the StreamingDatasetActor worker through ray runtime options
-        doesn't seem to actually resolve this issue even though it's supposed
-        to set up a new environment...
-        TODO: Figure out why that's the case and if there's a better way to
-        resolve this issue.
-        """
-        import sys
-        import subprocess
-
-        # First uninstall megablocks package (if it exists)
-        command = [sys.executable, "-m", "pip", "uninstall", "megablocks", "-y"]
-        subprocess.run(command, check=False, capture_output=True, text=True)
-        # Then remove from sys.modules if present
-        if 'megablocks' in sys.modules:
-            del sys.modules['megablocks']
 
     def _build_dataloader(self):
         foundry_dataspec = build_dataloader(
@@ -697,9 +674,6 @@ def _run_single_controller_ppo(
             parameter_buffer = ParameterBuffer()
             experience_buffer = ExperienceBuffer()
 
-            # We are using a CPU worker for the StreamingActor
-            streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote()
-
             # create SPMD training actors of the system
             num_train_actors = world_size // 2
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
@@ -715,7 +689,22 @@ def _run_single_controller_ppo(
                 vllm_tensor_parallel_size=vllm_tensor_parallel_size,
                 pretrain_model_name=pretrain_model_name,
             )
+
+            # We are using a CPU worker for the StreamingActor
+            # and this involves a super hacky workaround by
+            # uninstalling megablocks if it exists. Better solutions
+            # would include:
+            # 1) decouple StreamingActor from llm-foundry altogether
+            # 2) don't broadly import llm-foundry in compose-rl (only
+            # import it into codepaths/files that will only be used by
+            # GPUActors as opposed to CPUActors)
+            # 3) Setting up ray actors with correct environments (which
+            # would involve creating a BaseDistributedActor instead of a
+            # BaseDistributedGPUActor so that we can use CPUs)
+            uninstall_megablocks_if_exists()
+            streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote()
             rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor)
+
             ppo_controller = PPOController(
                 train_actor,
                 inference_server,
