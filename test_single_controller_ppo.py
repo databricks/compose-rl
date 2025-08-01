@@ -275,9 +275,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             load_path=self.ref_path,
         )
 
-    def add_rollouts(self, partitioned_rollouts: list[dict[str, Any]]):
+    def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
         """Adds the current rank's rollouts to the callback."""
-        current_rank_rollouts = partitioned_rollouts[self.rank]
         for k, v in current_rank_rollouts.items():
             assert isinstance(v, torch.Tensor) or isinstance(v, list), f"Expected a tensor or list, got {type(v)}"
             if isinstance(v, torch.Tensor):
@@ -378,7 +377,7 @@ class TrainActorGroup(SPMDActorGroup):
         latest_rollouts = experience_buffer.popleft()
         partitioned_rollouts = self._partition_rollouts_across_ranks(latest_rollouts)
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
-        self.collective_methods.add_rollouts(partitioned_rollouts)
+        ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
 
 
 class InferenceServer:
@@ -701,7 +700,7 @@ def _run_single_controller_ppo(
             # would involve creating a BaseDistributedActor instead of a
             # BaseDistributedGPUActor so that we can use CPUs)
             # We uninstall megablocks after the Train Actors have been
-            # created so that those actors have megablocks functionality.
+            # created so that those actors still have megablocks functionality.
             uninstall_megablocks_if_exists()
             streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote()
             rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor)
