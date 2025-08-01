@@ -25,6 +25,5 @@ image: mosaicml/dle:nightly-latest
 
 command: |-
   cd /workspace/compose-rl
-  cp tests/test_single_controller_ppo.py .
 
   composer test_single_controller_ppo.py
