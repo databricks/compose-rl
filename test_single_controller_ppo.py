@@ -584,11 +584,12 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
     def _uninstall_megablocks_if_exists(self):
         """
         Megablocks exists on the workers but is not supported on CPU.
-        We need to delete it from the sys.modules cache to avoid errors.
+        We need to uninstall it to avoid errors.
 
         Note: Installing `llm-foundry[cpu]` (which doesn't have megablocks)
-        on the StreamingDatasetActor worker doesn't seem to actually resolve
-        this issue even though it's supposed to set up a new environment.
+        on the StreamingDatasetActor worker through ray runtime options
+        doesn't seem to actually resolve this issue even though it's supposed
+        to set up a new environment...
         TODO: Figure out why that's the case and if there's a better way to
         resolve this issue.
         """
@@ -700,15 +701,14 @@ def _run_single_controller_ppo(
             streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote()
 
             # create SPMD training actors of the system
-            # using 1 less actor since we are using a GPU instance for the StreamingActor
-            # and then setting the experience buffer on the train actor
             num_train_actors = world_size // 2
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            # Using 1 less actor since we are using a GPU instance for the StreamingActor
             vllm_tensor_parallel_size = world_size - num_train_actors
-            num_vllm_engines = (world_size - num_train_actors) // vllm_tensor_parallel_size
+            num_vllm_engines = (
+                world_size - num_train_actors
+            ) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
