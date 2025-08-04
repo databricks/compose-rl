@@ -663,9 +663,6 @@ def _run_single_controller_ppo(
     with start_ray_server() as _address:
         # only rank 0 is the master controller
         if dist.get_rank() == 0:
-            # only rank 0 is the master controller
-
-            # create SPMD training actors of the system
             world_size = getattr(config, "world_size", 0)
             if world_size == 0:
                 world_size = dist.get_world_size()
