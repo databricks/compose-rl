@@ -222,7 +222,7 @@ def get_free_port():
         return sock.getsockname()[1]
 
 
-def is_cuda_visible_devices_set():
+def is_cuda_visible_devices_set_by_ray():
     """Check if CUDA_VISIBLE_DEVICES environment variable is being set by Ray.
 
     Ray can automatically set the CUDA_VISIBLE_DEVICES environment variable to
@@ -232,7 +232,7 @@ def is_cuda_visible_devices_set():
     Returns:
         bool: True if Ray is setting CUDA_VISIBLE_DEVICES, False otherwise
     """
-    return os.environ.get(
+    return os.environ.get('CUDA_VISIBLE_DEVICES', None) is not None and os.environ.get(
         'RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES',
         '0',
     ) == '0'

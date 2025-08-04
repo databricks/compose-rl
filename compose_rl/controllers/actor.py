@@ -12,7 +12,7 @@ from compose_rl.algorithms.online.generation_utils import init_process_group
 from compose_rl.utils.ray_utils import (
     get_free_port,
     get_node_ip,
-    is_cuda_visible_devices_set,
+    is_cuda_visible_devices_set_by_ray,
 )
 
 
@@ -45,8 +45,10 @@ class BaseDistributedGPUActor:
         os.environ['RANK'] = str(rank)
 
         # Set LOCAL_RANK based on Ray GPU allocation
-        os.environ['LOCAL_RANK'] = '0' if is_cuda_visible_devices_set(
-        ) else str(ray.get_gpu_ids()[0])
+        # ray.get_gpu_ids() is empty if ray is not used. 
+        if len(ray.get_gpu_ids()) > 0:
+            os.environ['LOCAL_RANK'] = '0' if is_cuda_visible_devices_set_by_ray(
+            ) else str(ray.get_gpu_ids()[0])
 
         # If this is rank 0 and no master_addr/master_port provided, allocate them
         if rank == 0 and (master_addr is None or master_port is None):
