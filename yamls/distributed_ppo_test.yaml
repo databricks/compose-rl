@@ -6,7 +6,7 @@ scheduling:
 
 compute:
   gpus: 16
-  cluster: r5z2p2
+  cluster: r5z2p3
 
 integrations:
 - integration_type: git_repo
