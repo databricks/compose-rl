@@ -45,6 +45,7 @@ class BaseDistributedGPUActor:
         os.environ['RANK'] = str(rank)
 
         # Set LOCAL_RANK based on Ray GPU allocation
+        # ray.get_gpu_ids() is empty if ray is not used. 
         if len(ray.get_gpu_ids()) > 0:
             os.environ['LOCAL_RANK'] = '0' if is_cuda_visible_devices_set_by_ray(
             ) else str(ray.get_gpu_ids()[0])
