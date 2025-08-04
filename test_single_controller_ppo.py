@@ -186,7 +186,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         algorithm_config = {
             'gradient_clipping': {
                 'clipping_type': 'norm',
-                # 'clipping_threshold': 0.0001
                 'clipping_threshold': 1.0
             }
         }
