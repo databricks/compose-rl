@@ -18,4 +18,7 @@ image: mosaicml/dle:nightly-latest
 
 command: |-
   cd /workspace/compose-rl
-  composer test_single_controller_ppo.py
+  composer test_single_controller_ppo.py --file_path /mnt/config/parameters.yaml
+
+parameters:
+  pretrain_model_name: Qwen/Qwen2.5-3B-Instruct
