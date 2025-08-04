@@ -17,6 +17,7 @@ import datetime
 from functools import partial
 from typing import Any, Optional
 
+from composer.loggers import MLFlowLogger
 import ray
 import torch
 import torch.distributed as dist
@@ -263,6 +264,12 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         dummy_distributed_sampler = torch.utils.data.distributed.DistributedSampler(dummy_dataset)
         dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, sampler=dummy_distributed_sampler)
 
+        mlflow_logger = MLFlowLogger(
+            experiment_name='test_single_controller_ppo',
+            run_name='test_single_controller_ppo',
+            tracking_uri='databricks',
+        )
+
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
@@ -271,6 +278,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
             max_duration='5iter',
+            loggers=[mlflow_logger],
             device_train_microbatch_size=1,
             load_path=self.ref_path,
         )
