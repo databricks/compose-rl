@@ -12,7 +12,7 @@ integrations:
 - integration_type: git_repo
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
-  git_branch: ethantang-db/scaling_ppo
+  git_branch: single-controller-hackathon
 
 image: mosaicml/dle:nightly-latest
 
