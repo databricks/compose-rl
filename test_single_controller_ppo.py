@@ -4,7 +4,7 @@
 
 # Copy the test file in the root of the repo
 # NOTE: This actually runs GRPO instead of PPO
-# cd compose-rl && cp tests/test_single_controller_ppo.py .
+# cd compose-rl
 # run cmd: composer test_single_controller_ppo.py
 # If I do ctrl+c to kill job
 # Check with `ray status` to see if the actors are still running
@@ -45,7 +45,8 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
-
+_MAX_SEQ_LEN = 6000
+_MAX_GEN_LEN = 4000
 
 class DistributedGPUActor(BaseDistributedGPUActor):
     """Distributed GPU actor for testing."""
@@ -114,9 +115,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.global_train_batch_size = 64
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
         self.num_batches_per_update = 8
-        self.max_seq_len = 10240
-        # self.max_gen_len = 8192
-        self.max_gen_len = 1000
+        self.max_seq_len = _MAX_SEQ_LEN
+        self.max_gen_len = _MAX_GEN_LEN
         self.precision = 'amp_bf16'
 
         ref_model_config = {
@@ -132,10 +132,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'lambda_gae': 1,
             'epoch_per_iteration': 1,
             'num_batches_per_update': self.num_batches_per_update,
-            # 'num_train_nodes': 2,
             'generations_per_prompt': 8,
             'num_batches_per_update': 8,
-            # 'vllm_tensor_parallel_size': 1,
             'device_generate_batch_size': 1,
             'vllm_enable_prefix_caching': True,
             'generation_kwargs': {
@@ -145,8 +143,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 'temperature': 1.0,
             },
             'eos_token_ids': [
-                151643,
-                151645
+                128001,
+                128008,
+                128009,
             ],
             'buffer': {
                 'name': 'MinibatchRolloutBuffer',
@@ -187,7 +186,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         algorithm_config = {
             'gradient_clipping': {
                 'clipping_type': 'norm',
-                'clipping_threshold': 0.0001
+                'clipping_threshold': 1.0
             }
         }
         self.train_config = {
@@ -215,7 +214,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # token (ids) for the experience buffer/manager
         kwargs = {
             'padding': 'longest',
-            'pad_token': '<|endoftext|>',
+            'pad_token': '<|finetune_right_pad_id|>',
             'truncation': True,
             'padding_side': 'left',
             'model_max_length': self.max_seq_len,
@@ -250,7 +249,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
         self.logger.info("Model created successfully")
 
-        optimizer = DecoupledAdamW(model.parameters(), lr=1e-8)
+        optimizer = DecoupledAdamW(model.parameters(), lr=1e-6)
 
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
@@ -404,7 +403,7 @@ class InferenceServer:
                 revision=None,
                 seed=1,
                 enable_prefix_caching=False,
-                max_model_len=1000,
+                max_model_len=_MAX_GEN_LEN,
                 device_bundle={
                     'GPU': 1,
                     'CPU': 1,
@@ -446,7 +445,6 @@ class RolloutAgent:
         """
         iter_data = ray.get(self.streaming_dataset_actor.get_next_iter_prompts.remote())
         all_prompts = iter_data['prompt']
-
         # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
         # we should move this to the separate util file.
         with get_precision_context(self.precision), torch.no_grad():
@@ -539,17 +537,17 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: We should move these to dataclasses
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
-        self.pretrain_model_name = 'Qwen/Qwen2.5-1.5B-Instruct'
+        self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
         self.prompt_handler_config = {
             "global_train_batch_size": 64,
             "generations_per_prompt": 8,
             "num_batches_per_update": 8,
-            "max_seq_len": 10240,
-            "max_gen_len": 1000,
+            "max_seq_len": _MAX_SEQ_LEN,
+            "max_gen_len": _MAX_GEN_LEN,
         }
         self.tokenizer_config = {
             'padding': 'longest',
-            'pad_token': '<|endoftext|>',
+            'pad_token': '<|finetune_right_pad_id|>',
             'truncation': True,
             'padding_side': 'left',
             'model_max_length': self.prompt_handler_config['max_seq_len'],
@@ -562,7 +560,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
             'dataset': {
                 'local': temp_dataset_dir,
                 'split': 'train',
-                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/q7b_open_r1_48k/',
+                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/',
                 'shuffle': True,
                 'max_gen_len': self.prompt_handler_config['max_gen_len'],
                 'max_seq_len': self.prompt_handler_config['max_seq_len'],
@@ -737,7 +735,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'Qwen/Qwen2.5-1.5B-Instruct',
+            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
         })
     
     # This is an example of how to move the controller logic from PPO Callback
