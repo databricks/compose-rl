@@ -10,6 +10,7 @@
 # Check with `ray status` to see if the actors are still running
 # If they are, then run `ray stop`
 
+import argparse
 import logging
 import os
 import time
@@ -25,6 +26,7 @@ from composer.core import get_precision_context
 from composer.optim import DecoupledAdamW
 from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
+from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
 
 from compose_rl.algorithms.online import (
@@ -647,15 +649,12 @@ class PPOController:
 
 
 def _run_single_controller_ppo(
-    pretrain_model_name: str,
-    world_size: int = 0,
+    config: Any,
 ):
     """Shared function for running single controller PPO.
 
     Args:
-        pretrain_model_name: Path to the pretrained model
-        world_size: Number of distributed processes
-        prompts: List of prompts to test generation with
+        config: OmegaConf configuration object containing all parameters
     """
     # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend
     # takes too long to jit compile
@@ -664,6 +663,7 @@ def _run_single_controller_ppo(
     with start_ray_server() as _address:
         # only rank 0 is the master controller
         if dist.get_rank() == 0:
+            world_size = getattr(config, "world_size", 0)
             if world_size == 0:
                 world_size = dist.get_world_size()
 
@@ -682,6 +682,7 @@ def _run_single_controller_ppo(
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
+            pretrain_model_name = config.pretrain_model_name
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
                 vllm_tensor_parallel_size=vllm_tensor_parallel_size,
@@ -717,9 +718,21 @@ def _run_single_controller_ppo(
 
 
 if __name__ == '__main__':
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Run single controller PPO with configuration file')
+    parser.add_argument('--file_path', type=str, required=False, default=None,
+                       help='Path to the OmegaConf YAML configuration file')
+    args = parser.parse_args()
+    
+    # Load configuration using OmegaConf
+    if args.file_path is not None:
+        config = om.load(args.file_path)
+    else:
+        config = om.create({
+            'pretrain_model_name': 'Qwen/Qwen2.5-1.5B-Instruct',
+        })
+    
     # This is an example of how to move the controller logic from PPO Callback
     # to a separate trainer actor above and this main single controller
     # function.
-    _run_single_controller_ppo(
-        pretrain_model_name='Qwen/Qwen2.5-1.5B-Instruct',
-    )
+    _run_single_controller_ppo(config)
