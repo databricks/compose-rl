@@ -55,7 +55,6 @@ from compose_rl.utils import (
     add_right_padding,
     compute_advantages,
     dist_compute_masked_mean_and_var,
-    flatten,
     get_decoded_sequence,
     get_entropies,
     get_log_probs,
@@ -64,6 +63,7 @@ from compose_rl.utils import (
     masked_sum,
     switch_left_to_right_padding,
 )
+from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 Policy = Union[ComposerHFPolicyLM, ComposerMPTPolicyLM]
@@ -666,59 +666,7 @@ class OnPolicyCallback(CallbackWithConfig):
             self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
 
-        ret_batch = {}
-        for key in batches[0].keys():
-            curr_values = []
-
-            max_len = 0
-            if isinstance(batches[0][key], torch.Tensor):
-                max_len = max([batch[key].shape[-1] for batch in batches])
-
-            padding_key = None
-            for batch in batches:
-                # Explode the batch into multiple batches for each generation
-                for _ in range(self.generations_per_prompt):
-                    # For keys that do not require additional processing
-                    if key in [
-                        'prompt_len',
-                        'verified_answer',
-                        'prompt_id',
-                        'vstar',
-                        'messages',
-                    ]:
-                        curr_values.append(batch[key])
-                        continue
-
-                    bs, seq_len = batch[key].shape
-
-                    if key == 'prompt':
-                        padding_key = self.pad_token_idx
-                        if (batch[key][:, -1] == padding_key).any():
-                            raise ValueError(
-                                'The last token in the prompt should not be the pad token. Please double '
-                                +
-                                'check the dataloader and prompt and dataloader.',
-                            )
-                    elif key == 'prompt_attention_mask':
-                        padding_key = False
-
-                    # Compute the required padding and concatenate with the batch tensor
-                    pad = torch.ones(
-                        (bs, max_len - seq_len),
-                        dtype=batch[key].dtype,
-                    ) * padding_key  # type: ignore
-                    curr_values.append(torch.cat([pad, batch[key]], dim=-1))
-
-            # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
-            if isinstance(curr_values[0], torch.Tensor):
-                ret_batch[key] = torch.cat(curr_values)
-            else:
-                if key in ['verified_answer', 'vstar']:
-                    ret_batch[key] = list(flatten(curr_values))
-                else:
-                    ret_batch[key] = curr_values
-
-        return ret_batch
+        return preprocess_batches(batches, self.generations_per_prompt, self.pad_token_idx)
 
     def _get_single_batch_prompts(self):
         """Gets a single batch of prompts from the dataloader."""
