@@ -1,0 +1,24 @@
+name: compose-rl-distributed-ppo-test
+
+scheduling:
+  priority: low
+  preemptible: true
+
+compute:
+  gpus: 16
+  cluster: r5z2p3
+
+integrations:
+- integration_type: git_repo
+  path: /workspace/compose-rl
+  git_repo: databricks/compose-rl
+  git_branch: single-controller-hackathon
+
+image: mosaicml/dle:nightly-latest
+
+command: |-
+  cd /workspace/compose-rl
+  composer test_single_controller_ppo.py --file_path /mnt/config/parameters.yaml
+
+parameters:
+  pretrain_model_name: Qwen/Qwen2.5-3B-Instruct
