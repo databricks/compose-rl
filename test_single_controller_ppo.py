@@ -265,10 +265,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         dummy_distributed_sampler = torch.utils.data.distributed.DistributedSampler(dummy_dataset)
         dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, sampler=dummy_distributed_sampler)
 
-        # Create logger config here
+        # Create mlflow logger config here
         mlflow_logger = MLFlowLogger(
-            experiment_name='single_controller_test',
-            run_name='single_controller_grpo_llama_8b_test_4k',
+            experiment_name='test_single_controller_ppo',
+            run_name='test_single_controller_ppo',
             tracking_uri='databricks',
         )
 
