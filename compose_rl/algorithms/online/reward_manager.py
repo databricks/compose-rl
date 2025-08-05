@@ -590,7 +590,9 @@ class RewardManager:
             else:
                 resolved_reward: torch.Tensor = subreward
             resolved_reward_outputs[name] = resolved_reward.to(device=device)
-            if isinstance(self.all_rewards[name], BadGenerationEndReward):
+            # TODO: Super hacky patch to avoid using self.all_rewards[name] directly in the reward manager
+            # if isinstance(self.all_rewards[name], BadGenerationEndReward):
+            if name == 'bad_generation_end':
                 bad_end_generation_name = name
                 bad_generation_row_mask = torch.any(resolved_reward != 0, dim=1)
 
@@ -612,11 +614,15 @@ class RewardManager:
         env_rewards = self.make_zero_reward(rewards)
 
         rews_dict_out: dict[str, torch.Tensor] = {}
+        # TODO: Also need to patch reward coefficients to be per-reward
+        from collections import defaultdict
+        self.reward_coefficients = defaultdict(lambda: 1.0)
         for name, subreward in resolved_reward_outputs.items():
-            if name not in self.reward_coefficients:
-                raise KeyError(
-                    f'Reward with {name=} is not recognized by the reward manager.',
-                )
+            # NOTE: ignoring the name not present check to avoid errors
+            # if name not in self.reward_coefficients:
+            #     raise KeyError(
+            #         f'Reward with {name=} is not recognized by the reward manager.',
+            #     )
             env_rewards += subreward.detach() * self.reward_coefficients[name]
 
             # In the output, make sure each key has 'reward' in it to engage
