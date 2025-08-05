@@ -311,25 +311,29 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             tracking_uri='databricks',
         )
 
-        orl_eval_callback = self.build_orl_eval_callback()
+        # callbacks for scheduled garbage collection
+        # this helps improve throughput by garbage collecting
+        # at regular intervals on all training processes
+        # ScheduledGarbageCollector(
+        #     batch_interval='1000',
+        # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
+        # callbacks for monitoring other metrics
+        callbacks = [
+            self.ppo_callback,
+            LRMonitor(),
+            MemoryMonitor(),
+            SpeedMonitor(window_size=10),
+        ]
+        try:
+            orl_eval_callback = self.build_orl_eval_callback()
+            callbacks.append(orl_eval_callback)
+        except Exception as e:
+            self.logger.warning(f"Failed to build ORL eval callback: {e}")
 
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
-            callbacks=[
-                self.ppo_callback,
-                orl_eval_callback,
-                # callbacks for scheduled garbage collection
-                # this helps improve throughput by garbage collecting
-                # at regular intervals on all training processes
-                # ScheduledGarbageCollector(
-                #     batch_interval='1000',
-                # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
-                # callbacks for monitoring other metrics
-                LRMonitor(),
-                MemoryMonitor(),
-                SpeedMonitor(window_size=10),
-            ],
+            callbacks=callbacks,
             train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
@@ -343,7 +347,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ppo_trainer.close()
     
     def attach_vllm_engines(self, vllm_engines: list[Any]):
-        self.logger.info(f"Attaching {len(vllm_engines)} vLLM engines to the trainer")
+        self.logger.info(f"Attaching {len(vllm_engines)} vLLM engines to the Training Actors")
         self.ppo_trainer.state.vllm_engines = vllm_engines
 
     def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
@@ -605,7 +609,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: We should move these to dataclasses
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
-        self.pretrain_model_name = 'meta-llama/Llama-3.2-1B-Instruct'
+        self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
         self.prompt_handler_config = {
             "global_train_batch_size": GLOBAL_TRAIN_BATCH_SIZE,
             "generations_per_prompt": GENERATIONS_PER_PROMPT,
@@ -755,8 +759,6 @@ def _run_single_controller_ppo(
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            # For now, we are only creating one vLLM engine with tensor parallelism
-            # equal to the number of ranks.
             vllm_tensor_parallel_size = world_size - num_train_actors
             num_vllm_engines = (
                 world_size - num_train_actors
@@ -809,7 +811,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.2-1B-Instruct',
+            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
         })
     
     # This is an example of how to move the controller logic from PPO Callback
