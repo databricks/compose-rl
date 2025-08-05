@@ -11,6 +11,7 @@
 # If they are, then run `ray stop`
 
 import argparse
+import asyncio
 import logging
 import os
 import time
@@ -373,6 +374,7 @@ class InferenceServer:
                     'worker_node': 0,
                 },
             )
+        self.lock = asyncio.Lock()
 
     @property
     def engines(self):
@@ -398,10 +400,12 @@ class ParameterBuffer(Buffer):
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
         dist.barrier()
 
-    def put(self, struct: dict[str, Any]):
+    async def put(self, struct: dict[str, Any]):
         # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
-        struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
+        inference_server = struct['inference_server']
+        async with inference_server.lock:
+            struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=inference_server))
 
 
 class ExperienceBuffer(Buffer):
@@ -457,14 +461,14 @@ class TrainActorGroup(SPMDActorGroup):
         latest_rollouts = ray.get(experience_buffer.get.remote())
         self._add_latest_rollouts(latest_rollouts)
     
-    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer, parameter_buffer: ParameterBuffer):
+    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer, parameter_buffer: ParameterBuffer, inference_server: InferenceServer):
         for _ in range(num_iterations):
-            parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
+            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server})
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
             latest_rollouts = await experience_buffer.get()
             self._add_latest_rollouts(latest_rollouts)
-            self.collective_methods.train_1_iter()
+            await asyncio.to_thread(self.collective_methods.train_1_iter, )
 
 
 class StreamingDatasetActor(BaseDistributedGPUActor):
@@ -627,7 +631,8 @@ class RolloutAgent:
 
     async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer):
         for _ in range(num_iterations):
-            rollouts = self.get_next_iter_rollouts()
+            async with self.inference_server.lock:
+                rollouts = await asyncio.to_thread(self.get_next_iter_rollouts, )
             await experience_buffer.put(rollouts)
 
 
@@ -658,12 +663,17 @@ class PPOController:
     def train(self):
         for _ in range(5):  # Example: train for 5 iterations
             # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
-            self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
+            ray.get(self.parameter_buffer.put.remote({'actor_group': self.train_actor, 'inference_server': self.inference_server}))
             # Simple example of adding elements to the experience buffer
             ray.get(self.experience_buffer.put.remote(self.rollout_agent.get_next_iter_rollouts()))
             # Populate the train actor group with the rollouts and then train
             self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
             self.train_actor.collective_methods.train_1_iter()
+    
+    def train_async(self, num_iterations: int):
+        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server))
+        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer))
+        asyncio.run(asyncio.gather(train_task, rollout_task))
 
 
 def _run_single_controller_ppo(
