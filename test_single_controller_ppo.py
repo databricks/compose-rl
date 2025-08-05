@@ -284,6 +284,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             load_path=self.ref_path,
         )
 
+    def close_trainer(self):
+        self.ppo_trainer.close()
+    
+
     def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
         """Adds the current rank's rollouts to the callback."""
         for k, v in current_rank_rollouts.items():
@@ -474,6 +478,7 @@ class RolloutAgent:
 
         processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
         iter_data['sequences'] = processed_sequences
+
         return iter_data
 
 
@@ -652,6 +657,9 @@ class PPOController:
             # Populate the train actor group with the rollouts and then train
             self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
             self.train_actor.collective_methods.train_1_iter()
+        
+        self.train_actor.collective_methods.close_trainer()
+
 
 
 def _run_single_controller_ppo(
