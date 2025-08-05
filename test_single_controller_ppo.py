@@ -329,6 +329,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             callbacks.append(orl_eval_callback)
         except Exception as e:
             self.logger.warning(f"Failed to build ORL eval callback: {e}")
+            self.train_config.pop('eval_interval', None)
 
         self.ppo_trainer = Trainer(
             model=model,
