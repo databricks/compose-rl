@@ -48,6 +48,7 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 _MAX_SEQ_LEN = 6000
 _MAX_GEN_LEN = 4000
 
+
 class DistributedGPUActor(BaseDistributedGPUActor):
     """Distributed GPU actor for testing."""
 
@@ -351,6 +352,71 @@ def setup_process_groups(
     print(ray.get(refs))
 
 
+class InferenceServer:
+    """Inference server with vLLM engines."""
+
+    def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str):
+        self.num_vllm_engines = num_vllm_engines
+        self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
+        self.vllm_engines = create_vllm_engines(
+                num_engines=num_vllm_engines,
+                tensor_parallel_size=vllm_tensor_parallel_size,
+                enforce_eager=True,
+                pretrain=pretrain_model_name,
+                revision=None,
+                seed=1,
+                enable_prefix_caching=False,
+                max_model_len=_MAX_GEN_LEN,
+                device_bundle={
+                    'GPU': 1,
+                    'CPU': 1,
+                    'worker_node': 0,
+                },
+            )
+
+    @property
+    def engines(self):
+        return self.vllm_engines
+
+class ParameterBuffer(Buffer):
+    """Buffer for updating the inference model."""
+
+    def update_inference_model(self, actor: DistributedGPUActor, inference_server: InferenceServer):
+        start_time = time.time()
+        print('Before broadcast to vLLM')
+        # TODO (infra) instead of direcly broadcasting to vllm, we should
+        # push the model parameters to a parameter buffer manager and have
+        # the buffer manager initiate broadcast of parameters to vllm engines
+        broadcast_to_vllm(
+            actor.ppo_callback.actor_critic,
+            inference_server.engines,
+            actor.model_update_group,
+            device=torch.device('cuda'),
+            loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
+        )
+        print('Finished broadcasting to vLLM')
+        print(f'Took: {time.time() - start_time} to broadcast to vllm.')
+        dist.barrier()
+
+    def put(self, struct: dict[str, Any]):
+        # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
+        # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
+        struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
+
+
+class ExperienceBuffer(Buffer):
+    """Buffer for storing experiences."""
+
+    async def put(self, struct: dict[str, Any]):
+        await self.buffer.put(struct)
+
+    async def get(self, struct: Optional[dict[str, Any]] = None):
+        return await self.buffer.get()
+
+    def __len__(self):
+        return len(self.buffer)
+
+
 class TrainActorGroup(SPMDActorGroup):
     """Group of training actors for PPO."""
 
@@ -379,146 +445,26 @@ class TrainActorGroup(SPMDActorGroup):
                 current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
             partitioned_rollouts.append(current_rank_rollouts)
         return partitioned_rollouts
-
-    def add_latest_rollouts_from_buffer(self, experience_buffer: "ExperienceBuffer"):
-        assert experience_buffer is not None, "Experience buffer is not set"
-        assert len(experience_buffer) > 0, "Experience buffer is empty"
-        latest_rollouts = experience_buffer.popleft()
-        partitioned_rollouts = self._partition_rollouts_across_ranks(latest_rollouts)
+    
+    def _add_latest_rollouts(self, rollouts: dict[str, Any]):
+        partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
         ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
 
-
-class InferenceServer:
-    """Inference server with vLLM engines."""
-
-    def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str):
-        self.num_vllm_engines = num_vllm_engines
-        self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
-        self.vllm_engines = create_vllm_engines(
-                num_engines=num_vllm_engines,
-                tensor_parallel_size=vllm_tensor_parallel_size,
-                enforce_eager=True,
-                pretrain=pretrain_model_name,
-                revision=None,
-                seed=1,
-                enable_prefix_caching=False,
-                max_model_len=_MAX_GEN_LEN,
-                device_bundle={
-                    'GPU': 1,
-                    'CPU': 1,
-                    'worker_node': 0,
-                },
-            )
-
-    @property
-    def engines(self):
-        return self.vllm_engines
-
-
-class RolloutAgent:
-    """Rollout agent for generating sequences from the inference server."""
-
-    def __init__(
-        self,
-        inference_server: InferenceServer,
-        streaming_dataset_actor: "StreamingDatasetActor",
-    ):
-        self.inference_server = inference_server
-        self.streaming_dataset_actor = streaming_dataset_actor
-        self.generation_kwargs = {
-            'top_p': 1.0,
-            'use_cache': True,
-            'do_sample': False,
-            'temperature': 1.0,
-        }
-        self.precision = 'amp_bf16'
-        self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
-        self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
-        self.max_gen_len = self.prompt_handler_config['max_gen_len']
-
-    def get_next_iter_rollouts(self):
-        """
-        Gets the next rollouts from the inference server.
-
-        Since all ranks should see different data, we need to get the rollouts for each rank.
-        """
-        iter_data = ray.get(self.streaming_dataset_actor.get_next_iter_prompts.remote())
-        all_prompts = iter_data['prompt']
-        # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
-        # we should move this to the separate util file.
-        with get_precision_context(self.precision), torch.no_grad():
-            sequences = _vllm_generate(
-                vllm_engines=self.inference_server.engines,
-                max_gen_len=self.max_gen_len,
-                generation_kwargs=self.generation_kwargs,
-                pad_token_id=self.tokenizer_pad_token_id,
-                all_prompts=all_prompts,
-                batch_sizes=[len(all_prompts)],
-            )
-
-        sequences = sequences[0]
-        max_vllm_generated_len = max([len(response) for response in sequences])
-        padded_responses = []
-        for sequence in sequences:
-            sequence = list(sequence)
-            if len(sequence) < max_vllm_generated_len:
-                sequence = sequence + [self.tokenizer_pad_token_id] * (max_vllm_generated_len - len(sequence))
-            padded_responses.append(sequence)
-
-        padded_responses = torch.tensor(
-            padded_responses,
-            dtype=all_prompts.dtype,
-            device=torch.device('cpu'),
-        )
-
-        processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
-        iter_data['sequences'] = processed_sequences
-        return iter_data
-
-
-class ParameterBuffer(Buffer):
-    """Buffer for updating the inference model."""
-
-    def update_inference_model(self, actor: DistributedGPUActor, inference_server: InferenceServer):
-        start_time = time.time()
-        print('Before broadcast to vLLM')
-        # TODO (infra) instead of direcly broadcasting to vllm, we should
-        # push the model parameters to a parameter buffer manager and have
-        # the buffer manager initiate broadcast of parameters to vllm engines
-        broadcast_to_vllm(
-            actor.ppo_callback.actor_critic,
-            inference_server.engines,
-            actor.model_update_group,
-            device=torch.device('cuda'),
-            loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
-        )
-        print('Finished broadcasting to vLLM')
-        print(f'Took: {time.time() - start_time} to broadcast to vllm.')
-        dist.barrier()
-
-    def put(self, struct: dict[str, Any]):
-        # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
-        # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
-        struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
-
-
-# TODO: Move this experience buffer earlier so that we can avoid
-# using "ExperienceBuffer" (with quotes) as a type hint.
-class ExperienceBuffer(Buffer):
-    """Buffer for storing experiences."""
-
-    def put(self, struct: dict[str, Any]):
-        self.buffer.append(struct)
-
-    def get(self, struct: Optional[dict[str, Any]] = None):
-        return self.buffer[0]
-
-    def popleft(self, struct: Optional[dict[str, Any]] = None):
-        return self.buffer.pop(0)
-
-    def __len__(self):
-        return len(self.buffer)
+    def add_latest_rollouts_from_buffer(self, experience_buffer: ExperienceBuffer):
+        assert experience_buffer is not None, "Experience buffer is not set"
+        assert len(experience_buffer) > 0, "Experience buffer is empty"
+        latest_rollouts = ray.get(experience_buffer.get.remote())
+        self._add_latest_rollouts(latest_rollouts)
+    
+    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer, parameter_buffer: ParameterBuffer):
+        for _ in range(num_iterations):
+            parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
+            # Simple example of adding elements to the experience buffer
+            # Populate the train actor group with the rollouts and then train
+            latest_rollouts = await experience_buffer.get()
+            self._add_latest_rollouts(latest_rollouts)
+            self.collective_methods.train_1_iter()
 
 
 class StreamingDatasetActor(BaseDistributedGPUActor):
@@ -619,6 +565,72 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         return preprocess_batches(batches, self.generations_per_prompt, self.tokenizer.pad_token_id)
 
 
+class RolloutAgent:
+    """Rollout agent for generating sequences from the inference server."""
+
+    def __init__(
+        self,
+        inference_server: InferenceServer,
+        streaming_dataset_actor: StreamingDatasetActor,
+    ):
+        self.inference_server = inference_server
+        self.streaming_dataset_actor = streaming_dataset_actor
+        self.generation_kwargs = {
+            'top_p': 1.0,
+            'use_cache': True,
+            'do_sample': False,
+            'temperature': 1.0,
+        }
+        self.precision = 'amp_bf16'
+        self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
+        self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
+        self.max_gen_len = self.prompt_handler_config['max_gen_len']
+
+    def get_next_iter_rollouts(self):
+        """
+        Gets the next rollouts from the inference server.
+
+        Since all ranks should see different data, we need to get the rollouts for each rank.
+        """
+        iter_data = ray.get(self.streaming_dataset_actor.get_next_iter_prompts.remote())
+        all_prompts = iter_data['prompt']
+        # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
+        # we should move this to the separate util file.
+        with get_precision_context(self.precision), torch.no_grad():
+            sequences = _vllm_generate(
+                vllm_engines=self.inference_server.engines,
+                max_gen_len=self.max_gen_len,
+                generation_kwargs=self.generation_kwargs,
+                pad_token_id=self.tokenizer_pad_token_id,
+                all_prompts=all_prompts,
+                batch_sizes=[len(all_prompts)],
+            )
+
+        sequences = sequences[0]
+        max_vllm_generated_len = max([len(response) for response in sequences])
+        padded_responses = []
+        for sequence in sequences:
+            sequence = list(sequence)
+            if len(sequence) < max_vllm_generated_len:
+                sequence = sequence + [self.tokenizer_pad_token_id] * (max_vllm_generated_len - len(sequence))
+            padded_responses.append(sequence)
+
+        padded_responses = torch.tensor(
+            padded_responses,
+            dtype=all_prompts.dtype,
+            device=torch.device('cpu'),
+        )
+
+        processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
+        iter_data['sequences'] = processed_sequences
+        return iter_data
+
+    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer):
+        for _ in range(num_iterations):
+            rollouts = self.get_next_iter_rollouts()
+            await experience_buffer.put(rollouts)
+
+
 class PPOController:
     """PPO controller for training the policy and value networks."""
 
@@ -648,7 +660,7 @@ class PPOController:
             # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
             self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
             # Simple example of adding elements to the experience buffer
-            self.experience_buffer.put(self.rollout_agent.get_next_iter_rollouts())
+            ray.get(self.experience_buffer.put.remote(self.rollout_agent.get_next_iter_rollouts()))
             # Populate the train actor group with the rollouts and then train
             self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
             self.train_actor.collective_methods.train_1_iter()
