@@ -43,7 +43,8 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
     # init ray on master node, rank 0
     if dist.get_rank() == 0:
         # Start Ray Server on master node
-        subprocess.run(['ray', 'start', '--head'], check=True)
+        free_port = get_free_port()
+        subprocess.run(['ray', 'start', '--head', f'--port={free_port}'], check=True)
         # connect to the ray cluster
         ray.init('auto')
         # get existing ray ip and port

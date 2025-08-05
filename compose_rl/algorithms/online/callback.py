@@ -620,10 +620,10 @@ class OnPolicyCallback(CallbackWithConfig):
 
         batch = self._get_next_iter_prompts()
 
-        batch = state.device.batch_to_device(batch)
+        on_device_tensor = state.device.tensor_to_device(torch.tensor([1], dtype=torch.uint8))
 
         if self.vllm_engines is not None:
-            self._update_inference_model(batch)
+            self._update_inference_model(on_device_tensor)
 
         self._interact_with_env(batch)
         # Reset and initialize state train dataloader
@@ -1101,7 +1101,7 @@ class OnPolicyCallback(CallbackWithConfig):
         dist.barrier()
         log.info('All ranks have completed the vLLM engine create function.')
 
-    def _update_inference_model(self, batch: dict[str, torch.Tensor]):
+    def _update_inference_model(self, on_device_tensor: torch.Tensor):
         start_time = time.time()
         log.info('Before broadcast to vLLM')
         assert self.vllm_engines is not None
@@ -1109,7 +1109,7 @@ class OnPolicyCallback(CallbackWithConfig):
             model=self.actor_critic,
             vllm_engines=self.vllm_engines,
             model_update_group=self.model_update_group,
-            device=batch['prompt'].device,
+            device=on_device_tensor.device,
             loss_type=self.actor_critic.loss_type,  # type: ignore
             enable_prefix_caching=self.vllm_enable_prefix_caching,
         )
