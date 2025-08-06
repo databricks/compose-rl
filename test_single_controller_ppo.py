@@ -51,6 +51,7 @@ GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
 NUM_TRAIN_ITERATIONS = 10
+DO_SAMPLE = True
 
 _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
@@ -156,7 +157,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'generation_kwargs': {
                 'top_p': 1.0,
                 'use_cache': True,
-                'do_sample': True,
+                'do_sample': DO_SAMPLE,
                 'temperature': 1.0,
             },
             'eos_token_ids': [
@@ -506,7 +507,7 @@ class RolloutAgent:
         self.generation_kwargs = {
             'top_p': 1.0,
             'use_cache': True,
-            'do_sample': False,
+            'do_sample': DO_SAMPLE,
             'temperature': 1.0,
         }
         self.precision = 'amp_bf16'
