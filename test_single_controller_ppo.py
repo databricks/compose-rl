@@ -27,7 +27,7 @@ from composer.core import get_precision_context
 from composer.optim import DecoupledAdamW
 from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
 
 from compose_rl.algorithms.online import (
@@ -94,7 +94,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.logger.info(f"Starting build_train_config with model: {pretrain_model_name}")
         self.pretrain_model_name = pretrain_model_name
 
-        self.model_config = OmegaConf.to_container(self.config.actor_config.model_config, resolve=True)
+        self.model_config = om.to_container(self.config.actor_config.model_config, resolve=True)
         self.model_config['tokenizer'] = self.tokenizer
         self.model_config['pretrained_model_name_or_path'] = self.pretrain_model_name
 
@@ -105,7 +105,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.max_gen_len = self.config.actor_config.max_gen_len
         self.precision = self.config.actor_config.precision
 
-        variables = OmegaConf.to_container(self.config.actor_config.actor_variables, resolve=True)
+        variables = om.to_container(self.config.actor_config.actor_variables, resolve=True)
         variables['non_train_fsdp_config'] = self.fsdp_config
         algorithm_config = self.config.actor_config.algorithm_config
 
