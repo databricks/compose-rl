@@ -617,12 +617,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     # Load configuration using OmegaConf
-    if args.file_path is not None:
-        config = om.load(args.file_path)
+    if args.file_path is None:
+        config = om.load("yamls/distributed_ppo_test.yaml")
     else:
-        config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
-        })
+        config = om.load(args.file_path)
     
     # This is an example of how to move the controller logic from PPO Callback
     # to a separate trainer actor above and this main single controller
