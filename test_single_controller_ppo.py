@@ -53,14 +53,12 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def __init__(
         self,
-        config: Any,
         rank: int,
         world_size: int,
         master_addr: Optional[str] = None,
         master_port: Optional[int] = None,
     ):
         super().__init__(rank, world_size, master_addr, master_port)
-        self.config = config
         
         # Configure Ray actor logging - this will go to Ray logs
         self.logger = logging.getLogger(f"Actor-{rank}")
@@ -72,6 +70,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
         
+        self.config = None
         self.model = None
         self.model_update_group = None
         self.ref_path = None
@@ -90,7 +89,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.global_train_batch_size = None
         self.max_gen_len = None
 
-    def build_train_config(self, pretrain_model_name: str):
+    def build_train_config(self, pretrain_model_name: str, config: Any):
+        self.config = config
         self.logger.info(f"Starting build_train_config with model: {pretrain_model_name}")
         self.pretrain_model_name = pretrain_model_name
 
@@ -270,9 +270,9 @@ class TrainActorGroup(SPMDActorGroup):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
 
-    def build_models(self, pretrain_model_name: str):
+    def build_models(self, pretrain_model_name: str, config: Any):
         """Build reference models and PPO trainers for all actors."""
-        self.collective_methods.build_train_config(pretrain_model_name)
+        self.collective_methods.build_train_config(pretrain_model_name, config)
         self.collective_methods.init_composer_dist()
 
         # Build PPO trainers
@@ -514,13 +514,14 @@ class PPOController:
         parameter_buffer: ParameterBuffer,
         experience_buffer: ExperienceBuffer,
         pretrain_model_name: str,
+        config: Any,
     ):
         self.train_actor = train_actor
         self.inference_server = inference_server
         self.rollout_agent = rollout_agent
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
-        self.train_actor.build_models(pretrain_model_name)
+        self.train_actor.build_models(pretrain_model_name, config)
         setup_process_groups(
             self.train_actor.master_actor,
             inference_server.engines,
@@ -564,7 +565,7 @@ def _run_single_controller_ppo(
 
             # create SPMD training actors of the system
             num_train_actors = world_size // 2
-            train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor, config)
+            train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
             vllm_tensor_parallel_size = world_size - num_train_actors
@@ -603,6 +604,7 @@ def _run_single_controller_ppo(
                 parameter_buffer,
                 experience_buffer,
                 pretrain_model_name,
+                config,
             )
             ppo_controller.train()
 
