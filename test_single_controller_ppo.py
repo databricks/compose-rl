@@ -105,7 +105,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.max_gen_len = self.config.actor_config.max_gen_len
         self.precision = self.config.actor_config.precision
 
-        variables = self.config.actor_config.actor_variables
+        variables = (dict)(self.config.actor_config.actor_variables)
         variables['non_train_fsdp_config'] = self.fsdp_config
         algorithm_config = self.config.actor_config.algorithm_config
 
