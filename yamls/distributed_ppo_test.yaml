@@ -39,7 +39,7 @@ parameters:
       trust_remote_code: true
 
   pretrain_model_name: ${variables.model_name}
-  
+
   dataset_config:
     prompt_handler_config:
       global_train_batch_size: ${variables.global_train_batch_size}
