@@ -11,6 +11,7 @@
 # If they are, then run `ray stop`
 
 import argparse
+from contextlib import contextmanager
 import logging
 import os
 import time
@@ -29,6 +30,7 @@ from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
+from composer.callbacks import MemoryMonitor, SpeedMonitor, LRMonitor
 
 from compose_rl.algorithms.online import (
     ComposerHFPolicyLM,
@@ -45,8 +47,24 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
+GLOBAL_TRAIN_BATCH_SIZE = 64
+GENERATIONS_PER_PROMPT = 8  
+NUM_BATCHES_PER_UPDATE = 8
+NUM_TRAIN_ITERATIONS = 5
+
 _MAX_SEQ_LEN = 6000
 _MAX_GEN_LEN = 4000
+
+
+@contextmanager
+def time_it(name: str):
+    start_time = time.time()
+    print(f"[{name}] started at {time.strftime('%X')}")
+    yield
+    end_time = time.time()
+    print(f"[{name}] finished at {time.strftime('%X')}")
+    print(f"[{name}] took {end_time - start_time:.2f} seconds")
+
 
 class DistributedGPUActor(BaseDistributedGPUActor):
     """Distributed GPU actor for testing."""
@@ -184,10 +202,23 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             tracking_uri='databricks',
         )
 
+        
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
-            callbacks=self.ppo_callback,
+            callbacks=[
+                self.ppo_callback,
+                # callbacks for scheduled garbage collection
+                # this helps improve throughput by garbage collecting
+                # at regular intervals on all training processes
+                # ScheduledGarbageCollector(
+                #     batch_interval='1000',
+                # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
+                # callbacks for monitoring other metrics
+                LRMonitor(),
+                MemoryMonitor(),
+                SpeedMonitor(window_size=10),
+            ],
             train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
@@ -196,6 +227,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             device_train_microbatch_size=1,
             load_path=self.ref_path,
         )
+
+    def close_trainer(self):
+        self.ppo_trainer.close()
+    
 
     def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
         """Adds the current rank's rollouts to the callback."""
@@ -300,6 +335,11 @@ class TrainActorGroup(SPMDActorGroup):
         partitioned_rollouts = self._partition_rollouts_across_ranks(latest_rollouts)
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
         ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
+    
+    def train_1_iter(self):
+        # added this method to time the collectivetraining time otherwise we can time each rank but the print/logging becomes messy to read
+        with time_it("training"):
+            self.collective_methods.train_1_iter()
 
 
 class InferenceServer:
@@ -356,7 +396,7 @@ class RolloutAgent:
         all_prompts = iter_data['prompt']
         # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
         # we should move this to the separate util file.
-        with get_precision_context(self.precision), torch.no_grad():
+        with get_precision_context(self.precision), torch.no_grad(), time_it("batch_inference"):
             sequences = _vllm_generate(
                 vllm_engines=self.inference_server.engines,
                 max_gen_len=self.max_gen_len,
@@ -383,6 +423,7 @@ class RolloutAgent:
 
         processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
         iter_data['sequences'] = processed_sequences
+
         return iter_data
 
 
@@ -529,14 +570,17 @@ class PPOController:
         )
 
     def train(self):
-        for _ in range(5):  # Example: train for 5 iterations
+        for _ in range(NUM_TRAIN_ITERATIONS):  # Example: train for 5 iterations
             # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
             self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
             # Simple example of adding elements to the experience buffer
             self.experience_buffer.put(self.rollout_agent.get_next_iter_rollouts())
             # Populate the train actor group with the rollouts and then train
             self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
-            self.train_actor.collective_methods.train_1_iter()
+            self.train_actor.train_1_iter()
+        
+        self.train_actor.collective_methods.close_trainer()
+
 
 
 def _run_single_controller_ppo(
