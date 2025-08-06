@@ -27,7 +27,7 @@ from composer.core import get_precision_context
 from composer.optim import DecoupledAdamW
 from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
-from omegaconf import OmegaConf as om
+from omegaconf import OmegaConf
 from transformers import AutoTokenizer
 
 from compose_rl.algorithms.online import (
@@ -90,27 +90,27 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.max_gen_len = None
 
     def build_train_config(self, pretrain_model_name: str, config: Any):
-        self.config = (dict)(config.actor_config)
+        self.config = config
         self.logger.info(f"Starting build_train_config with model: {pretrain_model_name}")
         self.pretrain_model_name = pretrain_model_name
 
-        self.model_config = (dict)(self.config.model_config)
+        self.model_config = OmegaConf.to_container(self.config.actor_config.model_config, resolve=True)
         self.model_config['tokenizer'] = self.tokenizer
         self.model_config['pretrained_model_name_or_path'] = self.pretrain_model_name
 
-        self.global_train_batch_size = self.config.global_train_batch_size
+        self.global_train_batch_size = self.config.actor_config.global_train_batch_size
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
-        self.num_batches_per_update = self.config.num_batches_per_update
-        self.max_seq_len = self.config.max_seq_len
-        self.max_gen_len = self.config.max_gen_len
-        self.precision = self.config.precision
+        self.num_batches_per_update = self.config.actor_config.num_batches_per_update
+        self.max_seq_len = self.config.actor_config.max_seq_len
+        self.max_gen_len = self.config.actor_config.max_gen_len
+        self.precision = self.config.actor_config.precision
 
-        variables = (dict)(self.config.actor_variables)
+        variables = OmegaConf.to_container(self.config.actor_config.actor_variables, resolve=True)
         variables['non_train_fsdp_config'] = self.fsdp_config
-        algorithm_config = self.config.algorithm_config
+        algorithm_config = self.config.actor_config.algorithm_config
 
         self.train_config = {
-            'seed': self.config.seed,
+            'seed': self.config.actor_config.seed,
             'model': self.model_config,
             'fsdp_config': self.fsdp_config,
             'precision': self.precision,
@@ -119,11 +119,11 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'global_train_batch_size': self.device_train_batch_size * self.world_size,
             'device_train_batch_size': self.device_train_batch_size,
             'device_train_microbatch_size': self.device_train_batch_size,
-            'save_folder': self.config.save_folder,
-            'log_config': self.config.log_config,
+            'save_folder': self.config.actor_config.save_folder,
+            'log_config': self.config.actor_config.log_config,
             'max_seq_len': self.max_seq_len,
-            'python_log_level': self.config.python_log_level,
-            'console_log_interval': self.config.console_log_interval,
+            'python_log_level': self.config.actor_config.python_log_level,
+            'console_log_interval': self.config.actor_config.console_log_interval,
         }
         self.logger.info("Finished build_train_config")
 
@@ -132,7 +132,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # we may need token level log prob
         # TODO (infra): use the tokenizer/texts for prompt dataloader but
         # token (ids) for the experience buffer/manager
-        kwargs = self.config.tokenizer_config
+        kwargs = self.config.actor_config.tokenizer_config
         tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name, **kwargs)
         return tokenizer
 
