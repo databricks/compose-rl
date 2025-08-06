@@ -487,21 +487,16 @@ class MCQAVerifierReward(BaseVerifierReward):
 
 
 class BPTRewardModelReward(Reward):
+    BLOCKING = True 
 
     def __init__(self, bpt_run_name: str, tokenizer: Tokenizer, reward: float = 1.0):
-        super().__init__(tokenizer=tokenizer, reward=reward)
+        super().__init__(tokenizer=tokenizer)
         self.bpt_run_name = bpt_run_name
+        self.reward = reward
         self.bpt_details = self._fetch_bpt_details()
 
-    def _fetch_bpt_details(self):
-        """Fetch the BPT details for a given run.
-
-        Args:
-            config_or_bpt_run: Either a config dict with a 'bpt_run' key, or a BPT run name.
-
-        Returns:
-            dict[str, str]
-        """
+    def _fetch_bpt_details(self) -> dict[str, str]:
+        """Fetch the BPT details for a given run."""
         log.info(f'Fetching BPT details for run {self.bpt_run_name}')
         run = mcli_get_run(self.bpt_run_name, timeout=60)
         if (status := str(run.status)) != "RUNNING":
