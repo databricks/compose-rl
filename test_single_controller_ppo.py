@@ -50,10 +50,10 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
-NUM_TRAIN_ITERATIONS = 5
+NUM_TRAIN_ITERATIONS = 10
 
-_MAX_SEQ_LEN = 6000
-_MAX_GEN_LEN = 4000
+_MAX_SEQ_LEN = 10240
+_MAX_GEN_LEN = 8192
 
 
 @contextmanager
@@ -156,7 +156,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'generation_kwargs': {
                 'top_p': 1.0,
                 'use_cache': True,
-                'do_sample': False,
+                'do_sample': True,
                 'temperature': 1.0,
             },
             'eos_token_ids': [
@@ -203,7 +203,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         algorithm_config = {
             'gradient_clipping': {
                 'clipping_type': 'norm',
-                'clipping_threshold': 1.0
+                'clipping_threshold': 0.001
             }
         }
         self.train_config = {
@@ -263,11 +263,14 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'evals': [
                 {
                     'name': 'gsm8k',
-                }
+                },
+                {
+                    'name': 'math_500',
+                },
             ],
             'eval_overrides': {
                 'generation_params': {
-                    'max_tokens': 4000
+                    'max_tokens': 8192
                 }
             },
         }
@@ -289,7 +292,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
         self.logger.info("Model created successfully")
 
-        optimizer = DecoupledAdamW(model.parameters(), lr=1e-6)
+        optimizer = DecoupledAdamW(model.parameters(), lr=1e-7)
 
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
@@ -338,7 +341,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
-            max_duration='5iter',
+            max_duration=f'{NUM_TRAIN_ITERATIONS}iter',
             loggers=[mlflow_logger],
             device_train_microbatch_size=1,
             load_path=self.ref_path,
