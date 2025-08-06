@@ -662,7 +662,7 @@ if __name__ == '__main__':
     
     # Load configuration using OmegaConf
     if args.file_path is None:
-        config = om.load("yamls/distributed_ppo_test.yaml")
+        config = om.load("yamls/ppo_test.yaml")
     else:
         config = om.load(args.file_path)
     
