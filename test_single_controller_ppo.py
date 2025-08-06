@@ -270,7 +270,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             ],
             'eval_overrides': {
                 'generation_params': {
-                    'max_tokens': 8192
+                    'max_tokens': _MAX_GEN_LEN
                 }
             },
         }
@@ -292,7 +292,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
         self.logger.info("Model created successfully")
 
-        optimizer = DecoupledAdamW(model.parameters(), lr=1e-7)
+        optimizer = DecoupledAdamW(model.parameters(), lr=1e-6)
 
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
@@ -314,19 +314,21 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             tracking_uri='databricks',
         )
 
-        # callbacks for scheduled garbage collection
-        # this helps improve throughput by garbage collecting
-        # at regular intervals on all training processes
-        # ScheduledGarbageCollector(
-        #     batch_interval='1000',
-        # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
-        # callbacks for monitoring other metrics
         callbacks = [
             self.ppo_callback,
+            # callbacks for scheduled garbage collection
+            # this helps improve throughput by garbage collecting
+            # at regular intervals on all training processes
+            # ScheduledGarbageCollector(
+            #     batch_interval='1000',
+            # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
+            # callbacks for monitoring other metrics
             LRMonitor(),
             MemoryMonitor(),
             SpeedMonitor(window_size=10),
         ]
+
+        # Try to add the ORL eval callback if the required dependencies are installed
         try:
             orl_eval_callback = self.build_orl_eval_callback()
             callbacks.append(orl_eval_callback)
