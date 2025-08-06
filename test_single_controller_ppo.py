@@ -46,8 +46,8 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
-_MAX_SEQ_LEN = 6000
-_MAX_GEN_LEN = 4000
+_MAX_SEQ_LEN = 4000
+_MAX_GEN_LEN = 2000
 
 
 class DistributedGPUActor(BaseDistributedGPUActor):
@@ -374,7 +374,6 @@ class InferenceServer:
                     'worker_node': 0,
                 },
             )
-        self.lock = asyncio.Lock()
 
     @property
     def engines(self):
@@ -403,9 +402,8 @@ class ParameterBuffer(Buffer):
     async def put(self, struct: dict[str, Any]):
         # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
-        inference_server = struct['inference_server']
-        async with inference_server.lock:
-            struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=inference_server))
+        async with struct['lock']:
+            struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
 
 
 class ExperienceBuffer(Buffer):
@@ -461,14 +459,21 @@ class TrainActorGroup(SPMDActorGroup):
         latest_rollouts = ray.get(experience_buffer.get.remote())
         self._add_latest_rollouts(latest_rollouts)
     
-    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer, parameter_buffer: ParameterBuffer, inference_server: InferenceServer):
+    def train_1_iter(self):
+        begin = time.strftime('%X')
+        print(f"training started at {begin}")
+        self.collective_methods.train_1_iter()
+        end = time.strftime('%X')
+        print(f"training finished at {end}")
+
+    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer, parameter_buffer: ParameterBuffer, inference_server: InferenceServer, lock: asyncio.Lock):
         for _ in range(num_iterations):
-            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server})
+            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock})
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
             latest_rollouts = await experience_buffer.get()
             self._add_latest_rollouts(latest_rollouts)
-            await asyncio.to_thread(self.collective_methods.train_1_iter, )
+            await asyncio.to_thread(self.train_1_iter)
 
 
 class StreamingDatasetActor(BaseDistributedGPUActor):
@@ -601,6 +606,8 @@ class RolloutAgent:
         # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
         # we should move this to the separate util file.
         with get_precision_context(self.precision), torch.no_grad():
+            begin = time.strftime('%X')
+            print(f"inference started at {begin}")
             sequences = _vllm_generate(
                 vllm_engines=self.inference_server.engines,
                 max_gen_len=self.max_gen_len,
@@ -609,7 +616,8 @@ class RolloutAgent:
                 all_prompts=all_prompts,
                 batch_sizes=[len(all_prompts)],
             )
-
+            end = time.strftime('%X')
+            print(f"inference finished at {end}")
         sequences = sequences[0]
         max_vllm_generated_len = max([len(response) for response in sequences])
         padded_responses = []
@@ -629,10 +637,10 @@ class RolloutAgent:
         iter_data['sequences'] = processed_sequences
         return iter_data
 
-    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer):
+    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer, lock: asyncio.Lock):
         for _ in range(num_iterations):
-            async with self.inference_server.lock:
-                rollouts = await asyncio.to_thread(self.get_next_iter_rollouts, )
+            async with lock:
+                rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
             await experience_buffer.put(rollouts)
 
 
@@ -659,6 +667,7 @@ class PPOController:
             inference_server.engines,
             inference_server.vllm_tensor_parallel_size,
         )
+        self.lock = asyncio.Lock()
 
     def train(self):
         for _ in range(5):  # Example: train for 5 iterations
@@ -671,8 +680,8 @@ class PPOController:
             self.train_actor.collective_methods.train_1_iter()
     
     async def train_async(self, num_iterations: int):
-        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server))
-        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer))
+        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock))
+        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock))
         await asyncio.gather(train_task, rollout_task)
 
 
@@ -757,7 +766,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
+            'pretrain_model_name': 'Qwen/Qwen2.5-1.5B-Instruct',
         })
     
     # This is an example of how to move the controller logic from PPO Callback
