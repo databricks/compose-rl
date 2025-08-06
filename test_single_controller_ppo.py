@@ -53,10 +53,10 @@ GENERATIONS_PER_PROMPT = 8
 NUM_BATCHES_PER_UPDATE = 8
 NUM_TRAIN_ITERATIONS = 8
 
-_MAX_SEQ_LEN = 2000
-_MAX_GEN_LEN = 1000
+_MAX_SEQ_LEN = 10240
+_MAX_GEN_LEN = 8192
 
-MAX_ASYNC_STEP = 0
+MAX_ASYNC_STEP = 1
 
 @contextmanager
 def time_it(name: str):
@@ -205,7 +205,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         algorithm_config = {
             'gradient_clipping': {
                 'clipping_type': 'norm',
-                'clipping_threshold': 1.0
+                'clipping_threshold': .001
             }
         }
         self.train_config = {
@@ -286,7 +286,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_ppo_async',
+            run_name='test_single_controller_ppo_async_temp',
             tracking_uri='databricks',
         )
 
@@ -801,7 +801,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.2-1B-Instruct',
+            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
         })
     
     # This is an example of how to move the controller logic from PPO Callback
