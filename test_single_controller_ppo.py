@@ -50,7 +50,7 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
-NUM_TRAIN_ITERATIONS = 10
+NUM_TRAIN_ITERATIONS = 20
 DO_SAMPLE = True
 
 _MAX_SEQ_LEN = 10240
@@ -222,7 +222,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'max_seq_len': self.max_seq_len,
             'python_log_level': 'debug',
             'console_log_interval': '1ba',
-            'eval_interval': '1iter',
+            'eval_interval': '2iter',
         }
         self.logger.info("Finished build_train_config")
 
@@ -311,7 +311,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_ppo',
+            run_name='test_single_controller_grpo_seq_len_fix',
             tracking_uri='databricks',
         )
 
@@ -481,7 +481,7 @@ class InferenceServer:
                 revision=None,
                 seed=1,
                 enable_prefix_caching=False,
-                max_model_len=_MAX_GEN_LEN,
+                max_model_len=_MAX_SEQ_LEN,
                 device_bundle={
                     'GPU': 1,
                     'CPU': 1,
