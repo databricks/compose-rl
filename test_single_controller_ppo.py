@@ -487,7 +487,13 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
         self.pretrain_model_name = config.model.pretrained_model_name_or_path
-        #self.prompt_handler_config = config.dataset_config.prompt_handler_config
+        self.prompt_handler_config = {
+            'global_train_batch_size': config.global_train_batch_size,
+            'generations_per_prompt': config.variables.generations_per_prompt,
+            'num_batches_per_update': config.variables.num_batches_per_update,
+            'max_seq_len': config.max_seq_len,
+            'max_gen_len': config.variables.max_gen_len,
+        }
         self.tokenizer_config = config.tokenizer
         self.dataloader_config = config.train_loader
 
