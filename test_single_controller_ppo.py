@@ -51,7 +51,7 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
-NUM_TRAIN_ITERATIONS = 8
+NUM_TRAIN_ITERATIONS = 10
 
 _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
@@ -205,7 +205,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         algorithm_config = {
             'gradient_clipping': {
                 'clipping_type': 'norm',
-                'clipping_threshold': .001
+                'clipping_threshold': .0001
             }
         }
         self.train_config = {
@@ -286,7 +286,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_ppo_async_clipping_threshold_0.001',
+            run_name='test_single_controller_ppo_async_clipping_threshold_0.0001_do_sample_True',
             tracking_uri='databricks',
         )
 
@@ -310,7 +310,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
-            max_duration='5iter',
+            max_duration=f'{NUM_TRAIN_ITERATIONS}iter',
             loggers=[mlflow_logger],
             device_train_microbatch_size=1,
             load_path=self.ref_path,
@@ -482,7 +482,7 @@ class RolloutAgent:
         self.generation_kwargs = {
             'top_p': 1.0,
             'use_cache': True,
-            'do_sample': False,
+            'do_sample': True,
             'temperature': 1.0,
         }
         self.precision = 'amp_bf16'
