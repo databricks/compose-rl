@@ -29,6 +29,8 @@ from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
+from llmfoundry.callbacks import ScheduledGarbageCollector
+from composer.callbacks import MemoryMonitor, SpeedMonitor, LRMonitor
 
 from compose_rl.algorithms.online import (
     ComposerHFPolicyLM,
@@ -271,10 +273,21 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             tracking_uri='databricks',
         )
 
+        
+        callbacks.ScheduledGarbageCollector
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
-            callbacks=self.ppo_callback,
+            callbacks=[
+                self.ppo_callback,
+                LRMonitor(),
+                MemoryMonitor(),
+                SpeedMonitor(window_size=10),
+                ScheduledGarbageCollector(
+                    batch_interval='1000',
+                ),
+                
+            ],
             train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
