@@ -94,7 +94,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.logger.info(f"Starting build_train_config with model: {pretrain_model_name}")
         self.pretrain_model_name = pretrain_model_name
 
-        self.model_config = self.config.actor_config.model_config
+        self.model_config = (dict)(self.config.actor_config.model_config)
         self.model_config['tokenizer'] = self.tokenizer
         self.model_config['pretrained_model_name_or_path'] = self.pretrain_model_name
 
