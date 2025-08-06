@@ -118,7 +118,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.global_train_batch_size = self.config.global_train_batch_size
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
         self.num_batches_per_update = self.config.variables.num_batches_per_update
-        self.max_seq_len = self.config.variables.max_seq_len
+        self.max_seq_len = self.config.max_seq_len
         self.max_gen_len = self.config.variables.max_gen_len
         self.precision = self.config.precision
 
@@ -616,7 +616,7 @@ def _run_single_controller_ppo(
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
-            pretrain_model_name = config.pretrain_model_name
+            pretrain_model_name = config.model.pretrained_model_name_or_path
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
                 vllm_tensor_parallel_size=vllm_tensor_parallel_size,
