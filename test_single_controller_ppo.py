@@ -670,10 +670,10 @@ class PPOController:
             self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
             self.train_actor.collective_methods.train_1_iter()
     
-    def train_async(self, num_iterations: int):
+    async def train_async(self, num_iterations: int):
         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server))
         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer))
-        asyncio.run(asyncio.gather(train_task, rollout_task))
+        await asyncio.gather(train_task, rollout_task)
 
 
 def _run_single_controller_ppo(
@@ -697,8 +697,8 @@ def _run_single_controller_ppo(
 
             # Create buffers for the parameter and experience buffers
             # first since they don't have external dependencies
-            parameter_buffer = ParameterBuffer()
-            experience_buffer = ExperienceBuffer()
+            parameter_buffer = ParameterBuffer(1)
+            experience_buffer = ExperienceBuffer(1)
 
             # create SPMD training actors of the system
             num_train_actors = world_size // 2
@@ -742,7 +742,7 @@ def _run_single_controller_ppo(
                 experience_buffer,
                 pretrain_model_name,
             )
-            ppo_controller.train()
+            asyncio.run(ppo_controller.train_async(5))
 
 
 if __name__ == '__main__':
@@ -757,7 +757,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
+            'pretrain_model_name': 'Qwen/Qwen2.5-1.5B-Instruct',
         })
     
     # This is an example of how to move the controller logic from PPO Callback
