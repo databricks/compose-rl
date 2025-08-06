@@ -280,13 +280,16 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             optimizers=optimizer,
             callbacks=[
                 self.ppo_callback,
-                LRMonitor(),
-                MemoryMonitor(),
-                SpeedMonitor(window_size=10),
+                # callbacks for scheduled garbage collection
+                # this helps improve throughput by garbage collecting
+                # at regular intervals on all training processes
                 ScheduledGarbageCollector(
                     batch_interval='1000',
                 ),
-                
+                # callbacks for monitoring other metrics
+                LRMonitor(),
+                MemoryMonitor(),
+                SpeedMonitor(window_size=10),
             ],
             train_dataloader=dummy_dataloader,
             precision=self.precision,
