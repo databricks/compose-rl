@@ -50,10 +50,10 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
-NUM_TRAIN_ITERATIONS = 5
+NUM_TRAIN_ITERATIONS = 8
 
-_MAX_SEQ_LEN = 6000
-_MAX_GEN_LEN = 4000
+_MAX_SEQ_LEN = 10000
+_MAX_GEN_LEN = 8000
 
 
 @contextmanager
