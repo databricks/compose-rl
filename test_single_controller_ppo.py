@@ -460,7 +460,7 @@ class InferenceServer:
                 device_bundle={
                     'GPU': 1,
                     'CPU': 1,
-                    'worker_node': 1,
+                    'worker_gpu': 1,
                 },
             )
 

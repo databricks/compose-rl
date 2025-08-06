@@ -57,7 +57,7 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
     if dist.get_rank() != 0 and os.environ.get('LOCAL_RANK', None) == '0':
         address = address_list[0]
         logger.info(f'Rank {dist.get_rank()}: connecting to address {address}')
-        subprocess.run(['ray', 'start', f'--address={address}'], check=True)
+        subprocess.run(['ray', 'start', f'--address={address}', '--resources={\"worker_gpu\": 8}'], check=True)
     dist.barrier()
     if dist.get_rank() == 0:
         # wait until num of gpus reach world_size
