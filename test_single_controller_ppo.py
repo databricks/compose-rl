@@ -486,7 +486,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: We should move these to dataclasses
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
-        self.pretrain_model_name = config.pretrain_model_name
+        self.pretrain_model_name = config.model.pretrained_model_name_or_path
         #self.prompt_handler_config = config.dataset_config.prompt_handler_config
         self.tokenizer_config = config.tokenizer
         self.dataloader_config = config.train_loader
