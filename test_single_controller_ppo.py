@@ -112,7 +112,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.logger.info(f"Starting build_train_config with model: {pretrain_model_name}")
         self.pretrain_model_name = pretrain_model_name
 
-        self.model_config = om.to_container(self.config.actor_config.model_config, resolve=True)
+        self.model_config = om.to_container(self.config.model, resolve=True)
         self.model_config['tokenizer'] = self.tokenizer
 
         self.global_train_batch_size = self.config.global_train_batch_size
@@ -124,7 +124,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         variables = om.to_container(self.config.variables, resolve=True)
         variables['non_train_fsdp_config'] = self.config.variables.non_train_fsdp_config
-        algorithm_config = self.config.actor_config.algorithm_config
+        algorithm_config = self.config.algorithms
 
         self.train_config = {
             'seed': self.config.seed,
@@ -136,11 +136,11 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'global_train_batch_size': self.device_train_batch_size * self.world_size,
             'device_train_batch_size': self.device_train_batch_size,
             'device_train_microbatch_size': self.device_train_batch_size,
-            'save_folder': self.config.actor_config.save_folder,
-            'log_config': self.config.actor_config.log_config,
+            'save_folder': self.config.save_folder,
+            'log_config': self.config.log_config,
             'max_seq_len': self.max_seq_len,
-            'python_log_level': self.config.actor_config.python_log_level,
-            'console_log_interval': self.config.actor_config.console_log_interval,
+            'python_log_level': self.config.python_log_level,
+            'console_log_interval': self.config.console_log_interval,
         }
         self.logger.info("Finished build_train_config")
 
@@ -149,7 +149,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # we may need token level log prob
         # TODO (infra): use the tokenizer/texts for prompt dataloader but
         # token (ids) for the experience buffer/manager
-        kwargs = self.config.actor_config.tokenizer_config
+        kwargs = self.config.tokenizer
         tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name, **kwargs)
         return tokenizer
 
@@ -380,7 +380,7 @@ class RolloutAgent:
         self.inference_server = inference_server
         self.streaming_dataset_actor = streaming_dataset_actor
         self.generation_kwargs = config.variables.generation_kwargs
-        self.precision = config.rollout_agent_config.precision
+        self.precision = config.precision
         self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
         self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
         self.max_gen_len = self.prompt_handler_config['max_gen_len']

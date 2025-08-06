@@ -152,7 +152,7 @@ progress_bar: false
 train_loader:
   name: prompt
   dataset:
-    local: /tmp/dataset/prompt/
+    local: /tmp/dataset/prompt_{timestamp}/
     split: train
     remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/
     shuffle: true
