@@ -78,6 +78,7 @@ parameters:
     max_gen_len: ${variables.max_gen_len}
 
     seed: ${variables.seed}
+    save_folder: ./checkpoints/grpo_single_controller
     log_config: true
     python_log_level: debug
     console_log_interval: 1ba
@@ -109,7 +110,6 @@ parameters:
       generations_per_prompt: ${variables.generations_per_prompt}
       device_generate_batch_size: 1
       vllm_enable_prefix_caching: true
-      save_folder: ./checkpoints/grpo_single_controller
       generation_kwargs:
         top_p: 1.0
         use_cache: true
