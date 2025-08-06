@@ -11,11 +11,8 @@
 # If they are, then run `ray stop`
 
 import argparse
-<<<<<<< HEAD
 import asyncio
-=======
 from contextlib import contextmanager
->>>>>>> origin/single-controller-hackathon
 import logging
 import os
 import time
