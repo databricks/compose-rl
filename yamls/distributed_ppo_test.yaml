@@ -21,4 +21,141 @@ command: |-
   composer test_single_controller_ppo.py --file_path /mnt/config/parameters.yaml
 
 parameters:
-  pretrain_model_name: Qwen/Qwen2.5-3B-Instruct
+  variables:
+    max_seq_len: 6000
+    max_gen_len: 4000
+    seed: 17
+    global_train_batch_size: 64
+    generations_per_prompt: 8
+    num_batches_per_update: 8
+    model_name: Qwen/Qwen2.5-3B-Instruct
+    precision: amp_bf16
+    tokenizer_config:
+      padding: longest
+      pad_token: "<|finetune_right_pad_id|>"
+      truncation: true
+      padding_side: left
+      model_max_length: ${variables.max_seq_len}
+      trust_remote_code: true
+
+  pretrain_model_name: ${variables.model_name}
+  
+  dataset_config:
+    prompt_handler_config:
+      global_train_batch_size: ${variables.global_train_batch_size}
+      generations_per_prompt: ${variables.generations_per_prompt}
+      num_batches_per_update: ${variables.num_batches_per_update}
+      max_seq_len: ${variables.max_seq_len}
+      max_gen_len: ${variables.max_gen_len}
+    tokenizer_config: ${variables.tokenizer_config}
+    dataloader_config:
+      name: prompt
+      dataset:
+        local: /tmp/dataset/prompt_{timestamp}/
+        split: train
+        remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/
+        shuffle: true
+        max_gen_len: ${variables.max_gen_len}
+        max_seq_len: ${variables.max_seq_len}
+        shuffle_seed: ${variables.seed}
+        download_timeout: 1800
+      drop_last: true
+      num_workers: 1
+
+  rollout_agent_config:
+    generation_kwargs:
+      top_p: 1.0
+      use_cache: true
+      do_sample: false
+      temperature: 1.0
+    precision: ${variables.precision}
+
+  actor_config:
+    precision: ${variables.precision}
+    global_train_batch_size: ${variables.global_train_batch_size}
+    num_batches_per_update: ${variables.num_batches_per_update}
+    max_seq_len: ${variables.max_seq_len}
+    max_gen_len: ${variables.max_gen_len}
+
+    seed: ${variables.seed}
+    log_config: true
+    python_log_level: debug
+    console_log_interval: 1ba
+
+    model_config:
+      tokenizer: null  # to be set in code
+      pretrained_model_name_or_path: ${variables.model_name}  # to be set in code
+      pretrained: true
+      use_flash_attention_2: true
+      allow_embedding_resizing: true
+      name: hf_critic_free_lm
+      # init_device: mixed
+      loss_type: grpo
+      target_kl: 0.1
+      kl_estimator: k3
+      kl_clip_range: 40
+      use_auth_token: true
+      compute_kl_loss: false
+      policy_clip_ratio: 0.2
+      normalize_advantage: true
+      length_normalize_policy_loss: true
+      attn_implementation: flash_attention_2
+
+    actor_variables:
+      gamma: 1
+      lambda_gae: 1
+      epoch_per_iteration: 1
+      num_batches_per_update: ${variables.num_batches_per_update}
+      generations_per_prompt: ${variables.generations_per_prompt}
+      device_generate_batch_size: 1
+      vllm_enable_prefix_caching: true
+      save_folder: ./checkpoints/grpo_single_controller
+      generation_kwargs:
+        top_p: 1.0
+        use_cache: true
+        do_sample: false
+        temperature: 1.0
+      eos_token_ids:
+        - 128001
+        - 128008
+        - 128009
+      buffer:
+        name: MinibatchRolloutBuffer
+        max_buffer_size: 8  # NOTE: Replace with correct value if needed
+      max_gen_len: ${variables.max_gen_len}  # NOTE: Replace with correct value if needed
+      kl_controller:
+        init_kl_coef: 0.0  # no KL penalty
+        kl_ctl_type: fixed
+      reference_model:
+        model_config:
+          name: hf_causal_lm
+          pretrained: true  # to be set in code
+          pretrained_model_name_or_path: ${variables.model_name}  # to be set in code
+          use_auth_token: true  # to be set in code
+          use_flash_attention_2: true  # to be set in code
+        precision: ${variables.precision}     # to be set in code
+        load_path: null     # to be set in code
+      non_train_fsdp_config: null  # to be set in code
+      rewards:
+        math_verifier:
+          reward_type: math_verifier
+          reward: 4
+        bad_generation_end:
+          reward: -1
+          eos_penalty: true
+          reward_type: bad_generation_end
+        math_format_verifier:
+          reward: 1
+          reward_type: math_format_verifier
+        penalize_extra_short_responses:
+          reward: -1
+          reward_type: short_response_reward
+          len_threshold: 10
+
+    algorithm_config:
+      gradient_clipping:
+        clipping_type: norm
+        clipping_threshold: 1.0
+
+    tokenizer_config: ${variables.tokenizer_config}
+    
