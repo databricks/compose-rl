@@ -29,6 +29,8 @@ from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
+from llmfoundry.callbacks import ScheduledGarbageCollector
+from composer.callbacks import MemoryMonitor, SpeedMonitor, LRMonitor
 
 from compose_rl.algorithms.online import (
     ComposerHFPolicyLM,
@@ -44,6 +46,11 @@ from compose_rl.utils.ray_utils import start_ray_server, uninstall_megablocks_if
 from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
+
+GLOBAL_TRAIN_BATCH_SIZE = 64
+GENERATIONS_PER_PROMPT = 8  
+NUM_BATCHES_PER_UPDATE = 8
+NUM_TRAIN_ITERATIONS = 5
 
 _MAX_SEQ_LEN = 6000
 _MAX_GEN_LEN = 4000
@@ -112,9 +119,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'length_normalize_policy_loss': True,
             'attn_implementation': 'flash_attention_2'
         }
-        self.global_train_batch_size = 64
+        self.global_train_batch_size = GLOBAL_TRAIN_BATCH_SIZE
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
-        self.num_batches_per_update = 8
+        self.num_batches_per_update = NUM_BATCHES_PER_UPDATE
         self.max_seq_len = _MAX_SEQ_LEN
         self.max_gen_len = _MAX_GEN_LEN
         self.precision = 'amp_bf16'
@@ -132,8 +139,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'lambda_gae': 1,
             'epoch_per_iteration': 1,
             'num_batches_per_update': self.num_batches_per_update,
-            'generations_per_prompt': 8,
-            'num_batches_per_update': 8,
+            'generations_per_prompt': GENERATIONS_PER_PROMPT,
             'device_generate_batch_size': 1,
             'vllm_enable_prefix_caching': True,
             'generation_kwargs': {
@@ -271,10 +277,23 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             tracking_uri='databricks',
         )
 
+        
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
-            callbacks=self.ppo_callback,
+            callbacks=[
+                self.ppo_callback,
+                # callbacks for scheduled garbage collection
+                # this helps improve throughput by garbage collecting
+                # at regular intervals on all training processes
+                # ScheduledGarbageCollector(
+                #     batch_interval='1000',
+                # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
+                # callbacks for monitoring other metrics
+                LRMonitor(),
+                MemoryMonitor(),
+                SpeedMonitor(window_size=10),
+            ],
             train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
@@ -544,9 +563,9 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
         self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
         self.prompt_handler_config = {
-            "global_train_batch_size": 64,
-            "generations_per_prompt": 8,
-            "num_batches_per_update": 8,
+            "global_train_batch_size": GLOBAL_TRAIN_BATCH_SIZE,
+            "generations_per_prompt": GENERATIONS_PER_PROMPT,
+            "num_batches_per_update": NUM_BATCHES_PER_UPDATE,
             "max_seq_len": _MAX_SEQ_LEN,
             "max_gen_len": _MAX_GEN_LEN,
         }
@@ -649,7 +668,7 @@ class PPOController:
         )
 
     def train(self):
-        for _ in range(5):  # Example: train for 5 iterations
+        for _ in range(NUM_TRAIN_ITERATIONS):  # Example: train for 5 iterations
             # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
             self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
             # Simple example of adding elements to the experience buffer
