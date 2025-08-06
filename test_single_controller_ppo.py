@@ -46,8 +46,8 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
-_MAX_SEQ_LEN = 6000
-_MAX_GEN_LEN = 4000
+_MAX_SEQ_LEN = 2000
+_MAX_GEN_LEN = 1000
 
 
 class DistributedGPUActor(BaseDistributedGPUActor):
@@ -269,7 +269,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_ppo',
+            run_name='test_single_controller_ppo_async',
             tracking_uri='databricks',
         )
 
