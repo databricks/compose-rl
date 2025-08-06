@@ -797,7 +797,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'Qwen/Qwen2.5-1.5B-Instruct',
+            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
         })
     
     # This is an example of how to move the controller logic from PPO Callback
