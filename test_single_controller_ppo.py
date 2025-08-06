@@ -50,6 +50,7 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
+SAVE_FOLDER = '/checkpoints/grpo_single_controller'
 NUM_TRAIN_ITERATIONS = 10
 DO_SAMPLE = True
 
@@ -65,6 +66,7 @@ def time_it(name: str):
     end_time = time.time()
     print(f"[{name}] finished at {time.strftime('%X')}")
     print(f"[{name}] took {end_time - start_time:.2f} seconds")
+
 
 
 class DistributedGPUActor(BaseDistributedGPUActor):
@@ -217,7 +219,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'global_train_batch_size': self.device_train_batch_size * self.world_size,
             'device_train_batch_size': self.device_train_batch_size,
             'device_train_microbatch_size': self.device_train_batch_size,
-            'save_folder': './checkpoints/grpo_single_controller',
+            'save_folder': SAVE_FOLDER,
             'log_config': True,
             'max_seq_len': self.max_seq_len,
             'python_log_level': 'debug',
@@ -348,6 +350,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             loggers=[mlflow_logger],
             device_train_microbatch_size=1,
             load_path=self.ref_path,
+            save_folder=SAVE_FOLDER,
+            save_interval='1iter',
         )
 
     def close_trainer(self):
@@ -818,7 +822,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
+            'pretrain_model_name': 'meta-llama/Llama-3.2-1B-Instruct',
         })
     
     # This is an example of how to move the controller logic from PPO Callback

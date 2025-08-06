@@ -1120,11 +1120,8 @@ class OnPolicyCallback(CallbackWithConfig):
         return {
             'KL_ctl_state_dict': self.kl_ctl.state_dict(),
             'iter_num': self.iter_num,
-            'train_prompt_loader':
-                self.train_prompt_loader.state_dict(),  # pyright: ignore
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]):
         self.kl_ctl.load_state_dict(state_dict['KL_ctl_state_dict'])
         self.iter_num = state_dict['iter_num']
-        self.train_prompt_loader_state_dict = state_dict['train_prompt_loader']
