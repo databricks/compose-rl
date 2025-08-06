@@ -11,6 +11,7 @@
 # If they are, then run `ray stop`
 
 import argparse
+from contextlib import contextmanager
 import logging
 import os
 import time
@@ -29,7 +30,6 @@ from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
-from llmfoundry.callbacks import ScheduledGarbageCollector
 from composer.callbacks import MemoryMonitor, SpeedMonitor, LRMonitor
 
 from compose_rl.algorithms.online import (
@@ -54,6 +54,17 @@ NUM_TRAIN_ITERATIONS = 5
 
 _MAX_SEQ_LEN = 6000
 _MAX_GEN_LEN = 4000
+
+
+@contextmanager
+def time_it(name: str):
+    start_time = time.time()
+    print(f"[{name}] started at {time.strftime('%X')}")
+    yield
+    end_time = time.time()
+    print(f"[{name}] finished at {time.strftime('%X')}")
+    print(f"[{name}] took {end_time - start_time:.2f} seconds")
+
 
 class DistributedGPUActor(BaseDistributedGPUActor):
     """Distributed GPU actor for testing."""
@@ -410,6 +421,11 @@ class TrainActorGroup(SPMDActorGroup):
         partitioned_rollouts = self._partition_rollouts_across_ranks(latest_rollouts)
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
         ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
+    
+    def train_1_iter(self):
+        # added this method to time the collectivetraining time otherwise we can time each rank but the print/logging becomes messy to read
+        with time_it("training"):
+            self.collective_methods.train_1_iter()
 
 
 class InferenceServer:
@@ -470,7 +486,7 @@ class RolloutAgent:
         all_prompts = iter_data['prompt']
         # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
         # we should move this to the separate util file.
-        with get_precision_context(self.precision), torch.no_grad():
+        with get_precision_context(self.precision), torch.no_grad(), time_it("batch_inference"):
             sequences = _vllm_generate(
                 vllm_engines=self.inference_server.engines,
                 max_gen_len=self.max_gen_len,
@@ -675,7 +691,7 @@ class PPOController:
             self.experience_buffer.put(self.rollout_agent.get_next_iter_rollouts())
             # Populate the train actor group with the rollouts and then train
             self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
-            self.train_actor.collective_methods.train_1_iter()
+            self.train_actor.train_1_iter()
         
         self.train_actor.collective_methods.close_trainer()
 
