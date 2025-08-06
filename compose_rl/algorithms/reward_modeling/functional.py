@@ -8,7 +8,10 @@ import re
 from abc import abstractmethod
 from typing import MutableMapping
 
+from mcli import get_run as mcli_get_run
+import requests
 import torch
+import tenacity
 
 log = logging.getLogger(__name__)
 
@@ -481,3 +484,81 @@ class MCQAVerifierReward(BaseVerifierReward):
     def score_generations(self, answer: str, label: str) -> float:
         """Score based on exact match."""
         return self.reward if answer == label else 0.0
+
+
+class BPTRewardModelReward(Reward):
+
+    def __init__(self, bpt_run_name: str, tokenizer: Tokenizer, reward: float = 1.0):
+        super().__init__(tokenizer=tokenizer, reward=reward)
+        self.bpt_run_name = bpt_run_name
+        self.bpt_details = self._fetch_bpt_details()
+
+    def _fetch_bpt_details(self):
+        """Fetch the BPT details for a given run.
+
+        Args:
+            config_or_bpt_run: Either a config dict with a 'bpt_run' key, or a BPT run name.
+
+        Returns:
+            dict[str, str]
+        """
+        log.info(f'Fetching BPT details for run {self.bpt_run_name}')
+        run = mcli_get_run(self.bpt_run_name, timeout=60)
+        if (status := str(run.status)) != "RUNNING":
+            raise RuntimeError(f"BPT run {self.bpt_run_name} is not running, got status {status}")
+        metadata = run.metadata
+        return {
+            "base_url": metadata["base_url"],
+            "api_key": metadata["api_key"],
+            "model": metadata["model_name"],
+        }
+
+    def _call_bpt_reward_model(self, messages: list[dict[str, str]]) -> float:
+        """Call the BPT Reward model for a reward.
+        Args:
+            messages (list[dict[str, str]]): The single message chain to be rewarded.
+        Returns:
+            float: The reward from the reward model.
+        """
+        @tenacity.retry(
+            stop=tenacity.stop_after_attempt(5),
+            wait=tenacity.wait_exponential(multiplier=1, min=1, max=60),
+            retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
+        )
+        def _wrapped_request() -> float:
+            response = requests.post(
+                self.bpt_details['base_url'] + '/rewards',
+                headers={
+                    'Authorization': f'Bearer {self.bpt_details["api_key"]}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'model': self.bpt_details['model'],
+                    'input': messages,
+                },
+            )
+            response.raise_for_status()  # checking that the response is successful
+            response = response.json()
+            return response['data'][0]['score'][0]
+        return _wrapped_request()
+
+    def __call__(
+        self,
+        batch: MutableMapping,
+    ) -> torch.Tensor:
+        """Query the BPT Reward model for a reward."""
+        assert 'messages' in batch.keys()
+        assert 'raw_untokenized_texts' in batch.keys()
+
+        batch_rewards = batch['zero_rewards']
+        generated_lens = batch['generated_lens']
+
+        batch_size = len(batch['messages'])
+        for batch_idx in range(batch_size):
+            # append the generated text to the messages
+            full_messages = batch['messages'][batch_idx] + [
+                {"role": "assistant", "content": batch['raw_untokenized_texts'][batch_idx][1]}
+            ]
+            reward = self._call_bpt_reward_model(full_messages)
+            batch_rewards[batch_idx, generated_lens[batch_idx] - 1] += reward
+        return batch_rewards
