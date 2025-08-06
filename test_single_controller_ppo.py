@@ -50,10 +50,11 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
-NUM_TRAIN_ITERATIONS = 5
+NUM_TRAIN_ITERATIONS = 10
+DO_SAMPLE = True
 
-_MAX_SEQ_LEN = 6000
-_MAX_GEN_LEN = 4000
+_MAX_SEQ_LEN = 10240
+_MAX_GEN_LEN = 8192
 
 
 @contextmanager
@@ -156,7 +157,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'generation_kwargs': {
                 'top_p': 1.0,
                 'use_cache': True,
-                'do_sample': False,
+                'do_sample': DO_SAMPLE,
                 'temperature': 1.0,
             },
             'eos_token_ids': [
@@ -203,7 +204,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         algorithm_config = {
             'gradient_clipping': {
                 'clipping_type': 'norm',
-                'clipping_threshold': 1.0
+                'clipping_threshold': 0.001
             }
         }
         self.train_config = {
@@ -221,6 +222,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'max_seq_len': self.max_seq_len,
             'python_log_level': 'debug',
             'console_log_interval': '1ba',
+            'eval_interval': '1iter',
         }
         self.logger.info("Finished build_train_config")
 
@@ -253,6 +255,31 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def init_composer_dist(self):
         composer_dist.initialize_dist('gpu')
+
+    def build_orl_eval_callback(self):
+        from llmfoundry.utils.builders import build_callback
+
+        self.logger.info("Building ORL eval callback")
+        kwargs = {
+            'evals': [
+                {
+                    'name': 'gsm8k',
+                },
+                {
+                    'name': 'math_500',
+                },
+            ],
+            'eval_overrides': {
+                'generation_params': {
+                    'max_tokens': _MAX_GEN_LEN
+                }
+            },
+        }
+        return build_callback(
+            name='orl_eval',
+            kwargs=kwargs,
+            train_config=self.train_config,
+        )
 
     def build_ppo_trainer(self):
         name = self.model_config.pop('name')
@@ -288,27 +315,36 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             tracking_uri='databricks',
         )
 
-        
+        callbacks = [
+            self.ppo_callback,
+            # callbacks for scheduled garbage collection
+            # this helps improve throughput by garbage collecting
+            # at regular intervals on all training processes
+            # ScheduledGarbageCollector(
+            #     batch_interval='1000',
+            # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
+            # callbacks for monitoring other metrics
+            LRMonitor(),
+            MemoryMonitor(),
+            SpeedMonitor(window_size=10),
+        ]
+
+        # Try to add the ORL eval callback if the required dependencies are installed
+        try:
+            orl_eval_callback = self.build_orl_eval_callback()
+            callbacks.append(orl_eval_callback)
+        except Exception as e:
+            self.logger.warning(f"Failed to build ORL eval callback: {e}")
+            self.train_config.pop('eval_interval', None)
+
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
-            callbacks=[
-                self.ppo_callback,
-                # callbacks for scheduled garbage collection
-                # this helps improve throughput by garbage collecting
-                # at regular intervals on all training processes
-                # ScheduledGarbageCollector(
-                #     batch_interval='1000',
-                # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
-                # callbacks for monitoring other metrics
-                LRMonitor(),
-                MemoryMonitor(),
-                SpeedMonitor(window_size=10),
-            ],
+            callbacks=callbacks,
             train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
-            max_duration='5iter',
+            max_duration=f'{NUM_TRAIN_ITERATIONS}iter',
             loggers=[mlflow_logger],
             device_train_microbatch_size=1,
             load_path=self.ref_path,
@@ -317,6 +353,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def close_trainer(self):
         self.ppo_trainer.close()
     
+    def attach_vllm_engines(self, vllm_engines: list[Any]):
+        self.logger.info(f"Attaching {len(vllm_engines)} vLLM engines to the Training Actors")
+        self.ppo_trainer.state.vllm_engines = vllm_engines
 
     def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
         """Adds the current rank's rollouts to the callback."""
@@ -468,7 +507,7 @@ class RolloutAgent:
         self.generation_kwargs = {
             'top_p': 1.0,
             'use_cache': True,
-            'do_sample': False,
+            'do_sample': DO_SAMPLE,
             'temperature': 1.0,
         }
         self.precision = 'amp_bf16'
@@ -682,6 +721,7 @@ class PPOController:
             inference_server.engines,
             inference_server.vllm_tensor_parallel_size,
         )
+        self.train_actor.collective_methods.attach_vllm_engines(self.inference_server.engines)
 
     def train(self):
         for _ in range(NUM_TRAIN_ITERATIONS):  # Example: train for 5 iterations
