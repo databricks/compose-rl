@@ -46,8 +46,8 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
-_MAX_SEQ_LEN = 2000
-_MAX_GEN_LEN = 1000
+_MAX_SEQ_LEN = 6000
+_MAX_GEN_LEN = 4000
 
 
 class DistributedGPUActor(BaseDistributedGPUActor):
@@ -757,7 +757,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'Qwen/Qwen2.5-1.5B-Instruct',
+            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
         })
     
     # This is an example of how to move the controller logic from PPO Callback
