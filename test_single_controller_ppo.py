@@ -114,21 +114,20 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         self.model_config = om.to_container(self.config.actor_config.model_config, resolve=True)
         self.model_config['tokenizer'] = self.tokenizer
-        self.model_config['pretrained_model_name_or_path'] = self.pretrain_model_name
 
-        self.global_train_batch_size = self.config.actor_config.global_train_batch_size
+        self.global_train_batch_size = self.config.global_train_batch_size
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
-        self.num_batches_per_update = self.config.actor_config.num_batches_per_update
-        self.max_seq_len = self.config.actor_config.max_seq_len
-        self.max_gen_len = self.config.actor_config.max_gen_len
-        self.precision = self.config.actor_config.precision
+        self.num_batches_per_update = self.config.variables.num_batches_per_update
+        self.max_seq_len = self.config.variables.max_seq_len
+        self.max_gen_len = self.config.variables.max_gen_len
+        self.precision = self.config.precision
 
-        variables = om.to_container(self.config.actor_config.actor_variables, resolve=True)
-        variables['non_train_fsdp_config'] = self.fsdp_config
+        variables = om.to_container(self.config.variables, resolve=True)
+        variables['non_train_fsdp_config'] = self.config.variables.non_train_fsdp_config
         algorithm_config = self.config.actor_config.algorithm_config
 
         self.train_config = {
-            'seed': self.config.actor_config.seed,
+            'seed': self.config.seed,
             'model': self.model_config,
             'fsdp_config': self.fsdp_config,
             'precision': self.precision,
@@ -380,7 +379,7 @@ class RolloutAgent:
     ):
         self.inference_server = inference_server
         self.streaming_dataset_actor = streaming_dataset_actor
-        self.generation_kwargs = config.rollout_agent_config.generation_kwargs
+        self.generation_kwargs = config.variables.generation_kwargs
         self.precision = config.rollout_agent_config.precision
         self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
         self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
@@ -488,18 +487,18 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
         self.pretrain_model_name = config.pretrain_model_name
-        self.prompt_handler_config = config.dataset_config.prompt_handler_config
-        self.tokenizer_config = config.dataset_config.tokenizer_config
-        self.dataloader_config = config.dataset_config.dataloader_config
+        #self.prompt_handler_config = config.dataset_config.prompt_handler_config
+        self.tokenizer_config = config.tokenizer
+        self.dataloader_config = config.train_loader
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.dataloader_config['dataset']['local'] = \
             self.dataloader_config['dataset']['local'].format(timestamp=timestamp)
 
         # Key variables
-        global_train_batch_size = self.prompt_handler_config['global_train_batch_size']
-        self.generations_per_prompt = self.prompt_handler_config['generations_per_prompt']
-        num_batches_per_update = self.prompt_handler_config['num_batches_per_update']
+        global_train_batch_size = config.global_train_batch_size
+        self.generations_per_prompt = config.variables.generations_per_prompt
+        num_batches_per_update = config.variables.num_batches_per_update
         total_num_generations = global_train_batch_size * num_batches_per_update
         self.num_prompts_per_iteration = total_num_generations // self.generations_per_prompt
 
@@ -662,7 +661,7 @@ if __name__ == '__main__':
     
     # Load configuration using OmegaConf
     if args.file_path is None:
-        config = om.load("yamls/ppo_test.yaml")
+        config = om.load("yamls/orig_ppo.yaml")
     else:
         config = om.load(args.file_path)
     
