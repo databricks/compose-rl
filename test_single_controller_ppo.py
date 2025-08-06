@@ -386,6 +386,61 @@ def setup_process_groups(
     print(ray.get(refs))
 
 
+class TrainActorGroup(SPMDActorGroup):
+    """Group of training actors for PPO."""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+
+    def build_models(self, pretrain_model_name: str):
+        """Build reference models and PPO trainers for all actors."""
+        self.collective_methods.build_train_config(pretrain_model_name)
+        self.collective_methods.init_composer_dist()
+
+        # Build PPO trainers
+        self.collective_methods.build_ppo_trainer()
+        print('build ppo trainer done')
+
+    def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]):
+        """Partition the rollouts across all actors."""
+        partitioned_rollouts = []
+        per_rank_data_size = rollouts['prompt'].shape[0] // self.num_train_actors
+        for i in range(self.num_train_actors):
+            current_rank_start = i * per_rank_data_size
+            current_rank_end = (i + 1) * per_rank_data_size
+            current_rank_rollouts = {}
+            for k, v in rollouts.items():
+                assert isinstance(v, torch.Tensor) or isinstance(v, list), f"Expected a tensor or list, got {type(v)}"
+                current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
+            partitioned_rollouts.append(current_rank_rollouts)
+        return partitioned_rollouts
+
+    def _add_latest_rollouts(self, rollouts: dict[str, Any]):
+        partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
+        assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
+        ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
+
+    def add_latest_rollouts_from_buffer(self, experience_buffer: 'ExperienceBuffer'):
+        assert experience_buffer is not None, "Experience buffer is not set"
+        assert len(experience_buffer) > 0, "Experience buffer is empty"
+        latest_rollouts = ray.get(experience_buffer.get.remote())
+        self._add_latest_rollouts(latest_rollouts)
+
+    def train_1_iter(self):
+        # added this method to time the collectivetraining time otherwise we can time each rank but the print/logging becomes messy to read
+        with time_it("training"):
+            self.collective_methods.train_1_iter()
+
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock):
+        for _ in range(num_iterations):
+            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock})
+            # Simple example of adding elements to the experience buffer
+            # Populate the train actor group with the rollouts and then train
+            latest_rollouts = await experience_buffer.get()
+            self._add_latest_rollouts(latest_rollouts)
+            await asyncio.to_thread(self.train_1_iter)
+
+
 class InferenceServer:
     """Inference server with vLLM engines."""
 
@@ -411,6 +466,73 @@ class InferenceServer:
     @property
     def engines(self):
         return self.vllm_engines
+
+
+class RolloutAgent:
+    """Rollout agent for generating sequences from the inference server."""
+
+    def __init__(
+        self,
+        inference_server: InferenceServer,
+        streaming_dataset_actor: 'StreamingDatasetActor',
+    ):
+        self.inference_server = inference_server
+        self.streaming_dataset_actor = streaming_dataset_actor
+        self.generation_kwargs = {
+            'top_p': 1.0,
+            'use_cache': True,
+            'do_sample': False,
+            'temperature': 1.0,
+        }
+        self.precision = 'amp_bf16'
+        self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
+        self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
+        self.max_gen_len = self.prompt_handler_config['max_gen_len']
+
+    def get_next_iter_rollouts(self):
+        """
+        Gets the next rollouts from the inference server.
+
+        Since all ranks should see different data, we need to get the rollouts for each rank.
+        """
+        iter_data = ray.get(self.streaming_dataset_actor.get_next_iter_prompts.remote())
+        all_prompts = iter_data['prompt']
+        # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
+        # we should move this to the separate util file.
+        with get_precision_context(self.precision), torch.no_grad(), time_it("batch_inference"):
+            sequences = _vllm_generate(
+                vllm_engines=self.inference_server.engines,
+                max_gen_len=self.max_gen_len,
+                generation_kwargs=self.generation_kwargs,
+                pad_token_id=self.tokenizer_pad_token_id,
+                all_prompts=all_prompts,
+                batch_sizes=[len(all_prompts)],
+            )
+        sequences = sequences[0]
+        max_vllm_generated_len = max([len(response) for response in sequences])
+        padded_responses = []
+        for sequence in sequences:
+            sequence = list(sequence)
+            if len(sequence) < max_vllm_generated_len:
+                sequence = sequence + [self.tokenizer_pad_token_id] * (max_vllm_generated_len - len(sequence))
+            padded_responses.append(sequence)
+
+        padded_responses = torch.tensor(
+            padded_responses,
+            dtype=all_prompts.dtype,
+            device=torch.device('cpu'),
+        )
+
+        processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
+        iter_data['sequences'] = processed_sequences
+        return iter_data
+
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock):
+        for _ in range(num_iterations):
+            async with lock:
+                rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
+            await experience_buffer.put(rollouts)
+
 
 class ParameterBuffer(Buffer):
     """Buffer for updating the inference model."""
@@ -450,61 +572,6 @@ class ExperienceBuffer(Buffer):
 
     def __len__(self):
         return len(self.buffer)
-
-
-class TrainActorGroup(SPMDActorGroup):
-    """Group of training actors for PPO."""
-
-    def __init__(self, *args: Any, **kwargs: Any):
-        super().__init__(*args, **kwargs)
-
-    def build_models(self, pretrain_model_name: str):
-        """Build reference models and PPO trainers for all actors."""
-        self.collective_methods.build_train_config(pretrain_model_name)
-        self.collective_methods.init_composer_dist()
-
-        # Build PPO trainers
-        self.collective_methods.build_ppo_trainer()
-        print('build ppo trainer done')
-
-    def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]):
-        """Partition the rollouts across all actors."""
-        partitioned_rollouts = []
-        per_rank_data_size = rollouts['prompt'].shape[0] // self.num_train_actors
-        for i in range(self.num_train_actors):
-            current_rank_start = i * per_rank_data_size
-            current_rank_end = (i + 1) * per_rank_data_size
-            current_rank_rollouts = {}
-            for k, v in rollouts.items():
-                assert isinstance(v, torch.Tensor) or isinstance(v, list), f"Expected a tensor or list, got {type(v)}"
-                current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
-            partitioned_rollouts.append(current_rank_rollouts)
-        return partitioned_rollouts
-
-    def _add_latest_rollouts(self, rollouts: dict[str, Any]):
-        partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
-        assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
-        ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
-
-    def add_latest_rollouts_from_buffer(self, experience_buffer: ExperienceBuffer):
-        assert experience_buffer is not None, "Experience buffer is not set"
-        assert len(experience_buffer) > 0, "Experience buffer is empty"
-        latest_rollouts = ray.get(experience_buffer.get.remote())
-        self._add_latest_rollouts(latest_rollouts)
-
-    def train_1_iter(self):
-        # added this method to time the collectivetraining time otherwise we can time each rank but the print/logging becomes messy to read
-        with time_it("training"):
-            self.collective_methods.train_1_iter()
-
-    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer, parameter_buffer: ParameterBuffer, inference_server: InferenceServer, lock: asyncio.Lock):
-        for _ in range(num_iterations):
-            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock})
-            # Simple example of adding elements to the experience buffer
-            # Populate the train actor group with the rollouts and then train
-            latest_rollouts = await experience_buffer.get()
-            self._add_latest_rollouts(latest_rollouts)
-            await asyncio.to_thread(self.train_1_iter)
 
 
 class StreamingDatasetActor(BaseDistributedGPUActor):
@@ -603,72 +670,6 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         batches = [self._get_single_iter_prompts()]
 
         return preprocess_batches(batches, self.generations_per_prompt, self.tokenizer.pad_token_id)
-
-
-class RolloutAgent:
-    """Rollout agent for generating sequences from the inference server."""
-
-    def __init__(
-        self,
-        inference_server: InferenceServer,
-        streaming_dataset_actor: StreamingDatasetActor,
-    ):
-        self.inference_server = inference_server
-        self.streaming_dataset_actor = streaming_dataset_actor
-        self.generation_kwargs = {
-            'top_p': 1.0,
-            'use_cache': True,
-            'do_sample': False,
-            'temperature': 1.0,
-        }
-        self.precision = 'amp_bf16'
-        self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
-        self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
-        self.max_gen_len = self.prompt_handler_config['max_gen_len']
-
-    def get_next_iter_rollouts(self):
-        """
-        Gets the next rollouts from the inference server.
-
-        Since all ranks should see different data, we need to get the rollouts for each rank.
-        """
-        iter_data = ray.get(self.streaming_dataset_actor.get_next_iter_prompts.remote())
-        all_prompts = iter_data['prompt']
-        # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
-        # we should move this to the separate util file.
-        with get_precision_context(self.precision), torch.no_grad(), time_it("batch_inference"):
-            sequences = _vllm_generate(
-                vllm_engines=self.inference_server.engines,
-                max_gen_len=self.max_gen_len,
-                generation_kwargs=self.generation_kwargs,
-                pad_token_id=self.tokenizer_pad_token_id,
-                all_prompts=all_prompts,
-                batch_sizes=[len(all_prompts)],
-            )
-        sequences = sequences[0]
-        max_vllm_generated_len = max([len(response) for response in sequences])
-        padded_responses = []
-        for sequence in sequences:
-            sequence = list(sequence)
-            if len(sequence) < max_vllm_generated_len:
-                sequence = sequence + [self.tokenizer_pad_token_id] * (max_vllm_generated_len - len(sequence))
-            padded_responses.append(sequence)
-
-        padded_responses = torch.tensor(
-            padded_responses,
-            dtype=all_prompts.dtype,
-            device=torch.device('cpu'),
-        )
-
-        processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
-        iter_data['sequences'] = processed_sequences
-        return iter_data
-
-    async def run(self, num_iterations: int, experience_buffer: ExperienceBuffer, lock: asyncio.Lock):
-        for _ in range(num_iterations):
-            async with lock:
-                rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
-            await experience_buffer.put(rollouts)
 
 
 class PPOController:
