@@ -53,9 +53,10 @@ GENERATIONS_PER_PROMPT = 8
 NUM_BATCHES_PER_UPDATE = 8
 NUM_TRAIN_ITERATIONS = 8
 
-_MAX_SEQ_LEN = 10000
-_MAX_GEN_LEN = 8000
+_MAX_SEQ_LEN = 2000
+_MAX_GEN_LEN = 1000
 
+MAX_ASYNC_STEP = 0
 
 @contextmanager
 def time_it(name: str):
@@ -431,9 +432,9 @@ class TrainActorGroup(SPMDActorGroup):
         with time_it("training"):
             self.collective_methods.train_1_iter()
 
-    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock):
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
         for _ in range(num_iterations):
-            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock})
+            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
             latest_rollouts = await experience_buffer.get()
@@ -527,8 +528,9 @@ class RolloutAgent:
         iter_data['sequences'] = processed_sequences
         return iter_data
 
-    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock):
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
         for _ in range(num_iterations):
+            await semaphore.acquire()
             async with lock:
                 rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
             await experience_buffer.put(rollouts)
@@ -559,6 +561,7 @@ class ParameterBuffer(Buffer):
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
         async with struct['lock']:
             struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
+        struct['semaphore'].release()
 
 
 class ExperienceBuffer(Buffer):
@@ -696,6 +699,7 @@ class PPOController:
             inference_server.vllm_tensor_parallel_size,
         )
         self.lock = asyncio.Lock()
+        self.semaphore = asyncio.Semaphore(MAX_ASYNC_STEP)
 
     def train(self):
         for _ in range(NUM_TRAIN_ITERATIONS):  # Example: train for 5 iterations
@@ -709,8 +713,8 @@ class PPOController:
             self.train_actor.collective_methods.close_trainer()
     
     async def train_async(self, num_iterations: int):
-        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock))
-        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock))
+        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.semaphore))
+        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.semaphore))
         await asyncio.gather(train_task, rollout_task)
         self.train_actor.collective_methods.close_trainer()
 
@@ -737,8 +741,8 @@ def _run_single_controller_ppo(
 
             # Create buffers for the parameter and experience buffers
             # first since they don't have external dependencies
-            parameter_buffer = ParameterBuffer(1)
-            experience_buffer = ExperienceBuffer(1)
+            parameter_buffer = ParameterBuffer()
+            experience_buffer = ExperienceBuffer()
 
             # create SPMD training actors of the system
             num_train_actors = world_size // 2
@@ -797,7 +801,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
+            'pretrain_model_name': 'meta-llama/Llama-3.2-1B-Instruct',
         })
     
     # This is an example of how to move the controller logic from PPO Callback
