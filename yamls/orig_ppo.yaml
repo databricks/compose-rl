@@ -4,7 +4,7 @@ model:
   loss_type: grpo
   target_kl: 0.1
   pretrained: true
-  init_device: mixed
+  # init_device: mixed
   kl_estimator: k3
   kl_clip_range: 40
   use_auth_token: true
