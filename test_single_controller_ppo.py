@@ -659,7 +659,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
             'dataset': {
                 'local': temp_dataset_dir,
                 'split': 'train',
-                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/',
+                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/dpsk_8b_open_r1_48k/',
                 'shuffle': True,
                 'max_gen_len': self.prompt_handler_config['max_gen_len'],
                 'max_seq_len': self.prompt_handler_config['max_seq_len'],
