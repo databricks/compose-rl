@@ -493,7 +493,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
             'max_seq_len': config.max_seq_len,
             'max_gen_len': config.variables.max_gen_len,
         }
-        self.tokenizer_config = config.tokenizer
+        self.tokenizer_config = config.tokenizer.kwargs
         self.dataloader_config = config.train_loader
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
