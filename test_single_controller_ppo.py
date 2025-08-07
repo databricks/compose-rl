@@ -57,6 +57,7 @@ DO_SAMPLE = True
 _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
 
+_MODEL_NAME = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
 MAX_ASYNC_STEP = 0
 
 @contextmanager
@@ -316,7 +317,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_ppo_async_deepseek_l8b_open_r1_48k',
+            run_name=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_open_r1_48k',
             tracking_uri='databricks',
         )
 
@@ -640,7 +641,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: We should move these to dataclasses
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
-        self.pretrain_model_name = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
+        self.pretrain_model_name = _MODEL_NAME
         self.prompt_handler_config = {
             "global_train_batch_size": GLOBAL_TRAIN_BATCH_SIZE,
             "generations_per_prompt": GENERATIONS_PER_PROMPT,
@@ -840,7 +841,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B',
+            'pretrain_model_name': _MODEL_NAME,
         })
     
     # This is an example of how to move the controller logic from PPO Callback
