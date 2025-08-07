@@ -224,7 +224,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'max_seq_len': self.max_seq_len,
             'python_log_level': 'debug',
             'console_log_interval': '1ba',
-            'eval_interval': '1iter',
+            'eval_interval': '2iter',
         }
         self.logger.info("Finished build_train_config")
 
