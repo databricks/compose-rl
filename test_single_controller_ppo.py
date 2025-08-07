@@ -433,11 +433,8 @@ class TrainActorGroup(SPMDActorGroup):
             self.collective_methods.train_1_iter()
 
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
-        for i in range(num_iterations):
-            if i == 0:
-                await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
-            else:
-                semaphore.release()
+        for _ in range(num_iterations):
+            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
             latest_rollouts = await experience_buffer.get()
