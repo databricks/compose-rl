@@ -149,7 +149,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # we may need token level log prob
         # TODO (infra): use the tokenizer/texts for prompt dataloader but
         # token (ids) for the experience buffer/manager
-        kwargs = self.config.tokenizer
+        kwargs = self.config.tokenizer.kwargs
         tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name, **kwargs)
         return tokenizer
 
