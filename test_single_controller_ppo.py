@@ -495,7 +495,7 @@ class InferenceServer:
                 revision=None,
                 seed=1,
                 enable_prefix_caching=False,
-                max_model_len=_MAX_GEN_LEN,
+                max_model_len=_MAX_SEQ_LEN,
                 device_bundle={
                     'GPU': 1,
                     'CPU': 1,
