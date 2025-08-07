@@ -155,7 +155,7 @@ class SPMDActorGroup:
             gpu_ids.extend(ray.get(actor.get_ray_gpu_ids.remote()))
             
         for actor in self._train_actors:
-            actor.set_cuda_visible_devices.remote(gpu_ids)
+            ray.get(actor.set_cuda_visible_devices.remote(gpu_ids))
             print(f'Set visible devices for actor: {gpu_ids}')
 
     @property
