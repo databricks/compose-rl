@@ -17,7 +17,7 @@ integrations:
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
   ssh_clone: true
-  git_branch: main
+  git_branch: update-orl-eval
 
 image: mosaicml/dle:nightly-latest
 
