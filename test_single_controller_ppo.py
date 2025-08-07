@@ -201,7 +201,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             tracking_uri='databricks',
         )
 
-        print(model.tokenizer.pad_token)
+        print(f"pad token for model: {model.tokenizer.pad_token}")
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
