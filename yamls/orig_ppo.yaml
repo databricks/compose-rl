@@ -59,7 +59,7 @@ tokenizer:
   name: meta-llama/Llama-3.1-8B-Instruct
   kwargs:
     padding: longest
-    pad_token: "<|finetune_right_pad_id|>"
+    pad_token: <|finetune_right_pad_id|>
     truncation: true
     padding_side: left
     model_max_length: 10240
