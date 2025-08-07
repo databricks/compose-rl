@@ -632,7 +632,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: We should move these to dataclasses
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
-        self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
+        self.pretrain_model_name = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
         self.prompt_handler_config = {
             "global_train_batch_size": GLOBAL_TRAIN_BATCH_SIZE,
             "generations_per_prompt": GENERATIONS_PER_PROMPT,
