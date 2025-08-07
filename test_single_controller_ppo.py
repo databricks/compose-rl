@@ -433,8 +433,11 @@ class TrainActorGroup(SPMDActorGroup):
             self.collective_methods.train_1_iter()
 
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
-        for _ in range(num_iterations):
-            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
+        for i in range(num_iterations):
+            if i == 0:
+                await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
+            else:
+                semaphore.release()
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
             latest_rollouts = await experience_buffer.get()
@@ -559,8 +562,8 @@ class ParameterBuffer(Buffer):
     async def put(self, struct: dict[str, Any]):
         # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
-        # async with struct['lock']:
-        #     struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
+        async with struct['lock']:
+            struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
         struct['semaphore'].release()
 
 
