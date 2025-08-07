@@ -270,6 +270,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 {
                     'name': 'math_500',
                 },
+                {
+                    'name': 'math_hard',
+                },
             ],
             'eval_overrides': {
                 'generation_params': {
