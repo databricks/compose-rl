@@ -221,14 +221,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             SpeedMonitor(window_size=10),
         ]
 
-        # Try to add the ORL eval callback if the required dependencies are installed
-        try:
-            orl_eval_callback = self.build_orl_eval_callback()
-            callbacks.append(orl_eval_callback)
-        except Exception as e:
-            self.logger.warning(f"Failed to build ORL eval callback: {e}")
-            self.train_config.pop('eval_interval', None)
-
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
@@ -248,9 +240,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def close_trainer(self):
         self.ppo_trainer.close()
     
-    def attach_vllm_engines(self, vllm_engines: list[Any]):
-        self.logger.info(f"Attaching {len(vllm_engines)} vLLM engines to the Training Actors")
-        self.ppo_trainer.state.vllm_engines = vllm_engines
 
     def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
         """Adds the current rank's rollouts to the callback."""
@@ -358,7 +347,7 @@ class TrainActorGroup(SPMDActorGroup):
         with time_it("training"):
             self.collective_methods.train_1_iter()
 
-    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore, eval_semaphore: asyncio.Semaphore):
         # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
         # asyncio.to_thread to bridge the async and sync world
         for _ in range(num_iterations):
@@ -369,7 +358,7 @@ class TrainActorGroup(SPMDActorGroup):
             await asyncio.to_thread(self.train_1_iter)
             # TODO decide where should we use the lock and the semaphore
             # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
-            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
+            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'rollout_semaphore': rollout_semaphore, 'eval_semaphore': eval_semaphore})
 
 class InferenceServer:
     """Inference server with vLLM engines."""
@@ -396,6 +385,71 @@ class InferenceServer:
     @property
     def engines(self):
         return self.vllm_engines
+
+# Note: This needs to be re-worked once the repos are migrated.
+class EvalAgent:
+    """An async agent for handling evals."""
+
+    def __init__(
+        self,
+        vllm_engines: list[Any],
+        evals: list[dict[str, Any]],
+        eval_overrides: dict[str, Any],
+        experiment_name: str,
+        run_name: str,
+    ):
+        self.vllm_engines = vllm_engines
+        self.evals = evals
+        self.eval_overrides = eval_overrides
+        self.experiment_name = experiment_name
+        self.run_name = run_name
+        self.callback = self.build_callback()
+
+    def build_callback(self):
+        from llmfoundry.utils.builders import build_callback
+        # Using a minimal train_config to built the callback correctly.
+        train_config = {
+            'eval_interval': f'{EVAL_INTERVAL}iter',
+            'python_log_level': 'debug',
+        }
+        kwargs = {
+            'evals': self.evals,
+            'eval_overrides': self.eval_overrides,
+        }
+        callback = build_callback(
+            name='orl_eval',
+            kwargs=kwargs,
+            train_config=train_config,
+        )
+
+        # Need to create a fake state to pass to fit_start to help the callback register correctly.
+        class _State:
+            vllm_engines = []
+        fake_state = _State()
+        fake_state.vllm_engines = self.vllm_engines
+
+        callback.fit_start(fake_state, logger=None)
+        return callback
+
+    def run_evaluation(self, step: int = 0):
+        """Run evaluation after weights are broadcast to vLLM engines."""
+        # _run_evaluation requires that mlflow_logger is not None (even though it is not used)
+        # As a consequence, we set it to 1 to circumvent the issue.
+        self.callback.mlflow_logger = 1
+        self.callback._run_evaluation(self.experiment_name, self.run_name, step)
+
+    async def run(self, num_iterations: int, lock: asyncio.Lock, eval_semaphore: asyncio.Semaphore):
+        """Async loop on driver to trigger evaluations.
+
+        We don't need to treat this as a Ray actor since we don't need to set a world_size or
+        use GPUs for this process.
+        """
+        # TODO: We could potentially use an async queue instead of a semaphore to trigger the eval
+        # We could potentially circumvent this iteration loop in that scenario.
+        for iteration in range(0, num_iterations, EVAL_INTERVAL):
+            await eval_semaphore.acquire()
+            async with lock:
+                await asyncio.to_thread(self.run_evaluation, step=iteration*NUM_BATCHES_PER_UPDATE)
 
 
 class RolloutAgent:
@@ -490,11 +544,11 @@ class RolloutAgent:
         os.symlink(checkpoint_path, self.latest_checkpoint)
         return iter_data
 
-    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore):
         for _ in range(num_iterations):
             # semaphore has be to acquired before the lock is acquired
             # otherwise it could hang the parameter_buffer due to lock is already acquired
-            await semaphore.acquire()
+            await rollout_semaphore.acquire()
             async with lock:
                 rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
             await experience_buffer.put(rollouts)
@@ -502,6 +556,10 @@ class RolloutAgent:
 
 class ParameterBuffer(Buffer):
     """Buffer for updating the inference model."""
+
+    def __init__(self):
+        super().__init__()
+        self.num_times_param_updated = 0
 
     def update_inference_model(self, actor: DistributedGPUActor, inference_server: InferenceServer):
         start_time = time.time()
@@ -525,7 +583,15 @@ class ParameterBuffer(Buffer):
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
         async with struct['lock']:
             struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
-        struct['semaphore'].release()
+        # allow next rollout/generation step
+        struct['rollout_semaphore'].release()
+        # schedule eval if interval reached
+        self.num_times_param_updated += 1
+        # Since we updated the params, we need to check if we need to schedule an eval
+        # based on the previous value of num_times_param_updated as we want to run an eval
+        # at timestep 0.
+        if (self.num_times_param_updated - 1) % EVAL_INTERVAL == 0:
+            struct['eval_semaphore'].release()
 
 
 class ExperienceBuffer(Buffer):
@@ -636,6 +702,7 @@ class PPOController:
         rollout_agent: RolloutAgent,
         parameter_buffer: ParameterBuffer,
         experience_buffer: ExperienceBuffer,
+        eval_agent: EvalAgent,
         config: Any,
     ):
         self.train_actor = train_actor
@@ -644,15 +711,17 @@ class PPOController:
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
         self.train_actor.build_models(config)
+        self.eval_agent = eval_agent
         setup_process_groups(
             self.train_actor.master_actor,
             inference_server.engines,
             inference_server.vllm_tensor_parallel_size,
         )
         self.lock = asyncio.Lock()
-        self.semaphore = asyncio.Semaphore(config.max_async_step)
         self.train_actor.collective_methods.attach_vllm_engines(self.inference_server.engines)
         self.config = config
+        self.rollout_semaphore = asyncio.Semaphore(config.max_async_step)
+        self.eval_semaphore = asyncio.Semaphore(0)
     
     async def train_async(self, max_duration: int | str):
         if isinstance(max_duration, str):
@@ -661,10 +730,11 @@ class PPOController:
             num_iterations = max_duration
 
         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
-        await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'semaphore': self.semaphore})
-        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.semaphore))
-        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.semaphore))
-        await asyncio.gather(train_task, rollout_task)
+        await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'rollout_semaphore': self.rollout_semaphore, 'eval_semaphore': self.eval_semaphore})
+        eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
+        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.rollout_semaphore, self.eval_semaphore))
+        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
+        await asyncio.gather(train_task, rollout_task, eval_task)
         self.train_actor.collective_methods.close_trainer()
 
 
@@ -728,12 +798,27 @@ def _run_single_controller_ppo(
             streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote(config)
             rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, config)
 
+            # EvalAgent doesn't need to be a Ray actor since we don't need to
+            # set a world_size or use GPUs for this process.
+            eval_agent = EvalAgent(
+                inference_server.engines,
+                evals=[{'name': 'gsm8k'}, {'name': 'math_500'}, {'name': 'math_hard'}],
+                eval_overrides={
+                    'generation_params': {
+                        'max_tokens': config.max_gen_len,
+                    },
+                },
+                experiment_name='test_single_controller_ppo',
+                run_name=f'test_single_controller_ppo_async_{config.max_async_step}_deepseek_l8b_open_r1_48k'
+            )
+
             ppo_controller = PPOController(
                 train_actor,
                 inference_server,
                 rollout_agent,
                 parameter_buffer,
                 experience_buffer,
+                eval_agent,
                 config,
             )
             asyncio.run(ppo_controller.train_async(config.max_duration))
