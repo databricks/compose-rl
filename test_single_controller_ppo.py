@@ -51,13 +51,13 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
-NUM_TRAIN_ITERATIONS = 50
+NUM_TRAIN_ITERATIONS = 5
 DO_SAMPLE = True
 
 _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
 
-MAX_ASYNC_STEP = 1
+MAX_ASYNC_STEP = 0
 
 @contextmanager
 def time_it(name: str):
@@ -476,6 +476,8 @@ class TrainActorGroup(SPMDActorGroup):
 
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
         for _ in range(num_iterations):
+            # TODO decide where should we use the lock and the semaphore
+            # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
             await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
@@ -572,6 +574,8 @@ class RolloutAgent:
 
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
         for _ in range(num_iterations):
+            # semaphore has be to acquired before the lock is acquired
+            # otherwise it could hang the parameter_buffer due to lock is already acquired
             await semaphore.acquire()
             async with lock:
                 rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
@@ -744,19 +748,9 @@ class PPOController:
         self.lock = asyncio.Lock()
         self.semaphore = asyncio.Semaphore(MAX_ASYNC_STEP)
         self.train_actor.collective_methods.attach_vllm_engines(self.inference_server.engines)
-
-    def train(self):
-        for _ in range(NUM_TRAIN_ITERATIONS):  # Example: train for 5 iterations
-            # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
-            ray.get(self.parameter_buffer.put.remote({'actor_group': self.train_actor, 'inference_server': self.inference_server}))
-            # Simple example of adding elements to the experience buffer
-            ray.get(self.experience_buffer.put.remote(self.rollout_agent.get_next_iter_rollouts()))
-            # Populate the train actor group with the rollouts and then train
-            self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
-            self.train_actor.train_1_iter()
-            self.train_actor.collective_methods.close_trainer()
     
     async def train_async(self, num_iterations: int):
+        # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
         await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock})
         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.semaphore))
         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.semaphore))
