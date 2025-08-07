@@ -473,12 +473,6 @@ class TrainActorGroup(SPMDActorGroup):
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
         ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
 
-    def add_latest_rollouts_from_buffer(self, experience_buffer: 'ExperienceBuffer'):
-        assert experience_buffer is not None, "Experience buffer is not set"
-        assert len(experience_buffer) > 0, "Experience buffer is empty"
-        latest_rollouts = ray.get(experience_buffer.get.remote())
-        self._add_latest_rollouts(latest_rollouts)
-
     def train_1_iter(self):
         # added this method to time the collectivetraining time otherwise we can time each rank but the print/logging becomes messy to read
         with time_it("training"):
