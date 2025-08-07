@@ -48,7 +48,8 @@ class BaseDistributedGPUActor:
         # ray.get_gpu_ids() is empty if ray is not used. 
         print('ray.get_gpu_ids()', ray.get_gpu_ids(), 'setting local rank to', rank)
 
-        os.environ['LOCAL_RANK'] = str(rank) 
+        num_per_node = 8 # TODO: DO NOT HARDCODE THE NUMBER OF GPUS PER NODE
+        os.environ['LOCAL_RANK'] = str(rank % num_per_node) # TODO: ensure that ray allocates gpus contiguously
 
         # If this is rank 0 and no master_addr/master_port provided, allocate them
         if rank == 0 and (master_addr is None or master_port is None):
@@ -155,7 +156,7 @@ class SPMDActorGroup:
             gpu_ids.extend(ray.get(actor.get_ray_gpu_ids.remote()))
             
         for actor in self._train_actors:
-            actor.set_cuda_visible_devices.remote(gpu_ids)
+            ray.get(actor.set_cuda_visible_devices.remote(gpu_ids))
             print(f'Set visible devices for actor: {gpu_ids}')
 
     @property
