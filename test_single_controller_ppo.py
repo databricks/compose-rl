@@ -180,7 +180,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 'precision': self.precision,
                 'load_path': self.ref_path,
             },
-            'non_train_fsdp_config': self.fsdp_config,
+            # 'non_train_fsdp_config': self.fsdp_config,
             'rewards': {
                 'math_verifier': {
                     'reward_type': 'math_verifier',
@@ -211,7 +211,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.train_config = {
             'seed': 17,
             'model': self.model_config,
-            'fsdp_config': self.fsdp_config,
+            # 'fsdp_config': self.fsdp_config,
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,
@@ -309,7 +309,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             ],
             train_dataloader=dummy_dataloader,
             precision=self.precision,
-            parallelism_config={'fsdp': self.fsdp_config},
+            # parallelism_config={'fsdp': self.fsdp_config},
             max_duration=f'{NUM_TRAIN_ITERATIONS}iter',
             loggers=[mlflow_logger],
             device_train_microbatch_size=1,
@@ -749,7 +749,7 @@ def _run_single_controller_ppo(
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = world_size - num_train_actors
+            vllm_tensor_parallel_size = 1
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
