@@ -57,7 +57,7 @@ DO_SAMPLE = True
 _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
 
-MAX_ASYNC_STEP = 0
+MAX_ASYNC_STEP = 1
 
 @contextmanager
 def time_it(name: str):
@@ -841,7 +841,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
+            'pretrain_model_name': 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B',
         })
     
     # This is an example of how to move the controller logic from PPO Callback
