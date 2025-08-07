@@ -158,6 +158,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def tokenizer(self):
         if self._tokenizer is None:
             self._tokenizer = self.build_tokenizer()
+        print(f"pad token for tokenizer: {self._tokenizer.pad_token}")
         return self._tokenizer
 
     @property
