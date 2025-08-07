@@ -479,6 +479,8 @@ class TrainActorGroup(SPMDActorGroup):
             self.collective_methods.train_1_iter()
 
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
+        # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
+        # asyncio.to_thread to bridge the async and sync world
         for _ in range(num_iterations):
             # TODO decide where should we use the lock and the semaphore
             # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
