@@ -162,7 +162,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     @property
     def fsdp_config(self):
         # TODO (infra): use actual fsdp1 config
-        return {}
+        return {"sync_module_states": True}
 
     def init_composer_dist(self):
         composer_dist.initialize_dist('gpu')
