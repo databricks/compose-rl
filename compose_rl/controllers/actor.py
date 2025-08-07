@@ -48,7 +48,8 @@ class BaseDistributedGPUActor:
         # ray.get_gpu_ids() is empty if ray is not used. 
         print('ray.get_gpu_ids()', ray.get_gpu_ids(), 'setting local rank to', rank)
 
-        os.environ['LOCAL_RANK'] = str(rank) 
+        num_per_node = 8
+        os.environ['LOCAL_RANK'] = str(rank) % num_per_node # TODO DO NOT HARDCODE THE NUMBER OF GPUS PER NODE
 
         # If this is rank 0 and no master_addr/master_port provided, allocate them
         if rank == 0 and (master_addr is None or master_port is None):
