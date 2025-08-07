@@ -53,9 +53,18 @@ NUM_BATCHES_PER_UPDATE = 8
 NUM_TRAIN_ITERATIONS = 20
 DO_SAMPLE = True
 
+# _DATASET_PATH = 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/'
+# _HF_MODEL_NAME = 'meta-llama/Llama-3.1-8B-Instruct'
+# _EXPT_NAME = 'test_single_controller_grpo_seq_len_fix'
+# _EOS_TOKEN_IDS = [128001,128008,128009]
+# _PAD_TOKEN = '<|finetune_right_pad_id|>'
+_DATASET_PATH = 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/q7b_open_r1_48k/'
+_HF_MODEL_NAME = 'Qwen/Qwen2.5-7B-Instruct'
+_EXPT_NAME = 'test_single_controller_grpo_qwen_7b'
+_EOS_TOKEN_IDS = [151643, 151645]
+_PAD_TOKEN = '<|endoftext|>'
 _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
-
 
 @contextmanager
 def time_it(name: str):
@@ -160,11 +169,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 'do_sample': DO_SAMPLE,
                 'temperature': 1.0,
             },
-            'eos_token_ids': [
-                128001,
-                128008,
-                128009,
-            ],
+            'eos_token_ids': _EOS_TOKEN_IDS,
             'buffer': {
                 'name': 'MinibatchRolloutBuffer',
                 'max_buffer_size': self.num_batches_per_update,
@@ -233,7 +238,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # token (ids) for the experience buffer/manager
         kwargs = {
             'padding': 'longest',
-            'pad_token': '<|finetune_right_pad_id|>',
+            'pad_token': _PAD_TOKEN,
             'truncation': True,
             'padding_side': 'left',
             'model_max_length': self.max_seq_len,
@@ -262,8 +267,11 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.logger.info("Building ORL eval callback")
         kwargs = {
             'evals': [
+                # {
+                #     'name': 'gsm8k',
+                # },
                 {
-                    'name': 'gsm8k',
+                    'name': 'math_hard',
                 },
                 {
                     'name': 'math_500',
@@ -311,7 +319,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_grpo_seq_len_fix',
+            run_name=_EXPT_NAME,
             tracking_uri='databricks',
         )
 
@@ -348,6 +356,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             loggers=[mlflow_logger],
             device_train_microbatch_size=1,
             load_path=self.ref_path,
+            eval_interval=self.train_config.get('eval_interval', False),
         )
 
     def close_trainer(self):
@@ -616,7 +625,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: We should move these to dataclasses
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
-        self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
+        self.pretrain_model_name = _HF_MODEL_NAME
         self.prompt_handler_config = {
             "global_train_batch_size": GLOBAL_TRAIN_BATCH_SIZE,
             "generations_per_prompt": GENERATIONS_PER_PROMPT,
@@ -626,7 +635,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         }
         self.tokenizer_config = {
             'padding': 'longest',
-            'pad_token': '<|finetune_right_pad_id|>',
+            'pad_token': _PAD_TOKEN,
             'truncation': True,
             'padding_side': 'left',
             'model_max_length': self.prompt_handler_config['max_seq_len'],
@@ -639,7 +648,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
             'dataset': {
                 'local': temp_dataset_dir,
                 'split': 'train',
-                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/',
+                'remote': _DATASET_PATH,
                 'shuffle': True,
                 'max_gen_len': self.prompt_handler_config['max_gen_len'],
                 'max_seq_len': self.prompt_handler_config['max_seq_len'],
@@ -766,10 +775,12 @@ def _run_single_controller_ppo(
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = world_size - num_train_actors
-            num_vllm_engines = (
-                world_size - num_train_actors
-            ) // vllm_tensor_parallel_size
+            # vllm_tensor_parallel_size = world_size - num_train_actors
+            # num_vllm_engines = (
+            #     world_size - num_train_actors
+            # ) // vllm_tensor_parallel_size
+            vllm_tensor_parallel_size = 1
+            num_vllm_engines = (world_size - num_train_actors) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
             pretrain_model_name = config.pretrain_model_name
             inference_server = InferenceServer(
@@ -818,7 +829,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
+            'pretrain_model_name': _HF_MODEL_NAME,
         })
     
     # This is an example of how to move the controller logic from PPO Callback
