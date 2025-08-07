@@ -38,6 +38,8 @@ env_variables:
   TP_SOCKET_IFNAME: eth0
   VLLM_ATTENTION_BACKEND: FLASHINFER
   VLLM_ENABLE_V1_MULTIPROCESSING: 0
+  TOTAL_NUM_NODES: 2  # might be dangerous?
+  TRAIN_NUM_NODES: 1  # might be dangerous?
 
 parameters:
   seed: 17
