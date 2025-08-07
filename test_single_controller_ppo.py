@@ -286,7 +286,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_ppo_async_clipping_threshold_0.0001_do_sample_True',
+            run_name='test_single_controller_ppo_no_update',
             tracking_uri='databricks',
         )
 
