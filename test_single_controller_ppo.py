@@ -57,7 +57,7 @@ DO_SAMPLE = True
 _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
 
-MAX_ASYNC_STEP = 0
+MAX_ASYNC_STEP = 1
 
 @contextmanager
 def time_it(name: str):
@@ -316,7 +316,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_ppo_sync_deepseek_l8b',
+            run_name='test_single_controller_ppo_async_deepseek_l8b_open_r1_48k',
             tracking_uri='databricks',
         )
 
