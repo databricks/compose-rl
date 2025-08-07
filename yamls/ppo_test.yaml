@@ -41,7 +41,7 @@ callbacks:
   hf_checkpointer:
     overwrite: true
     precision: bfloat16
-    save_folder: s3://data-force-one-datasets/mosaicml-internal-checkpoints/ashu/benchmark_math/llama_8b_grpo/hf/{run_name}
+    save_folder: /tmp/hf_checkpoints/
     save_interval: 1dur
   runtime_estimator: {}
 optimizer:
@@ -149,7 +149,7 @@ fsdp_config:
   activation_checkpointing: true
   activation_checkpointing_reentrant: false
 max_seq_len: 6000
-save_folder: ./checkpoints/grpo_single_controller
+save_folder: /tmp/checkpoints
 dist_timeout: 1800
 max_duration: 50iter
 progress_bar: false

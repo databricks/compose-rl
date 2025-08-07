@@ -48,16 +48,16 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
-GLOBAL_TRAIN_BATCH_SIZE = 64
-GENERATIONS_PER_PROMPT = 8  
-NUM_BATCHES_PER_UPDATE = 8
-AUTORESUME = True
-SAVE_FOLDER = '/checkpoints/grpo_single_controller'
-NUM_TRAIN_ITERATIONS = 10
-DO_SAMPLE = True
+# GLOBAL_TRAIN_BATCH_SIZE = 64
+# GENERATIONS_PER_PROMPT = 8  
+# NUM_BATCHES_PER_UPDATE = 8
+# AUTORESUME = True
+# SAVE_FOLDER = '/checkpoints/grpo_single_controller'
+# NUM_TRAIN_ITERATIONS = 10
+# DO_SAMPLE = True
 
-_MAX_SEQ_LEN = 10240
-_MAX_GEN_LEN = 8192
+# _MAX_SEQ_LEN = 10240
+# _MAX_GEN_LEN = 8192
 
 
 @contextmanager
@@ -189,7 +189,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             ],
             'eval_overrides': {
                 'generation_params': {
-                    'max_tokens': _MAX_GEN_LEN
+                    'max_tokens': self.max_gen_len
                 }
             },
         }
@@ -262,13 +262,13 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
-            max_duration=f'{NUM_TRAIN_ITERATIONS}iter',
+            max_duration=self.config.max_duration,
             loggers=[mlflow_logger],
             device_train_microbatch_size=1,
             load_path=self.ref_path,
-            save_folder=SAVE_FOLDER,
+            save_folder=self.config.save_folder,
             save_interval='1iter',
-            autoresume=AUTORESUME,
+            autoresume=self.config.autoresume,
         )
 
     def close_trainer(self):
@@ -391,7 +391,7 @@ class TrainActorGroup(SPMDActorGroup):
 class InferenceServer:
     """Inference server with vLLM engines."""
 
-    def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str):
+    def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str, config: Any):
         self.num_vllm_engines = num_vllm_engines
         self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
         self.vllm_engines = create_vllm_engines(
@@ -402,7 +402,7 @@ class InferenceServer:
                 revision=None,
                 seed=1,
                 enable_prefix_caching=False,
-                max_model_len=_MAX_GEN_LEN,
+                max_model_len=config.variables.max_gen_len,
                 device_bundle={
                     'GPU': 1,
                     'CPU': 1,
@@ -433,14 +433,14 @@ class RolloutAgent:
         self.max_gen_len = self.prompt_handler_config['max_gen_len']
 
         # Load iter_num from the checkpoint
-        self.save_folder = os.path.join(SAVE_FOLDER, 'RolloutAgent')
+        self.save_folder = os.path.join(config.save_folder, 'RolloutAgent')
 
         self.iter_num = 0
 
         # Load the latest checkpoint
         self.latest_checkpoint = os.path.join(self.save_folder, 'latest.symlink')
 
-        if AUTORESUME and os.path.exists(self.latest_checkpoint):
+        if config.autoresume and os.path.exists(self.latest_checkpoint):
             print(f'Autoresuming from checkpoint for RolloutAgent.')
             with open(self.latest_checkpoint, 'rb') as f:
                 checkpoint = pickle.load(f)
@@ -663,9 +663,11 @@ class PPOController:
             inference_server.vllm_tensor_parallel_size,
         )
         self.train_actor.collective_methods.attach_vllm_engines(self.inference_server.engines)
+        self.config = config
 
     def train(self):
-        for _ in range(NUM_TRAIN_ITERATIONS):  # Example: train for 5 iterations
+        duration = int(self.config.max_duration.replace('iter', ''))
+        for _ in range(duration):  # Example: train for 5 iterations
             # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
             self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
             # Simple example of adding elements to the experience buffer
@@ -675,7 +677,6 @@ class PPOController:
             self.train_actor.train_1_iter()
         
         self.train_actor.collective_methods.close_trainer()
-
 
 
 def _run_single_controller_ppo(
@@ -720,6 +721,7 @@ def _run_single_controller_ppo(
                 num_vllm_engines=num_vllm_engines,
                 vllm_tensor_parallel_size=vllm_tensor_parallel_size,
                 pretrain_model_name=pretrain_model_name,
+                config=config,
             )
 
             # We are using a CPU worker for the StreamingActor
