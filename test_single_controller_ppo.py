@@ -14,19 +14,21 @@ import argparse
 from contextlib import contextmanager
 import logging
 import os
+import pickle
 import time
 import datetime
 from functools import partial
 from typing import Any, Optional
 
 from composer.loggers import MLFlowLogger
+from mlflow.prompt.registry_utils import PromptVersion
 import ray
 import torch
 import torch.distributed as dist
 from composer import Trainer
 from composer.core import get_precision_context
 from composer.optim import DecoupledAdamW
-from composer.utils import dist as composer_dist
+from composer.utils import create_symlink_file, dist as composer_dist
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
@@ -50,6 +52,7 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
+AUTORESUME = True
 SAVE_FOLDER = '/checkpoints/grpo_single_controller'
 NUM_TRAIN_ITERATIONS = 10
 DO_SAMPLE = True
@@ -256,6 +259,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         return {}
 
     def init_composer_dist(self):
+        print('Initializing composer dist', composer_dist.get_local_rank(), composer_dist.get_global_rank(), composer_dist.get_world_size())
         composer_dist.initialize_dist('gpu')
 
     def build_orl_eval_callback(self):
@@ -352,6 +356,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             load_path=self.ref_path,
             save_folder=SAVE_FOLDER,
             save_interval='1iter',
+            autoresume=AUTORESUME,
         )
 
     def close_trainer(self):
@@ -443,7 +448,7 @@ class TrainActorGroup(SPMDActorGroup):
         self.collective_methods.build_ppo_trainer()
         print('build ppo trainer done')
 
-    def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]):
+    def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]) -> list[dict[str, Any]]:
         """Partition the rollouts across all actors."""
         partitioned_rollouts = []
         per_rank_data_size = rollouts['prompt'].shape[0] // self.num_train_actors
@@ -519,6 +524,23 @@ class RolloutAgent:
         self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
         self.max_gen_len = self.prompt_handler_config['max_gen_len']
 
+        # Load iter_num from the checkpoint
+        self.save_folder = os.path.join(SAVE_FOLDER, 'RolloutAgent')
+
+        self.iter_num = 0
+
+        # Load the latest checkpoint
+        self.latest_checkpoint = os.path.join(self.save_folder, 'latest.symlink')
+
+        if AUTORESUME and os.path.exists(self.latest_checkpoint):
+            print(f'Autoresuming from checkpoint for RolloutAgent.')
+            with open(self.latest_checkpoint, 'rb') as f:
+                checkpoint = pickle.load(f)
+            self.iter_num = checkpoint['iter_num']
+            print(f'Loading streaming dataloader state dict for RolloutAgent.', checkpoint['streaming_dataloader'])
+            self.streaming_dataset_actor.load_dataloader_state_dict.remote(checkpoint['streaming_dataloader'])
+
+
     def get_next_iter_rollouts(self):
         """
         Gets the next rollouts from the inference server.
@@ -557,6 +579,25 @@ class RolloutAgent:
         processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
         iter_data['sequences'] = processed_sequences
 
+        save_folder_iter = os.path.join(self.save_folder, f'iter_{self.iter_num}')
+        checkpoint_path = os.path.join(save_folder_iter, 'checkpoint.pt')
+        self.iter_num += 1
+
+        streaming_dataloader_state_dict = ray.get(self.streaming_dataset_actor.get_dataloader_state_dict.remote())
+        print(f'Streaming dataloader state dict for RolloutAgent.', streaming_dataloader_state_dict)
+
+        # make sure that the folder path can exist
+        os.makedirs(save_folder_iter, exist_ok=True)
+        with open(checkpoint_path, 'wb') as f:
+            pickle.dump({
+                'iter_data': iter_data,
+                'iter_num': self.iter_num,
+                'streaming_dataloader': streaming_dataloader_state_dict,
+            }, f)
+
+        if os.path.exists(self.latest_checkpoint):
+            os.remove(self.latest_checkpoint)
+        os.symlink(checkpoint_path, self.latest_checkpoint)
         return iter_data
 
 
@@ -701,6 +742,12 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
 
         return preprocess_batches(batches, self.generations_per_prompt, self.tokenizer.pad_token_id)
 
+    def get_dataloader_state_dict(self):
+        return self.dataloader.state_dict()
+    
+    def load_dataloader_state_dict(self, state_dict: dict):
+        self.dataloader.load_state_dict(state_dict)
+
 
 class PPOController:
     """PPO controller for training the policy and value networks."""
@@ -752,6 +799,9 @@ def _run_single_controller_ppo(
     # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend
     # takes too long to jit compile
     os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
+
+    # Disable setting CUDA_VISIBLE_DEVICES by ray, we will set it manually
+    os.environ['RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES'] = '1'
 
     with start_ray_server() as _address:
         # only rank 0 is the master controller
@@ -811,7 +861,7 @@ def _run_single_controller_ppo(
 
 
 if __name__ == '__main__':
-    # Parse command line arguments
+    # # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run single controller PPO with configuration file')
     parser.add_argument('--file_path', type=str, required=False, default=None,
                        help='Path to the OmegaConf YAML configuration file')
@@ -829,3 +879,4 @@ if __name__ == '__main__':
     # to a separate trainer actor above and this main single controller
     # function.
     _run_single_controller_ppo(config)
+
