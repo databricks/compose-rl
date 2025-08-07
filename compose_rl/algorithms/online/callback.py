@@ -620,10 +620,9 @@ class OnPolicyCallback(CallbackWithConfig):
 
         batch = self._get_next_iter_prompts()
 
-        batch = state.device.batch_to_device(batch)
-
         if self.vllm_engines is not None:
-            self._update_inference_model(batch)
+            device = state.device._device
+            self._update_inference_model(device)
 
         self._interact_with_env(batch)
         # Reset and initialize state train dataloader
@@ -1101,7 +1100,7 @@ class OnPolicyCallback(CallbackWithConfig):
         dist.barrier()
         log.info('All ranks have completed the vLLM engine create function.')
 
-    def _update_inference_model(self, batch: dict[str, torch.Tensor]):
+    def _update_inference_model(self, device: torch.device):
         start_time = time.time()
         log.info('Before broadcast to vLLM')
         assert self.vllm_engines is not None
@@ -1109,7 +1108,7 @@ class OnPolicyCallback(CallbackWithConfig):
             model=self.actor_critic,
             vllm_engines=self.vllm_engines,
             model_update_group=self.model_update_group,
-            device=batch['prompt'].device,
+            device=device,
             loss_type=self.actor_critic.loss_type,  # type: ignore
             enable_prefix_caching=self.vllm_enable_prefix_caching,
         )
@@ -1121,11 +1120,8 @@ class OnPolicyCallback(CallbackWithConfig):
         return {
             'KL_ctl_state_dict': self.kl_ctl.state_dict(),
             'iter_num': self.iter_num,
-            'train_prompt_loader':
-                self.train_prompt_loader.state_dict(),  # pyright: ignore
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]):
         self.kl_ctl.load_state_dict(state_dict['KL_ctl_state_dict'])
         self.iter_num = state_dict['iter_num']
-        self.train_prompt_loader_state_dict = state_dict['train_prompt_loader']
