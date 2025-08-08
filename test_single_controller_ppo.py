@@ -343,9 +343,9 @@ class TrainActorGroup(SPMDActorGroup):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
 
-    def build_models(self, pretrain_model_name: str, config: Any):
+    def build_models(self, config: Any):
         """Build reference models and PPO trainers for all actors."""
-        self.collective_methods.build_train_config(pretrain_model_name, config)
+        self.collective_methods.build_train_config(config)
         self.collective_methods.init_composer_dist()
 
         # Build PPO trainers
@@ -656,7 +656,6 @@ class PPOController:
         rollout_agent: RolloutAgent,
         parameter_buffer: ParameterBuffer,
         experience_buffer: ExperienceBuffer,
-        pretrain_model_name: str,
         config: Any,
     ):
         self.train_actor = train_actor
@@ -664,7 +663,7 @@ class PPOController:
         self.rollout_agent = rollout_agent
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
-        self.train_actor.build_models(pretrain_model_name, config)
+        self.train_actor.build_models(config)
         setup_process_groups(
             self.train_actor.master_actor,
             inference_server.engines,
@@ -726,10 +725,9 @@ def _run_single_controller_ppo(
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
-            pretrain_model_name = config.model.pretrained_model_name_or_path
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
-                pretrain_model_name=pretrain_model_name,
+                pretrain_model_name=config.model.pretrained_model_name_or_path,
                 config=config,
             )
 
@@ -756,7 +754,6 @@ def _run_single_controller_ppo(
                 rollout_agent,
                 parameter_buffer,
                 experience_buffer,
-                pretrain_model_name,
                 config,
             )
             asyncio.run(ppo_controller.train_async(config.max_duration))
