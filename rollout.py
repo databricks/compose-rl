@@ -9,9 +9,6 @@ EXPERIENCE_BUFFER_PORT=29601
 NUM_INFERENCE_ENGINES=1
 MAX_ITERATIONS=2
 
-# Global iteration tracker
-CURRENT_ITERATION = 0
-
 logging.basicConfig(
     # Example of format string
     # 2022-06-29 11:22:26,152: rank0[822018][MainThread]: INFO: composer.trainer.trainer: Using precision Precision.FP32
@@ -72,10 +69,16 @@ if __name__ == "__main__":
         # TODO: start generating rollouts and put it in the experience buffer
 
         experience_buffer = torch.tensor([6]).to('cuda')
-        torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer, async_op=True) # don't block, send it off and continue generating rollouts
-        log.info(f"Rank {dist.get_global_rank()} Sent experience buffer {experience_buffer}")
+        experience_buffer_work = torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer, async_op=True) # don't block, send it off and continue generating rollouts
+        log.info(f"Sent experience buffer {experience_buffer}")
 
         log.info(f"Completed iteration {i + 1}/{MAX_ITERATIONS}")
+
+        if i == MAX_ITERATIONS - 1:
+            assert experience_buffer_work is not None
+            log.info(f"Waiting for the last experience buffer to be received")
+            experience_buffer_work.wait()
+
 
     
 
