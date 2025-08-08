@@ -1,10 +1,15 @@
-from datetime import timedelta
 from composer.utils import dist
 import torch
 
 from compose_rl.algorithms.online.generation_utils.vllm_utils import init_process_group
 
 import logging
+
+MODEL_UPDATE_PORT=29600
+EXPERIENCE_BUFFER_PORT=29601
+NUM_INFERENCE_ENGINES=1
+MAX_ITERATIONS=2
+
 
 logging.basicConfig(
     # Example of format string
@@ -14,19 +19,14 @@ logging.basicConfig(
     format=
     f'[TRAIN]%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
 )
-
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
-MODEL_UPDATE_PORT=29600
-EXPERIENCE_BUFFER_PORT=29601
-NUM_INFERENCE_ENGINES=1
-MAX_ITERATIONS=10
-
 if __name__ == "__main__":
-    # note: the smaller timeout seems to hold, doesn't matter which process gorup you set the timeout to
     torch.distributed.init_process_group(backend="nccl")
     log.info(f"Hello from rank {dist.get_global_rank()}")
+
+    
 
     model_update_group = None
     experience_buffer_group = None
@@ -48,21 +48,34 @@ if __name__ == "__main__":
         )
 
     # TODO: broadcast the model weights to the inference engines
-    if model_update_group is not None:
-        t = torch.tensor([5]).to('cuda')
-        torch.distributed.broadcast(group=model_update_group, src=0,tensor=t, async_op=True) # broadcast all the model weights
-        log.info(f"Rank {dist.get_global_rank()} Broadcasted model weights{t}")
+    for i in range(MAX_ITERATIONS):
+        # Update global iteration tracker
+        log.info(f"Starting iteration {i + 1}/{MAX_ITERATIONS}")
+        
+        if model_update_group is not None:
+            is_ready_to_update = torch.tensor([1]).to('cuda')
+            is_ready_to_update_work = torch.distributed.broadcast(group=model_update_group, src=0,tensor=is_ready_to_update, async_op=True)
+            log.info(f"Rank {dist.get_global_rank()} Broadcasted is_ready_to_update{is_ready_to_update}")
 
-    # TODO: get the experience buffer results from the rollout process
-    if experience_buffer_group is not None:
-        t = torch.tensor([0]).to('cuda')
-        torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=t) # block until the broadcast is complete
-        log.info(f"Rank {dist.get_global_rank()} Broadcasted experience{t}")
+            is_ready_to_update_work.wait() # wait until the broadcast is complete (the rollout process has received the message) before we update the model weights
 
-    # all training ranks should wait until we have the experience buffer results
-    dist.barrier()
+            # Actually broadcast the model weights
+            weights = torch.tensor([5]).to('cuda')
+            torch.distributed.broadcast(group=model_update_group, src=0,tensor=weights, async_op=True) # broadcast all the model weights
+            log.info(f"Rank {dist.get_global_rank()} Broadcasted model weights{weights}") # TODO: update the model weights
 
-    # distributed the experiences results to each of the training ranks
+        # TODO: get the experience buffer results from the rollout process
+        experience_buffer = torch.tensor([0]).to('cuda')
+        if experience_buffer_group is not None:
+            torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer) # block until the broadcast is complete, need to get the new experiences
+            log.info(f"Rank {dist.get_global_rank()} Got experience buffer {experience_buffer}")
 
-    # TODO: train the model
+        # all training ranks should wait until we have the experience buffer results
+        dist.barrier()
+
+        # distributed the experiences results to each of the training ranks
+
+        # TODO: train the model
+
+        log.info(f"Completed iteration {i + 1}/{MAX_ITERATIONS}")
 

@@ -4,6 +4,14 @@ import torch
 
 import logging
 
+MODEL_UPDATE_PORT=29600
+EXPERIENCE_BUFFER_PORT=29601
+NUM_INFERENCE_ENGINES=1
+MAX_ITERATIONS=2
+
+# Global iteration tracker
+CURRENT_ITERATION = 0
+
 logging.basicConfig(
     # Example of format string
     # 2022-06-29 11:22:26,152: rank0[822018][MainThread]: INFO: composer.trainer.trainer: Using precision Precision.FP32
@@ -12,17 +20,11 @@ logging.basicConfig(
     format=
     f'[ROLLOUT]%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
 )
-
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
-
-MODEL_UPDATE_PORT=29600
-EXPERIENCE_BUFFER_PORT=29601
-NUM_INFERENCE_ENGINES=1
-MAX_ITERATIONS=10
-
 if __name__ == "__main__":
+
     rank = 1 # TODO: UPDATE TO SUPPORT MULTIPLE INFERENCE ENGINES
     log.info("Initializing model update process group") # 1
     model_update_group = init_process_group(
@@ -42,15 +44,38 @@ if __name__ == "__main__":
 
     # TODO: check to see if there's an update to the model weights, if there is update the weights
     # to make it sync, we will wait until there is a weight update
-    t = torch.tensor([0]).to('cuda')
-    torch.distributed.broadcast(group=model_update_group, src=0,tensor=t)
-    log.info(f"Rank {dist.get_global_rank()} all gathered {t}")
+    is_ready_to_update = torch.tensor([0]).to('cuda')
+    is_ready_to_update_work = None
 
-    # TODO: start generating rollouts and put it in the experience buffer
+    for i in range(MAX_ITERATIONS):
+        log.info(f"[ITERATION {i + 1}/{MAX_ITERATIONS}] Starting iteration")
+        
+        if is_ready_to_update_work is None:
+            # if we haven't checked if there's an update to the model weights, run the check in the background
+            is_ready_to_update_work = torch.distributed.broadcast(group=model_update_group, src=0,tensor=is_ready_to_update, async_op=True)
+            if i == 0:
+                is_ready_to_update_work.wait() # We need to update the weights for the first iteration before we start generating rollouts
 
-    t = torch.tensor([6]).to('cuda')
-    torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=t, async_op=True) # don't block, send it off and continue generating rollouts
-    log.info(f"Rank {dist.get_global_rank()} Broadcasted experience{t}")
+        if is_ready_to_update.item() == 1:
+            assert is_ready_to_update_work.is_completed()
+            log.info(f"Weights are ready to update")
+
+            log.info("Updating the model weights")
+            weights = torch.tensor([i]).to('cuda')
+            torch.distributed.broadcast(group=model_update_group, src=0,tensor=weights)
+            log.info(f"Updating the weights to {weights}")
+            # rest the update check
+            is_ready_to_update = torch.tensor([0]).to('cuda') 
+            is_ready_to_update_work = None
+
+
+        # TODO: start generating rollouts and put it in the experience buffer
+
+        experience_buffer = torch.tensor([6]).to('cuda')
+        torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer, async_op=True) # don't block, send it off and continue generating rollouts
+        log.info(f"Rank {dist.get_global_rank()} Sent experience buffer {experience_buffer}")
+
+        log.info(f"Completed iteration {i + 1}/{MAX_ITERATIONS}")
 
     
 
