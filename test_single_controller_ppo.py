@@ -487,7 +487,7 @@ class TrainActorGroup(SPMDActorGroup):
         # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
         # asyncio.to_thread to bridge the async and sync world
 
-        # TODO: Load experience buffer from checkpoints
+        # TODO: Load experience buffer from checkpoints, this will make checkpointing work for async
         for _ in range(num_iterations):
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
