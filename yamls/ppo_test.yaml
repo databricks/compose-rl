@@ -114,7 +114,7 @@ variables:
     activation_cpu_offload: false
     activation_checkpointing: true
     activation_checkpointing_reentrant: false
-  vllm_tensor_parallel_size: 1
+  # vllm_tensor_parallel_size: 1
   rewards:
     math_verifier:
       reward: 4
