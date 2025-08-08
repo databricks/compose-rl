@@ -62,7 +62,8 @@ _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
 
 _MODEL_NAME = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
-MAX_ASYNC_STEP = 0
+_DATASET_PATH = 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/'
+MAX_ASYNC_STEP = 1
 
 @contextmanager
 def time_it(name: str):
@@ -704,7 +705,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
             'dataset': {
                 'local': temp_dataset_dir,
                 'split': 'train',
-                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/dpsk_8b_open_r1_48k/',
+                'remote': _DATASET_PATH,
                 'shuffle': True,
                 'max_gen_len': self.prompt_handler_config['max_gen_len'],
                 'max_seq_len': self.prompt_handler_config['max_seq_len'],
