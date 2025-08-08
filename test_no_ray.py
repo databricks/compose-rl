@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
     try:
         p1 = subprocess.Popen('CUDA_VISIBLE_DEVICES=0,1 composer -n 2 train.py', shell=True)
-        p2 = subprocess.Popen('CUDA_VISIBLE_DEVICES=2,3 composer -n 2 rollout.py', shell=True)
+        p2 = subprocess.Popen('CUDA_VISIBLE_DEVICES=2,3 python rollout.py', shell=True)
         p1.wait()
         p2.wait()
     except Exception as e:
