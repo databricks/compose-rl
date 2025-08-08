@@ -60,7 +60,7 @@ if __name__ == "__main__":
             assert is_ready_to_update_work.is_completed()
             log.info(f"Weights are ready to update")
 
-            log.info("Updating the model weights")
+            log.info("Updating the model weights") # this is a blocking operation, we need to wait until the weights are updated before we can start generating rollouts
             weights = torch.tensor([i]).to('cuda')
             torch.distributed.broadcast(group=model_update_group, src=0,tensor=weights)
             log.info(f"Updating the weights to {weights}")

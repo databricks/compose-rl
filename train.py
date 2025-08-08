@@ -54,17 +54,15 @@ if __name__ == "__main__":
         
         if model_update_group is not None:
             is_ready_to_update = torch.tensor([1]).to('cuda')
-            is_ready_to_update_work = torch.distributed.broadcast(group=model_update_group, src=0,tensor=is_ready_to_update, async_op=True)
+            torch.distributed.broadcast(group=model_update_group, src=0,tensor=is_ready_to_update) # BLOCKING, let the other process know that we're ready to update the model weights
             log.info(f"Rank {dist.get_global_rank()} Broadcasted is_ready_to_update{is_ready_to_update}")
-
-            is_ready_to_update_work.wait() # wait until the broadcast is complete (the rollout process has received the message) before we update the model weights
 
             # Actually broadcast the model weights
             weights = torch.tensor([5]).to('cuda')
-            torch.distributed.broadcast(group=model_update_group, src=0,tensor=weights, async_op=True) # broadcast all the model weights
+            torch.distributed.broadcast(group=model_update_group, src=0,tensor=weights) # broadcast all the model weights, BLOCKING
             log.info(f"Rank {dist.get_global_rank()} Broadcasted model weights{weights}") # TODO: update the model weights
 
-        # TODO: get the experience buffer results from the rollout process
+        # Get the experience buffer results from the rollout process
         experience_buffer = torch.tensor([0]).to('cuda')
         if experience_buffer_group is not None:
             torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer) # block until the broadcast is complete, need to get the new experiences
@@ -75,7 +73,7 @@ if __name__ == "__main__":
 
         # distributed the experiences results to each of the training ranks
 
-        # TODO: train the model
+        # TODO: train the model TRAINING CODE HERE
 
         log.info(f"Completed iteration {i + 1}/{MAX_ITERATIONS}")
 
