@@ -11,6 +11,7 @@
 # If they are, then run `ray stop`
 
 import argparse
+import asyncio
 from contextlib import contextmanager
 import logging
 import os
@@ -51,14 +52,17 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 GLOBAL_TRAIN_BATCH_SIZE = 64
 GENERATIONS_PER_PROMPT = 8  
 NUM_BATCHES_PER_UPDATE = 8
+
 AUTORESUME = True
 SAVE_FOLDER = '/checkpoints/grpo_single_controller'
-NUM_TRAIN_ITERATIONS = 5
+NUM_TRAIN_ITERATIONS = 50
 DO_SAMPLE = True
 
 _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
 
+_MODEL_NAME = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
+MAX_ASYNC_STEP = 0
 
 @contextmanager
 def time_it(name: str):
@@ -226,7 +230,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'max_seq_len': self.max_seq_len,
             'python_log_level': 'debug',
             'console_log_interval': '1ba',
-            'eval_interval': '1iter',
+            'eval_interval': '2iter',
         }
         self.logger.info("Finished build_train_config")
 
@@ -273,6 +277,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 {
                     'name': 'math_500',
                 },
+                {
+                    'name': 'math_hard',
+                },
             ],
             'eval_overrides': {
                 'generation_params': {
@@ -316,7 +323,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_ppo',
+            run_name=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_open_r1_48k',
             tracking_uri='databricks',
         )
 
@@ -461,19 +468,28 @@ class TrainActorGroup(SPMDActorGroup):
             partitioned_rollouts.append(current_rank_rollouts)
         return partitioned_rollouts
 
-    def add_latest_rollouts_from_buffer(self, experience_buffer: "ExperienceBuffer"):
-        assert experience_buffer is not None, "Experience buffer is not set"
-        assert len(experience_buffer) > 0, "Experience buffer is empty"
-        latest_rollouts = experience_buffer.popleft()
-        partitioned_rollouts = self._partition_rollouts_across_ranks(latest_rollouts)
+    def _add_latest_rollouts(self, rollouts: dict[str, Any]):
+        partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
         ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
-    
+
     def train_1_iter(self):
         # added this method to time the collectivetraining time otherwise we can time each rank but the print/logging becomes messy to read
         with time_it("training"):
             self.collective_methods.train_1_iter()
 
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
+        # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
+        # asyncio.to_thread to bridge the async and sync world
+        for _ in range(num_iterations):
+            # Simple example of adding elements to the experience buffer
+            # Populate the train actor group with the rollouts and then train
+            latest_rollouts = await experience_buffer.get()
+            self._add_latest_rollouts(latest_rollouts)
+            await asyncio.to_thread(self.train_1_iter)
+            # TODO decide where should we use the lock and the semaphore
+            # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
+            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
 
 class InferenceServer:
     """Inference server with vLLM engines."""
@@ -489,11 +505,11 @@ class InferenceServer:
                 revision=None,
                 seed=1,
                 enable_prefix_caching=False,
-                max_model_len=_MAX_GEN_LEN,
+                max_model_len=_MAX_SEQ_LEN,
                 device_bundle={
                     'GPU': 1,
                     'CPU': 1,
-                    'worker_node': 0,
+                    'worker_gpu': 0,
                 },
             )
 
@@ -508,7 +524,7 @@ class RolloutAgent:
     def __init__(
         self,
         inference_server: InferenceServer,
-        streaming_dataset_actor: "StreamingDatasetActor",
+        streaming_dataset_actor: 'StreamingDatasetActor',
     ):
         self.inference_server = inference_server
         self.streaming_dataset_actor = streaming_dataset_actor
@@ -559,7 +575,6 @@ class RolloutAgent:
                 all_prompts=all_prompts,
                 batch_sizes=[len(all_prompts)],
             )
-
         sequences = sequences[0]
         max_vllm_generated_len = max([len(response) for response in sequences])
         padded_responses = []
@@ -599,6 +614,15 @@ class RolloutAgent:
         os.symlink(checkpoint_path, self.latest_checkpoint)
         return iter_data
 
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
+        for _ in range(num_iterations):
+            # semaphore has be to acquired before the lock is acquired
+            # otherwise it could hang the parameter_buffer due to lock is already acquired
+            await semaphore.acquire()
+            async with lock:
+                rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
+            await experience_buffer.put(rollouts)
+
 
 class ParameterBuffer(Buffer):
     """Buffer for updating the inference model."""
@@ -620,25 +644,22 @@ class ParameterBuffer(Buffer):
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
         dist.barrier()
 
-    def put(self, struct: dict[str, Any]):
+    async def put(self, struct: dict[str, Any]):
         # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
-        struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
+        async with struct['lock']:
+            struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
+        struct['semaphore'].release()
 
 
-# TODO: Move this experience buffer earlier so that we can avoid
-# using "ExperienceBuffer" (with quotes) as a type hint.
 class ExperienceBuffer(Buffer):
     """Buffer for storing experiences."""
 
-    def put(self, struct: dict[str, Any]):
-        self.buffer.append(struct)
+    async def put(self, struct: dict[str, Any]):
+        await self.buffer.put(struct)
 
-    def get(self, struct: Optional[dict[str, Any]] = None):
-        return self.buffer[0]
-
-    def popleft(self, struct: Optional[dict[str, Any]] = None):
-        return self.buffer.pop(0)
+    async def get(self, struct: Optional[dict[str, Any]] = None):
+        return await self.buffer.get()
 
     def __len__(self):
         return len(self.buffer)
@@ -660,7 +681,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: We should move these to dataclasses
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
-        self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
+        self.pretrain_model_name = _MODEL_NAME
         self.prompt_handler_config = {
             "global_train_batch_size": GLOBAL_TRAIN_BATCH_SIZE,
             "generations_per_prompt": GENERATIONS_PER_PROMPT,
@@ -683,7 +704,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
             'dataset': {
                 'local': temp_dataset_dir,
                 'split': 'train',
-                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/',
+                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/dpsk_8b_open_r1_48k/',
                 'shuffle': True,
                 'max_gen_len': self.prompt_handler_config['max_gen_len'],
                 'max_seq_len': self.prompt_handler_config['max_seq_len'],
@@ -771,18 +792,16 @@ class PPOController:
             inference_server.engines,
             inference_server.vllm_tensor_parallel_size,
         )
+        self.lock = asyncio.Lock()
+        self.semaphore = asyncio.Semaphore(MAX_ASYNC_STEP)
         self.train_actor.collective_methods.attach_vllm_engines(self.inference_server.engines)
-
-    def train(self):
-        for _ in range(NUM_TRAIN_ITERATIONS):  # Example: train for 5 iterations
-            # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
-            self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
-            # Simple example of adding elements to the experience buffer
-            self.experience_buffer.put(self.rollout_agent.get_next_iter_rollouts())
-            # Populate the train actor group with the rollouts and then train
-            self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
-            self.train_actor.train_1_iter()
-        
+    
+    async def train_async(self, num_iterations: int):
+        # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
+        await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'semaphore': self.semaphore})
+        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.semaphore))
+        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.semaphore))
+        await asyncio.gather(train_task, rollout_task)
         self.train_actor.collective_methods.close_trainer()
 
 
@@ -819,7 +838,7 @@ def _run_single_controller_ppo(
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = world_size - num_train_actors
+            vllm_tensor_parallel_size = 1
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
@@ -856,7 +875,7 @@ def _run_single_controller_ppo(
                 experience_buffer,
                 pretrain_model_name,
             )
-            ppo_controller.train()
+            asyncio.run(ppo_controller.train_async(NUM_TRAIN_ITERATIONS))
 
 
 if __name__ == '__main__':
@@ -871,7 +890,7 @@ if __name__ == '__main__':
         config = om.load(args.file_path)
     else:
         config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
+            'pretrain_model_name': _MODEL_NAME,
         })
     
     # This is an example of how to move the controller logic from PPO Callback
