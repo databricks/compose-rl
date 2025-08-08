@@ -380,15 +380,14 @@ class TrainActorGroup(SPMDActorGroup):
         # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
         # asyncio.to_thread to bridge the async and sync world
         for _ in range(num_iterations):
-            # TODO decide where should we use the lock and the semaphore
-            # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
-            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
             latest_rollouts = await experience_buffer.get()
             self._add_latest_rollouts(latest_rollouts)
             await asyncio.to_thread(self.train_1_iter)
-
+            # TODO decide where should we use the lock and the semaphore
+            # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
+            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'semaphore': semaphore})
 
 class InferenceServer:
     """Inference server with vLLM engines."""
@@ -544,8 +543,7 @@ class ParameterBuffer(Buffer):
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
         async with struct['lock']:
             struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
-        if 'semaphore' in struct:
-            struct['semaphore'].release()
+        struct['semaphore'].release()
 
 
 class ExperienceBuffer(Buffer):
