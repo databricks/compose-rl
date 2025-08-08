@@ -729,7 +729,6 @@ def _run_single_controller_ppo(
             pretrain_model_name = config.model.pretrained_model_name_or_path
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
-                vllm_tensor_parallel_size=vllm_tensor_parallel_size,
                 pretrain_model_name=pretrain_model_name,
                 config=config,
             )
