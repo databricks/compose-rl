@@ -13,7 +13,7 @@ MAX_ITERATIONS=2
 
 logging.basicConfig(
     format=
-    f'[TRAIN]%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
+    f'[TRAIN] %(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
 )
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -48,18 +48,18 @@ if __name__ == "__main__":
             # Let the rollout agent know that we're ready to update the model weights
             is_ready_to_update = torch.tensor([1]).to('cuda')
             torch.distributed.broadcast(group=model_update_group, src=0,tensor=is_ready_to_update) 
-            log.info(f"Rank {dist.get_global_rank()} Broadcasted is_ready_to_update {is_ready_to_update}")
+            log.info(f"Broadcasted is_ready_to_update {is_ready_to_update}")
 
             # Broadcast the model weights
             weights = torch.tensor([10+i]).to('cuda')
             torch.distributed.broadcast(group=model_update_group, src=0,tensor=weights) 
-            log.info(f"Rank {dist.get_global_rank()} Broadcasted model weights {weights}") 
+            log.info(f"Broadcasted model weights {weights}") 
 
         # Get the experience buffer results from the rollout process
         experience_buffer = torch.tensor([0])
         if experience_buffer_group is not None:
             torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer) 
-            log.info(f"Rank {dist.get_global_rank()} Got experience buffer {experience_buffer}")
+            log.info(f"Got experience buffer {experience_buffer}")
 
         # all training ranks should wait until we have the experience buffer results
         dist.barrier()
@@ -68,8 +68,9 @@ if __name__ == "__main__":
         # TODO: train the model 
 
         # simulate "long" training!
+        log.info("Training!")
         import time
-        time.sleep(20) 
+        time.sleep(5) 
 
 
         log.info(f"Completed iteration {i + 1}/{MAX_ITERATIONS}")

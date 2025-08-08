@@ -9,12 +9,12 @@ EXPERIENCE_BUFFER_PORT=29601
 NUM_INFERENCE_ENGINES=1
 MAX_ITERATIONS=2
 
-# How off-policy we can be. Set it to 0 to be fully synchronous and on-policy.
-MAX_ASYNC_STEP=0
+# Set it to 0 to be fully synchronous and on-policy.
+MAX_ASYNC_STEP=1
 
 logging.basicConfig(
     format=
-    f'[ROLLOUT]%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
+    f'[ROLLOUT] %(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
 )
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -69,6 +69,7 @@ if __name__ == "__main__":
             last_update_iteration = i
 
         # TODO: start generating rollouts for the experience buffer
+        log.info("Generating rollouts!")
 
         # Send the experience buffer to the train agent.
         # We do not block here. We can continue generating rollouts while the experience buffer is being sent.

@@ -8,7 +8,7 @@ if __name__ == "__main__":
     try:
         # Launch the train agent with multiple processes for distributed training
         p1 = subprocess.Popen('CUDA_VISIBLE_DEVICES=0,1 composer -n 2 train.py', shell=True)
-        
+
         # Launch the rollout agent with a single process for vllm
         p2 = subprocess.Popen('CUDA_VISIBLE_DEVICES=2,3 python rollout.py', shell=True)
         p1.wait()
