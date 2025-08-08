@@ -5,7 +5,7 @@ scheduling:
   preemptible: true
 
 compute:
-  gpus: 16
+  gpus: 8
   cluster: r5z2p1
 
 integrations:

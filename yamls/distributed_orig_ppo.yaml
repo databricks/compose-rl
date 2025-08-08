@@ -5,8 +5,8 @@ scheduling:
   preemptible: true
 
 compute:
-  gpus: 16
-  cluster: r5z2p1
+  gpus: 8
+  cluster: r5z2p3
 
 integrations:
 - integration_type: git_repo
