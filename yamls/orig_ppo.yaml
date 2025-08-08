@@ -129,7 +129,7 @@ variables:
 algorithms:
   gradient_clipping:
     clipping_type: norm
-    clipping_threshold: 1
+    clipping_threshold: 0.001
 autoresume: true
 log_config: true
 fsdp_config:
