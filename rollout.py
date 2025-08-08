@@ -21,9 +21,8 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
 if __name__ == "__main__":
-
+    # Initialize the process groups for communication between train and rollout agents
     rank = 1 # TODO: UPDATE TO SUPPORT MULTIPLE INFERENCE ENGINES
-    log.info("Initializing model update process group") # 1
     model_update_group = init_process_group(
         backend="nccl",
         init_method=f"tcp://localhost:{MODEL_UPDATE_PORT}",
@@ -39,35 +38,38 @@ if __name__ == "__main__":
         group_name="experience_buffer_group",
     )
 
-    # TODO: check to see if there's an update to the model weights, if there is update the weights
-    # to make it sync, we will wait until there is a weight update
     is_ready_to_update = torch.tensor([0]).to('cuda')
     is_ready_to_update_work = None
 
     for i in range(MAX_ITERATIONS):
-        log.info(f"[ITERATION {i + 1}/{MAX_ITERATIONS}] Starting iteration")
+        log.info(f"Starting iteration {i + 1}/{MAX_ITERATIONS}")
         
         if is_ready_to_update_work is None:
-            # if we haven't checked if there's an update to the model weights, run the check in the background
+            # Check to see if there's an update to the model weights available.
             is_ready_to_update_work = torch.distributed.broadcast(group=model_update_group, src=0,tensor=is_ready_to_update, async_op=True)
+            
+            # We always need to update on the first iteration.
             if i == 0:
-                is_ready_to_update_work.wait() # We need to update the weights for the first iteration before we start generating rollouts
+                is_ready_to_update_work.wait() 
 
         if is_ready_to_update.item() == 1:
             assert is_ready_to_update_work.is_completed()
             log.info(f"Weights are ready to update")
 
-            log.info("Updating the model weights") # this is a blocking operation, we need to wait until the weights are updated before we can start generating rollouts
+            # Update the model weights
+            log.info("Updating the model weights") 
             weights = torch.tensor([0]).to('cuda')
             torch.distributed.broadcast(group=model_update_group, src=0,tensor=weights)
             log.info(f"Updating the weights to {weights}")
-            # rest the update check
+
+            # Reset the update check
             is_ready_to_update = torch.tensor([0]).to('cuda') 
             is_ready_to_update_work = None
 
 
-        # TODO: start generating rollouts and put it in the experience buffer
+        # TODO: start generating rollouts for the experience buffer
 
+        # Send the experience buffer to the train agent.
         experience_buffer = torch.tensor([20+i])
         experience_buffer_work = torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer, async_op=True) # don't block, send it off and continue generating rollouts
         log.info(f"Sent experience buffer {experience_buffer}")
