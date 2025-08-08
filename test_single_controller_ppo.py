@@ -324,7 +324,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_open_r1_48k',
+            run_name=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_{_DATASET_PATH.split("/")[-2]}',
             tracking_uri='databricks',
         )
 
