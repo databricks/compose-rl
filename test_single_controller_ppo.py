@@ -55,17 +55,17 @@ GLOBAL_TRAIN_BATCH_SIZE = 16
 GENERATIONS_PER_PROMPT = 4  
 NUM_BATCHES_PER_UPDATE = 4
 
-AUTORESUME = True
+AUTORESUME = True # Probably flip this to False if you're on interactive
 SAVE_FOLDER = 'artifacts/checkpoints'
 NUM_TRAIN_ITERATIONS = 1
 DO_SAMPLE = True
 
-_MAX_SEQ_LEN = 10240
-_MAX_GEN_LEN = 8192
+_MAX_SEQ_LEN = 4096
+_MAX_GEN_LEN = 2048
 
 _MODEL_NAME = 'meta-llama/Llama-3.2-1B-Instruct'
 MAX_ASYNC_STEP = 0
-MLFLOW_RUN_NAME=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_open_r1_48k'
+MLFLOW_RUN_NAME=os.environ['COMPOSER_RUN_NAME'] # SHOULD BE SET BY MCLI
 MLFLOW_EXPERIMENT_NAME=f'/Users/{WorkspaceClient().current_user.me().user_name}/test_single_controller'
 
 
@@ -330,7 +330,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             experiment_name='test_single_controller_ppo',
             run_name=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_open_r1_48k',
             tracking_uri='databricks',
-        )._run_id
+        )
 
         callbacks = [
             self.ppo_callback,
@@ -365,7 +365,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             loggers=[mlflow_logger],
             device_train_microbatch_size=1,
             load_path=self.ref_path,
-            save_folder=SAVE_FOLDER,
+            save_folder=os.path.join('dbfs:/databricks/mlflow-tracking/{mlflow_experiment_id}/{mlflow_run_id}', SAVE_FOLDER),
             save_interval='1iter',
             autoresume=AUTORESUME,
         )
@@ -486,6 +486,8 @@ class TrainActorGroup(SPMDActorGroup):
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
         # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
         # asyncio.to_thread to bridge the async and sync world
+
+        # TODO: Load experience buffer from checkpoints
         for _ in range(num_iterations):
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
@@ -555,16 +557,7 @@ class RolloutAgent:
 
 
         if AUTORESUME:
-            checkpoint_exists = True
-            try:
-                client = mlflow.MlflowClient()
-                client.download_artifacts(run_id=_get_mlflow_run_id(), path=self.save_folder, dst_path=self.save_folder)
-            except mlflow.exceptions.MlflowException as e:
-                if 'The destination path for downloaded artifacts does not exist' in str(e):
-                    print('No autoresume checkpoint found for RolloutAgent. Starting from scratch.')
-                    checkpoint_exists = False
-                else:
-                    raise e
+            checkpoint_exists = _artifact_exists(self.latest_checkpoint)
             if checkpoint_exists:
                 print(f'Autoresuming from checkpoint for RolloutAgent.')
                 get_file(self.latest_checkpoint, self.latest_checkpoint, overwrite=True)
@@ -628,9 +621,12 @@ class RolloutAgent:
                 'streaming_dataloader': streaming_dataloader_state_dict,
             }, f)
 
+        mlflow.log_artifact(checkpoint_path, save_folder_iter, run_id=_get_mlflow_run_id())
+
         if os.path.exists(self.latest_checkpoint):
             os.remove(self.latest_checkpoint)
         create_symlink_file(checkpoint_path, self.latest_checkpoint)
+        
         mlflow.log_artifact(self.latest_checkpoint, SAVE_FOLDER, run_id=_get_mlflow_run_id())
         return iter_data
 
@@ -833,29 +829,70 @@ def _setup_mlflow():
     dist.init_process_group(backend='gloo')
     # Create a new MLFlow run to be used for the entire run
     mlflow.set_tracking_uri('databricks')
+
+    # get mlflow experiment
     experiment = mlflow.get_experiment_by_name(MLFLOW_EXPERIMENT_NAME)
     if experiment is None:
         experiment_id = mlflow.create_experiment(MLFLOW_EXPERIMENT_NAME)
     else:
         experiment_id = experiment.experiment_id
     mlflow.set_experiment(experiment_id=experiment_id)
-    broadcast_list = [(None, None)]
-    if composer_dist.get_global_rank() == 0:
-        with mlflow.start_run(run_name=MLFLOW_RUN_NAME):
-            run_id = mlflow.active_run().info.run_id
-            experiment_id = mlflow.active_run().info.experiment_id
-            broadcast_list[0] = (run_id, experiment_id)
 
+
+
+    run_id = None
+    if composer_dist.get_global_rank() == 0:
+        # find a preexisting run if it exists
+        existing_runs = mlflow.search_runs(
+            experiment_ids=[experiment_id],
+            filter_string=f'tags.run_name = "{MLFLOW_RUN_NAME}"',
+            output_format='list',
+        ) if AUTORESUME else []
+        if len(existing_runs) > 0:
+            run_id = existing_runs[0].info.run_id
+            print(f'Resuming mlflow run with run id: {run_id}')
+        else:
+            run_id = mlflow.start_run(run_name=MLFLOW_RUN_NAME).info.run_id
+            print(f'Creating new mlflow run with run id: {run_id}')
+    broadcast_list = [run_id]
 
     composer_dist.broadcast_object_list(broadcast_list, src=0)
 
-    run_id, experiment_id = broadcast_list[0]
+    # set all the right enviornment variables
+    run_id = broadcast_list[0]
     assert run_id is not None and experiment_id is not None, "Run ID and experiment ID must be set"
     os.environ['MLFLOW_RUN_ID'] = run_id
     os.environ['MLFLOW_EXPERIMENT_ID'] = experiment_id
     os.environ['MLFLOW_TRACKING_URI'] = 'databricks'
 
     dist.destroy_process_group()
+
+
+def _artifact_exists(artifact_path: str) -> bool:
+    """Return True if artifact_path exists (file or directory) for the run."""
+    client = mlflow.MlflowClient()
+    artifact_path = artifact_path.strip("/")
+
+    run_id = _get_mlflow_run_id()
+    assert run_id is not None, "Run ID must be set"
+
+    # Walk down the path parts level-by-level
+    parent = ""
+    if artifact_path:
+        parts = artifact_path.split("/")
+        for i, part in enumerate(parts):
+            entries = {os.path.basename(fi.path): fi for fi in client.list_artifacts(run_id, parent)}
+            if part not in entries:
+                return False
+            fi = entries[part]
+            is_last = (i == len(parts) - 1)
+            if not is_last and not fi.is_dir:
+                # trying to descend into a file
+                return False
+            parent = fi.path  # descend
+
+    # If we got here, the path exists (root or found item).
+    return True
     
     
 
