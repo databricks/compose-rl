@@ -649,8 +649,7 @@ class ParameterBuffer(Buffer):
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
         async with struct['lock']:
             struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
-        if 'semaphore' in struct:
-            struct['semaphore'].release()
+        struct['semaphore'].release()
 
 
 class ExperienceBuffer(Buffer):
@@ -799,7 +798,7 @@ class PPOController:
     
     async def train_async(self, num_iterations: int):
         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
-        await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock})
+        await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'semaphore': self.semaphore})
         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.semaphore))
         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.semaphore))
         await asyncio.gather(train_task, rollout_task)
