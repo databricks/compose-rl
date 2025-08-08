@@ -137,7 +137,7 @@ parameters:
     kl_controller:
       kl_ctl_type: fixed
       init_kl_coef: 0
-    tokenizer_name: meta-llama/Llama-3.1-8B-instruct
+    tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     num_train_nodes: 1
     reference_model:
       precision: amp_bf16
