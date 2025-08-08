@@ -543,7 +543,8 @@ class ParameterBuffer(Buffer):
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
         async with struct['lock']:
             struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
-        struct['semaphore'].release()
+        if 'semaphore' in struct:
+            struct['semaphore'].release()
 
 
 class ExperienceBuffer(Buffer):
