@@ -9,6 +9,9 @@ EXPERIENCE_BUFFER_PORT=29601
 NUM_INFERENCE_ENGINES=1
 MAX_ITERATIONS=2
 
+# How off-policy we can be. Set it to 0 to be fully synchronous and on-policy.
+MAX_ASYNC_STEP=0
+
 logging.basicConfig(
     format=
     f'[ROLLOUT]%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
@@ -36,6 +39,8 @@ if __name__ == "__main__":
 
     is_ready_to_update = torch.tensor([0]).to('cuda')
     is_ready_to_update_work = None
+    last_update_iteration = 0
+
 
     for i in range(MAX_ITERATIONS):
         log.info(f"Starting iteration {i + 1}/{MAX_ITERATIONS}")
@@ -45,7 +50,7 @@ if __name__ == "__main__":
             is_ready_to_update_work = torch.distributed.broadcast(group=model_update_group, src=0,tensor=is_ready_to_update, async_op=True)
             
             # We always need to update on the first iteration.
-            if i == 0:
+            if i == 0 or i - last_update_iteration > MAX_ASYNC_STEP:
                 is_ready_to_update_work.wait() 
 
         if is_ready_to_update.item() == 1:
@@ -61,7 +66,7 @@ if __name__ == "__main__":
             # Reset the update check
             is_ready_to_update = torch.tensor([0]).to('cuda') 
             is_ready_to_update_work = None
-
+            last_update_iteration = i
 
         # TODO: start generating rollouts for the experience buffer
 
