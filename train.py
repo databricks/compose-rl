@@ -44,6 +44,7 @@ if __name__ == "__main__":
     for i in range(MAX_ITERATIONS):
         log.info(f"Starting iteration {i + 1}/{MAX_ITERATIONS}")
         
+        # TODO: We shouldn't broadcast if the rollouts are done!
         if model_update_group is not None:
             # Let the rollout agent know that we're ready to update the model weights
             is_ready_to_update = torch.tensor([1]).to('cuda')
