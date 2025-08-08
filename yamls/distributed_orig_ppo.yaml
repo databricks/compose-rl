@@ -58,7 +58,7 @@ parameters:
     normalize_advantage: true
     use_flash_attention_2: true
     length_normalize_policy_loss: true
-    pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-instruct
+    pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
   loggers:
     mlflow:
       tags:
@@ -100,7 +100,7 @@ parameters:
     alpha: 1
     t_warmup: 10iter
   tokenizer:
-    name: meta-llama/Llama-3.1-8B-instruct
+    name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     kwargs:
       padding: longest
       pad_token: <|finetune_right_pad_id|>
@@ -147,7 +147,7 @@ parameters:
         pretrained: true
         use_auth_token: true
         use_flash_attention_2: true
-        pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-instruct
+        pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     generation_kwargs:
       top_p: 1
       do_sample: true
@@ -198,7 +198,7 @@ parameters:
     dataset:
       local: /tmp/dataset/prompt_{timestamp}/
       split: train
-      remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/
+      remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/dpsk_8b_open_r1_48k/
       shuffle: true
       max_gen_len: 8192
       max_seq_len: 10240

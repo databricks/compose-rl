@@ -14,7 +14,7 @@ model:
   normalize_advantage: true
   use_flash_attention_2: true
   length_normalize_policy_loss: true
-  pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
   allow_embedding_resizing: true
 loggers:
   mlflow:
@@ -57,7 +57,7 @@ scheduler:
   alpha: 1
   t_warmup: 10iter
 tokenizer:
-  name: meta-llama/Llama-3.1-8B-Instruct
+  name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
   kwargs:
     padding: longest
     pad_token: "<|finetune_right_pad_id|>"
@@ -90,7 +90,7 @@ variables:
   kl_controller:
     init_kl_coef: 0.0
     kl_ctl_type: fixed
-  tokenizer_name: meta-llama/Llama-3.1-8B-Instruct
+  tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
   num_train_nodes: 1
   reference_model:
     precision: amp_bf16
@@ -100,7 +100,7 @@ variables:
       pretrained: true
       use_auth_token: true
       use_flash_attention_2: true
-      pretrained_model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+      pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     load_path: null
   non_train_fsdp_config:
     verbose: false
@@ -158,7 +158,7 @@ train_loader:
   dataset:
     local: /tmp/dataset/prompt_{timestamp}/
     split: train
-    remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/
+    remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/dpsk_8b_open_r1_48k/
     shuffle: true
     max_gen_len: 4000
     max_seq_len: 6000
