@@ -800,9 +800,9 @@ class PPOController:
     async def train_async(self, num_iterations: int):
         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
         await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'semaphore': self.semaphore})
-        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.semaphore))
         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.semaphore))
-        await asyncio.gather(train_task, rollout_task)
+        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.semaphore))
+        await asyncio.gather(rollout_task, train_task)
         self.train_actor.collective_methods.close_trainer()
 
 
