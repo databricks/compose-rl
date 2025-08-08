@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import tempfile
 import traceback
 from typing import Any, Dict, Optional
@@ -103,3 +104,20 @@ def run_distributed_training(
         _cleanup_processes(processes)
         log_tmpdir.cleanup()
         return _aggregate_process_returncode(processes)
+
+
+if __name__ == "__main__":
+    # test on 4 gpus!
+
+    try:
+        p1 = subprocess.Popen('CUDA_VISIBLE_DEVICES=0,1 composer -n 2 train.py', shell=True)
+        p2 = subprocess.Popen('CUDA_VISIBLE_DEVICES=2,3 composer -n 2 rollout.py', shell=True)
+        p1.wait()
+        p2.wait()
+    except Exception as e:
+        print(e)
+        print(traceback.format_exc())
+        print('Killing training processes')
+    finally:
+        _cleanup_processes({0: p1, 1: p2})
+

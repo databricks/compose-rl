@@ -1,8 +1,6 @@
-from datetime import timedelta
+from compose_rl.algorithms.online.generation_utils.vllm_utils import init_process_group
 from composer.utils import dist
 import torch
-
-from compose_rl.algorithms.online.generation_utils.vllm_utils import init_process_group
 
 import logging
 
@@ -12,42 +10,41 @@ logging.basicConfig(
     # Including the PID and thread name to help with debugging dataloader workers and callbacks that spawn background
     # threads / processes
     format=
-    f'[TRAIN]%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
+    f'[ROLLOUT]%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
 )
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
+
 
 MODEL_UPDATE_PORT=29600
 NUM_INFERENCE_ENGINES=1
 MAX_ITERATIONS=10
 
 if __name__ == "__main__":
-    # note: the smaller timeout seems to hold, doesn't matter which process gorup you set the timeout to
-    torch.distributed.init_process_group(backend="nccl")
+    torch.distributed.init_process_group(backend="nccl") # 0, 1
     log.info(f"Hello from rank {dist.get_global_rank()}")
-
+    rank = dist.get_global_rank() + 1
+    log.info(f"Rank {rank}")
     model_update_group = None
     if dist.get_global_rank() == 0:
-        log.info("Initializing model update process group")
+        log.info("Initializing model update process group") # 1
         model_update_group = init_process_group(
             backend="nccl",
             init_method=f"tcp://localhost:{MODEL_UPDATE_PORT}",
             world_size=1 + NUM_INFERENCE_ENGINES,
-            rank=0,
+            rank=rank,
             group_name="model_update_group",
         )
 
-
-    # TODO: broadcast the model weights to the inference engines
+    # TODO: check to see if there's an update to the model weights, if there is update the weights
+    # to make it sync, we will wait until there is a weight update
     if model_update_group is not None:
-        t = torch.tensor([5]).to('cuda')
+        t = torch.tensor([0]).to('cuda')
         dist.broadcast(group=model_update_group, src=0,tensor=t)
-        log.info(f"Rank {dist.get_global_rank()} Broadcasted{t}")
+        log.info(f"Rank {dist.get_global_rank()} all gathered {t}")
 
-    # TODO: get the experience buffer results from the rollout process
+    # TODO: start generating rollouts and put it in the experience buffer
 
-    # all ranks should wait until we have the experience buffer results
-
-    # TODO: train the model
+    
 
