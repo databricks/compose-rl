@@ -18,6 +18,7 @@ log.setLevel(logging.DEBUG)
 
 
 MODEL_UPDATE_PORT=29600
+EXPERIENCE_BUFFER_PORT=29601
 NUM_INFERENCE_ENGINES=1
 MAX_ITERATIONS=10
 
@@ -27,6 +28,7 @@ if __name__ == "__main__":
     rank = dist.get_global_rank() + 1
     log.info(f"Rank {rank}")
     model_update_group = None
+    experience_buffer_group = None
     if dist.get_global_rank() == 0:
         log.info("Initializing model update process group") # 1
         model_update_group = init_process_group(
@@ -35,6 +37,13 @@ if __name__ == "__main__":
             world_size=1 + NUM_INFERENCE_ENGINES,
             rank=rank,
             group_name="model_update_group",
+        )
+        experience_buffer_group = init_process_group(
+            backend="nccl",
+            init_method=f"tcp://localhost:{EXPERIENCE_BUFFER_PORT}",
+            world_size=1 + NUM_INFERENCE_ENGINES,
+            rank=rank,
+            group_name="experience_buffer_group",
         )
 
     # TODO: check to see if there's an update to the model weights, if there is update the weights
@@ -45,6 +54,14 @@ if __name__ == "__main__":
         log.info(f"Rank {dist.get_global_rank()} all gathered {t}")
 
     # TODO: start generating rollouts and put it in the experience buffer
+    dist.barrier() # wait until the model update is complete
+
+
+
+    if experience_buffer_group is not None:
+        t = torch.tensor([6]).to('cuda')
+        torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=t, async_op=True) # don't block, send it off and continue generating rollouts
+        log.info(f"Rank {dist.get_global_rank()} Broadcasted experience{t}")
 
     
 
