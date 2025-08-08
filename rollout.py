@@ -32,7 +32,7 @@ if __name__ == "__main__":
         group_name="model_update_group",
     )
     experience_buffer_group = init_process_group(
-        backend="nccl",
+        backend="gloo",
         init_method=f"tcp://localhost:{EXPERIENCE_BUFFER_PORT}",
         world_size=1 + NUM_INFERENCE_ENGINES,
         rank=rank,
@@ -58,7 +58,7 @@ if __name__ == "__main__":
             log.info(f"Weights are ready to update")
 
             log.info("Updating the model weights") # this is a blocking operation, we need to wait until the weights are updated before we can start generating rollouts
-            weights = torch.tensor([i]).to('cuda')
+            weights = torch.tensor([0]).to('cuda')
             torch.distributed.broadcast(group=model_update_group, src=0,tensor=weights)
             log.info(f"Updating the weights to {weights}")
             # rest the update check
@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
         # TODO: start generating rollouts and put it in the experience buffer
 
-        experience_buffer = torch.tensor([6]).to('cuda')
+        experience_buffer = torch.tensor([20+i])
         experience_buffer_work = torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer, async_op=True) # don't block, send it off and continue generating rollouts
         log.info(f"Sent experience buffer {experience_buffer}")
 
