@@ -1,4 +1,4 @@
-name: compose-rl-distributed-ppo-test
+name: compose-rl-distributed-orig-ppo
 
 scheduling:
   priority: low
@@ -52,14 +52,13 @@ parameters:
     kl_estimator: k3
     kl_clip_range: 40
     use_auth_token: true
-    compute_kl_loss: false
+    compute_kl_loss: true
     policy_clip_ratio: 0.2
     attn_implementation: flash_attention_2
     normalize_advantage: true
     use_flash_attention_2: true
     length_normalize_policy_loss: true
     pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
-    allow_embedding_resizing: true
   loggers:
     mlflow:
       tags:
@@ -73,6 +72,8 @@ parameters:
     orl_eval:
       evals:
       - name: gsm8k
+      - name: math_500
+      - name: math_hard
       eval_overrides:
         generation_params:
           max_tokens: 8192
@@ -104,61 +105,15 @@ parameters:
     name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     kwargs:
       padding: longest
-      pad_token: "<|finetune_right_pad_id|>"
+      pad_token: <|finetune_right_pad_id|>
       truncation: true
       padding_side: left
-      model_max_length: 6000
+      model_max_length: 10240
       trust_remote_code: true
   variables:
     gamma: 1
-    lambda_gae: 1
-    global_seed: 17
-    max_gen_len: 4000
-    epoch_per_iteration: 1
-    num_batches_per_update: 8
-    generations_per_prompt: 8
-    device_generate_batch_size: 1
-    vllm_enable_prefix_caching: true
-    generation_kwargs:
-      top_p: 1.0
-      use_cache: true
-      do_sample: false
-      temperature: 1.0
-    eos_token_ids:
-      - 128001
-      - 128008
-      - 128009
     buffer:
       name: MinibatchRolloutBuffer
-      max_buffer_size: 8
-    kl_controller:
-      init_kl_coef: 0.0
-      kl_ctl_type: fixed
-    tokenizer_name: meta-llama/Llama-3.1-8B-Instruct
-    num_train_nodes: 1
-    reference_model:
-      precision: amp_bf16
-      pretrained: true
-      model_config:
-        name: hf_causal_lm
-        pretrained: true
-        use_auth_token: true
-        use_flash_attention_2: true
-        pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
-      load_path: null
-    non_train_fsdp_config:
-      verbose: false
-      cpu_offload: false
-      mixed_precision: PURE
-      state_dict_type: sharded
-      use_orig_params: true
-      forward_prefetch: true
-      backward_prefetch: BACKWARD_PRE
-      sharding_strategy: FULL_SHARD
-      activation_cpu_offload: false
-      activation_checkpointing: true
-      activation_checkpointing_reentrant: false
-    # vllm_tensor_parallel_size: 1
     rewards:
       math_verifier:
         reward: 4
@@ -174,10 +129,54 @@ parameters:
         reward: -1
         reward_type: short_response_reward
         len_threshold: 10
+    lambda_gae: 1
+    global_seed: 17
+    max_gen_len: 8192
+    eos_token_ids:
+    - 128001
+    - 128008
+    - 128009
+    kl_controller:
+      kl_ctl_type: fixed
+      init_kl_coef: 0
+    tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+    num_train_nodes: 1
+    reference_model:
+      precision: amp_bf16
+      pretrained: true
+      model_config:
+        name: hf_causal_lm
+        pretrained: true
+        use_auth_token: true
+        use_flash_attention_2: true
+        pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+    generation_kwargs:
+      top_p: 1
+      do_sample: true
+      use_cache: true
+      temperature: 1
+    epoch_per_iteration: 1
+    non_train_fsdp_config:
+      verbose: false
+      cpu_offload: false
+      mixed_precision: PURE
+      state_dict_type: sharded
+      use_orig_params: true
+      forward_prefetch: true
+      backward_prefetch: BACKWARD_PRE
+      sharding_strategy: FULL_SHARD
+      activation_cpu_offload: false
+      activation_checkpointing: true
+      activation_checkpointing_reentrant: false
+    generations_per_prompt: 8
+    num_batches_per_update: 8
+    vllm_tensor_parallel_size: 1
+    vllm_enable_prefix_caching: true
+    device_generate_batch_size: 1
   algorithms:
     gradient_clipping:
       clipping_type: norm
-      clipping_threshold: 1.0
+      clipping_threshold: 0.001
   autoresume: true
   log_config: true
   fsdp_config:
@@ -192,7 +191,7 @@ parameters:
     activation_cpu_offload: false
     activation_checkpointing: true
     activation_checkpointing_reentrant: false
-  max_seq_len: 6000
+  max_seq_len: 10240
   save_folder: /tmp/checkpoints
   dist_timeout: 1800
   max_duration: 50iter
@@ -204,13 +203,13 @@ parameters:
       split: train
       remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/dpsk_8b_open_r1_48k/
       shuffle: true
-      max_gen_len: 4000
-      max_seq_len: 6000
+      max_gen_len: 8192
+      max_seq_len: 10240
       shuffle_seed: 17
       download_timeout: 1800
     drop_last: true
-    num_workers: 1
-  eval_interval: 5iter
+    num_workers: 8
+  eval_interval: 2iter
   save_interval: 100iter
   log_to_console: true
   save_overwrite: true
@@ -221,3 +220,4 @@ parameters:
   global_train_batch_size: 64
   device_train_microbatch_size: 2
   save_num_checkpoints_to_keep: 1
+  max_async_step: 0

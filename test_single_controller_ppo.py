@@ -5,7 +5,7 @@
 # Copy the test file in the root of the repo
 # NOTE: This actually runs GRPO instead of PPO
 # cd compose-rl
-# run cmd: composer test_single_controller_ppo.py
+# run cmd: composer test_single_controller_ppo.py --file_path yamls/orig_ppo.yaml
 # If I do ctrl+c to kill job
 # Check with `ray status` to see if the actors are still running
 # If they are, then run `ray stop`
@@ -49,19 +49,6 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
-# GLOBAL_TRAIN_BATCH_SIZE = 64
-# GENERATIONS_PER_PROMPT = 8  
-# NUM_BATCHES_PER_UPDATE = 8
-# AUTORESUME = True
-# SAVE_FOLDER = '/checkpoints/grpo_single_controller'
-# NUM_TRAIN_ITERATIONS = 5
-# DO_SAMPLE = True
-
-# _MAX_SEQ_LEN = 10240
-# _MAX_GEN_LEN = 8192
-
-_MODEL_NAME = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
-MAX_ASYNC_STEP = 0
 
 @contextmanager
 def time_it(name: str):
@@ -71,7 +58,6 @@ def time_it(name: str):
     end_time = time.time()
     print(f"[{name}] finished at {time.strftime('%X')}")
     print(f"[{name}] took {end_time - start_time:.2f} seconds")
-
 
 
 class DistributedGPUActor(BaseDistributedGPUActor):
@@ -115,10 +101,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.global_train_batch_size = None
         self.max_gen_len = None
 
-    def build_train_config(self, pretrain_model_name: str, config: Any):
+    def build_train_config(self, config: Any):
         self.config = config
-        self.logger.info(f"Starting build_train_config with model: {pretrain_model_name}")
-        self.pretrain_model_name = pretrain_model_name
+        self.logger.info(f"Starting build_train_config with model: {self.config.model.pretrained_model_name_or_path}")
+        self.pretrain_model_name = self.config.model.pretrained_model_name_or_path
 
         self.model_config = om.to_container(self.config.model, resolve=True)
         self.model_config['tokenizer'] = self.tokenizer
@@ -235,7 +221,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name='test_single_controller_ppo',
-            run_name=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_open_r1_48k',
+            run_name=f'test_single_controller_ppo_async_{self.config.max_async_step}_deepseek_l8b_open_r1_48k',
             tracking_uri='databricks',
         )
 
@@ -407,17 +393,17 @@ class TrainActorGroup(SPMDActorGroup):
 class InferenceServer:
     """Inference server with vLLM engines."""
 
-    def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str, config: Any):
+    def __init__(self, num_vllm_engines: int, pretrain_model_name: str, config: Any):
         self.num_vllm_engines = num_vllm_engines
-        self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
+        self.vllm_tensor_parallel_size = config.variables.vllm_tensor_parallel_size
         self.vllm_engines = create_vllm_engines(
                 num_engines=num_vllm_engines,
-                tensor_parallel_size=vllm_tensor_parallel_size,
+                tensor_parallel_size=self.vllm_tensor_parallel_size,
                 enforce_eager=True,
                 pretrain=pretrain_model_name,
                 revision=None,
                 seed=1,
-                enable_prefix_caching=False,
+                enable_prefix_caching=config.variables.vllm_enable_prefix_caching,
                 max_model_len=config.variables.max_gen_len,
                 device_bundle={
                     'GPU': 1,
@@ -685,7 +671,7 @@ class PPOController:
             inference_server.vllm_tensor_parallel_size,
         )
         self.lock = asyncio.Lock()
-        self.semaphore = asyncio.Semaphore(MAX_ASYNC_STEP)
+        self.semaphore = asyncio.Semaphore(config.max_async_step)
         self.train_actor.collective_methods.attach_vllm_engines(self.inference_server.engines)
         self.config = config
     
@@ -735,7 +721,7 @@ def _run_single_controller_ppo(
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = 1
+            vllm_tensor_parallel_size = config.variables.vllm_tensor_parallel_size
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
@@ -778,7 +764,7 @@ def _run_single_controller_ppo(
 
 
 if __name__ == '__main__':
-    # # Parse command line arguments
+    # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run single controller PPO with configuration file')
     parser.add_argument('--file_path', type=str, required=False, default=None,
                        help='Path to the OmegaConf YAML configuration file')
