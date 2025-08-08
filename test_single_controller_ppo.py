@@ -22,13 +22,14 @@ from functools import partial
 from typing import Any, Optional
 
 from composer.loggers import MLFlowLogger
+import mlflow
 import ray
 import torch
 import torch.distributed as dist
 from composer import Trainer
 from composer.core import get_precision_context
 from composer.optim import DecoupledAdamW
-from composer.utils import dist as composer_dist
+from composer.utils import create_symlink_file, dist as composer_dist, get_file
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
@@ -48,21 +49,25 @@ from compose_rl.utils.ray_utils import start_ray_server, uninstall_megablocks_if
 from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
+from databricks.sdk import WorkspaceClient
 
-GLOBAL_TRAIN_BATCH_SIZE = 64
-GENERATIONS_PER_PROMPT = 8  
-NUM_BATCHES_PER_UPDATE = 8
+GLOBAL_TRAIN_BATCH_SIZE = 16
+GENERATIONS_PER_PROMPT = 4  
+NUM_BATCHES_PER_UPDATE = 4
 
 AUTORESUME = True
-SAVE_FOLDER = '/checkpoints/grpo_single_controller'
-NUM_TRAIN_ITERATIONS = 50
+SAVE_FOLDER = 'artifacts/checkpoints'
+NUM_TRAIN_ITERATIONS = 1
 DO_SAMPLE = True
 
 _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
 
-_MODEL_NAME = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
+_MODEL_NAME = 'meta-llama/Llama-3.2-1B-Instruct'
 MAX_ASYNC_STEP = 0
+MLFLOW_RUN_NAME=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_open_r1_48k'
+MLFLOW_EXPERIMENT_NAME=f'/Users/{WorkspaceClient().current_user.me().user_name}/test_single_controller'
+
 
 @contextmanager
 def time_it(name: str):
@@ -225,7 +230,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'global_train_batch_size': self.device_train_batch_size * self.world_size,
             'device_train_batch_size': self.device_train_batch_size,
             'device_train_microbatch_size': self.device_train_batch_size,
-            'save_folder': SAVE_FOLDER,
+            'save_folder': os.path.join('dbfs:/databricks/mlflow-tracking/{mlflow_experiment_id}/{mlflow_run_id}', SAVE_FOLDER),
             'log_config': True,
             'max_seq_len': self.max_seq_len,
             'python_log_level': 'debug',
@@ -325,7 +330,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             experiment_name='test_single_controller_ppo',
             run_name=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_open_r1_48k',
             tracking_uri='databricks',
-        )
+        )._run_id
 
         callbacks = [
             self.ppo_callback,
@@ -545,15 +550,29 @@ class RolloutAgent:
         self.iter_num = 0
 
         # Load the latest checkpoint
-        self.latest_checkpoint = os.path.join(self.save_folder, 'latest.symlink')
 
-        if AUTORESUME and os.path.exists(self.latest_checkpoint):
-            print(f'Autoresuming from checkpoint for RolloutAgent.')
-            with open(self.latest_checkpoint, 'rb') as f:
-                checkpoint = pickle.load(f)
-            self.iter_num = checkpoint['iter_num']
-            print(f'Loading streaming dataloader state dict for RolloutAgent.', checkpoint['streaming_dataloader'])
-            self.streaming_dataset_actor.load_dataloader_state_dict.remote(checkpoint['streaming_dataloader'])
+        self.latest_checkpoint = os.path.join(self.save_folder, 'latest_rollout_agent.symlink')
+
+
+        if AUTORESUME:
+            checkpoint_exists = True
+            try:
+                client = mlflow.MlflowClient()
+                client.download_artifacts(run_id=_get_mlflow_run_id(), path=self.save_folder, dst_path=self.save_folder)
+            except mlflow.exceptions.MlflowException as e:
+                if 'The destination path for downloaded artifacts does not exist' in str(e):
+                    print('No autoresume checkpoint found for RolloutAgent. Starting from scratch.')
+                    checkpoint_exists = False
+                else:
+                    raise e
+            if checkpoint_exists:
+                print(f'Autoresuming from checkpoint for RolloutAgent.')
+                get_file(self.latest_checkpoint, self.latest_checkpoint, overwrite=True)
+                with open(self.latest_checkpoint, 'rb') as f:
+                    checkpoint = pickle.load(f)
+                self.iter_num = checkpoint['iter_num']
+                print(f'Loading streaming dataloader state dict for RolloutAgent.', checkpoint['streaming_dataloader'])
+                self.streaming_dataset_actor.load_dataloader_state_dict.remote(checkpoint['streaming_dataloader'])
 
 
     def get_next_iter_rollouts(self):
@@ -611,7 +630,8 @@ class RolloutAgent:
 
         if os.path.exists(self.latest_checkpoint):
             os.remove(self.latest_checkpoint)
-        os.symlink(checkpoint_path, self.latest_checkpoint)
+        create_symlink_file(checkpoint_path, self.latest_checkpoint)
+        mlflow.log_artifact(self.latest_checkpoint, SAVE_FOLDER, run_id=_get_mlflow_run_id())
         return iter_data
 
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock, semaphore: asyncio.Semaphore):
@@ -805,6 +825,39 @@ class PPOController:
         self.train_actor.collective_methods.close_trainer()
 
 
+def _get_mlflow_run_id() -> Optional[str]:
+    return os.environ.get('MLFLOW_RUN_ID', None)
+
+def _setup_mlflow():
+    print('setting up mlflow')
+    dist.init_process_group(backend='gloo')
+    # Create a new MLFlow run to be used for the entire run
+    mlflow.set_tracking_uri('databricks')
+    experiment = mlflow.get_experiment_by_name(MLFLOW_EXPERIMENT_NAME)
+    if experiment is None:
+        experiment_id = mlflow.create_experiment(MLFLOW_EXPERIMENT_NAME)
+    else:
+        experiment_id = experiment.experiment_id
+    mlflow.set_experiment(experiment_id=experiment_id)
+    broadcast_list = [(None, None)]
+    if composer_dist.get_global_rank() == 0:
+        with mlflow.start_run(run_name=MLFLOW_RUN_NAME):
+            run_id = mlflow.active_run().info.run_id
+            experiment_id = mlflow.active_run().info.experiment_id
+            broadcast_list[0] = (run_id, experiment_id)
+
+
+    composer_dist.broadcast_object_list(broadcast_list, src=0)
+
+    run_id, experiment_id = broadcast_list[0]
+    assert run_id is not None and experiment_id is not None, "Run ID and experiment ID must be set"
+    os.environ['MLFLOW_RUN_ID'] = run_id
+    os.environ['MLFLOW_EXPERIMENT_ID'] = experiment_id
+    os.environ['MLFLOW_TRACKING_URI'] = 'databricks'
+
+    dist.destroy_process_group()
+    
+    
 
 def _run_single_controller_ppo(
     config: Any,
@@ -820,6 +873,8 @@ def _run_single_controller_ppo(
 
     # Disable setting CUDA_VISIBLE_DEVICES by ray, we will set it manually
     os.environ['RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES'] = '1'
+
+    _setup_mlflow()
 
     with start_ray_server() as _address:
         # only rank 0 is the master controller
