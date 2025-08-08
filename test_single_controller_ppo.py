@@ -43,7 +43,7 @@ from compose_rl.algorithms.online.generation_utils import (
     create_vllm_engines,
     _vllm_generate,
 )
-from compose_rl.utils.ray_utils import start_ray_server, uninstall_megablocks_if_exists
+from compose_rl.utils.ray_utils import start_ray_server
 from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
@@ -830,21 +830,7 @@ def _run_single_controller_ppo(
                 vllm_tensor_parallel_size=vllm_tensor_parallel_size,
                 pretrain_model_name=pretrain_model_name,
             )
-
-            # We are using a CPU worker for the StreamingActor
-            # and this involves a super hacky workaround by
-            # uninstalling megablocks if it exists. Better solutions
-            # would include:
-            # 1) decouple StreamingActor from llm-foundry altogether
-            # 2) don't broadly import llm-foundry in compose-rl (only
-            # import it into codepaths/files that will only be used by
-            # GPUActors as opposed to CPUActors)
-            # 3) Setting up ray actors with correct environments (which
-            # would involve creating a BaseDistributedActor instead of a
-            # BaseDistributedGPUActor so that we can use CPUs)
-            # We uninstall megablocks after the Train Actors have been
-            # created so that those actors still have megablocks functionality.
-            uninstall_megablocks_if_exists()
+            # Creating a CPU worker for the StreamingDatasetActor
             streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote()
             rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor)
 
