@@ -22,6 +22,8 @@ from functools import partial
 from typing import Any, Optional
 
 from composer.loggers import MLFlowLogger
+from databricks.sdk import WorkspaceClient
+import mlflow
 import ray
 import torch
 import torch.distributed as dist
@@ -49,20 +51,23 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
-GLOBAL_TRAIN_BATCH_SIZE = 64
-GENERATIONS_PER_PROMPT = 8  
-NUM_BATCHES_PER_UPDATE = 8
+GLOBAL_TRAIN_BATCH_SIZE = 16
+GENERATIONS_PER_PROMPT = 4 
+NUM_BATCHES_PER_UPDATE = 4
 
 AUTORESUME = True
 SAVE_FOLDER = '/checkpoints/grpo_single_controller'
-NUM_TRAIN_ITERATIONS = 50
+NUM_TRAIN_ITERATIONS = 1
 DO_SAMPLE = True
 
-_MAX_SEQ_LEN = 10240
-_MAX_GEN_LEN = 8192
+_MAX_SEQ_LEN = 4096
+_MAX_GEN_LEN = 2048
 
-_MODEL_NAME = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
+_MODEL_NAME = 'meta-llama/Llama-3.2-1B-Instruct'
 MAX_ASYNC_STEP = 0
+
+MLFLOW_EXPERIMENT_NAME=f'/Users/{WorkspaceClient().current_user.me().user_name}/test_single_controller'
+MLFLOW_RUN_NAME = 'test_single_controller_ppo'
 
 @contextmanager
 def time_it(name: str):
@@ -322,8 +327,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, sampler=dummy_distributed_sampler)
 
         mlflow_logger = MLFlowLogger(
-            experiment_name='test_single_controller_ppo',
-            run_name=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_open_r1_48k',
+            experiment_name=MLFLOW_EXPERIMENT_NAME,
+            run_name=MLFLOW_RUN_NAME,
             tracking_uri='databricks',
         )
 
@@ -804,6 +809,37 @@ class PPOController:
         await asyncio.gather(train_task, rollout_task)
         self.train_actor.collective_methods.close_trainer()
 
+def _get_mlflow_run_id() -> Optional[str]:
+    return os.environ.get('MLFLOW_RUN_ID', None)
+
+def _setup_mlflow():
+    print('setting up mlflow')
+    dist.init_process_group(backend='gloo')
+    # Create a new MLFlow run to be used for the entire run
+    mlflow.set_tracking_uri('databricks')
+    experiment = mlflow.get_experiment_by_name(MLFLOW_EXPERIMENT_NAME)
+    if experiment is None:
+        experiment_id = mlflow.create_experiment(MLFLOW_EXPERIMENT_NAME)
+    else:
+        experiment_id = experiment.experiment_id
+    mlflow.set_experiment(experiment_id=experiment_id)
+    broadcast_list = [(None, None)]
+    if composer_dist.get_global_rank() == 0:
+        with mlflow.start_run(run_name=MLFLOW_RUN_NAME):
+            run_id = mlflow.active_run().info.run_id
+            experiment_id = mlflow.active_run().info.experiment_id
+            broadcast_list[0] = (run_id, experiment_id)
+
+
+    composer_dist.broadcast_object_list(broadcast_list, src=0)
+
+    run_id, experiment_id = broadcast_list[0]
+    assert run_id is not None and experiment_id is not None, "Run ID and experiment ID must be set"
+    os.environ['MLFLOW_RUN_ID'] = run_id
+    os.environ['MLFLOW_EXPERIMENT_ID'] = experiment_id
+    os.environ['MLFLOW_TRACKING_URI'] = 'databricks'
+
+    dist.destroy_process_group()
 
 
 def _run_single_controller_ppo(
@@ -820,6 +856,8 @@ def _run_single_controller_ppo(
 
     # Disable setting CUDA_VISIBLE_DEVICES by ray, we will set it manually
     os.environ['RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES'] = '1'
+
+    _setup_mlflow()
 
     with start_ray_server() as _address:
         # only rank 0 is the master controller
@@ -876,6 +914,9 @@ def _run_single_controller_ppo(
                 pretrain_model_name,
             )
             asyncio.run(ppo_controller.train_async(NUM_TRAIN_ITERATIONS))
+
+
+
 
 
 if __name__ == '__main__':
