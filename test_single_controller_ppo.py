@@ -62,7 +62,7 @@ _MAX_SEQ_LEN = 10240
 _MAX_GEN_LEN = 8192
 
 _MODEL_NAME = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
-MAX_ASYNC_STEP = 0
+MAX_ASYNC_STEP = 1
 
 @contextmanager
 def time_it(name: str):
