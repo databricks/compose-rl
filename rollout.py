@@ -10,10 +10,6 @@ NUM_INFERENCE_ENGINES=1
 MAX_ITERATIONS=2
 
 logging.basicConfig(
-    # Example of format string
-    # 2022-06-29 11:22:26,152: rank0[822018][MainThread]: INFO: composer.trainer.trainer: Using precision Precision.FP32
-    # Including the PID and thread name to help with debugging dataloader workers and callbacks that spawn background
-    # threads / processes
     format=
     f'[ROLLOUT]%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
 )
@@ -70,8 +66,9 @@ if __name__ == "__main__":
         # TODO: start generating rollouts for the experience buffer
 
         # Send the experience buffer to the train agent.
+        # We do not block here. We can continue generating rollouts while the experience buffer is being sent.
         experience_buffer = torch.tensor([20+i])
-        experience_buffer_work = torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer, async_op=True) # don't block, send it off and continue generating rollouts
+        experience_buffer_work = torch.distributed.broadcast(group=experience_buffer_group, src=1,tensor=experience_buffer, async_op=True)
         log.info(f"Sent experience buffer {experience_buffer}")
 
         log.info(f"Completed iteration {i + 1}/{MAX_ITERATIONS}")

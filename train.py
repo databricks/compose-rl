@@ -12,10 +12,6 @@ MAX_ITERATIONS=2
 
 
 logging.basicConfig(
-    # Example of format string
-    # 2022-06-29 11:22:26,152: rank0[822018][MainThread]: INFO: composer.trainer.trainer: Using precision Precision.FP32
-    # Including the PID and thread name to help with debugging dataloader workers and callbacks that spawn background
-    # threads / processes
     format=
     f'[TRAIN]%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
 )
@@ -71,7 +67,7 @@ if __name__ == "__main__":
         # TODO: distributed the experiences results to each of the training ranks
         # TODO: train the model 
 
-        # simulate "long training!""
+        # simulate "long" training!
         import time
         time.sleep(20) 
 
