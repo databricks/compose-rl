@@ -402,7 +402,7 @@ class InferenceServer:
                 pretrain=pretrain_model_name,
                 revision=None,
                 seed=1,
-                enable_prefix_caching=config.variables.vllm_enable_prefix_caching,
+                enable_prefix_caching=config.vllm_enable_prefix_caching,
                 max_model_len=config.max_seq_len,
                 device_bundle={
                     'GPU': 1,
