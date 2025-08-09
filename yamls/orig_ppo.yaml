@@ -8,7 +8,7 @@ model:
   kl_estimator: k3
   kl_clip_range: 40
   use_auth_token: true
-  compute_kl_loss: false
+  compute_kl_loss: true
   policy_clip_ratio: 0.2
   attn_implementation: flash_attention_2
   normalize_advantage: true
