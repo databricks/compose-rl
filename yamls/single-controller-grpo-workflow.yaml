@@ -187,7 +187,7 @@ parameters:
     dataset:
       local: /tmp/dataset/prompt_{timestamp}/
       split: train
-      remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/dpsk_8b_open_r1_48k/
+      remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_1b_math_prompts/
       shuffle: true
       max_gen_len: 8192
       max_seq_len: 10240
