@@ -14,7 +14,7 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: ethantang-db/orig_yaml
+  git_branch: boweny/single-controller-hackathon
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
