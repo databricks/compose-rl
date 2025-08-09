@@ -389,7 +389,7 @@ class EvalAgent:
         # Variables from the config used in the eval_agent
         # TODO: Support eval_interval_num in a more generic way (e.g. handle more than just `iter`)
         self.eval_interval_num = int(config.eval_interval.strip("iter"))
-        self.num_batches_per_update = config.num_batches_per_update
+        self.num_batches_per_update = config.variables.num_batches_per_update
         self.experiment_name = config.loggers.mlflow.experiment_name
         self.run_name = f'test_single_controller_ppo_async_{config.max_async_step}_deepseek_l8b_open_r1_48k'
 
@@ -813,7 +813,7 @@ if __name__ == '__main__':
     
     # Load configuration using OmegaConf
     if args.file_path is None:
-        config = om.load("yamls/single-controller-grpo-workflow.yaml")
+        config = om.load("yamls/single-controller-grpo-workflow.yaml").parameters
     else:
         config = om.load(args.file_path)
     
