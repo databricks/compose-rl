@@ -394,7 +394,7 @@ class InferenceServer:
 
     def __init__(self, num_vllm_engines: int, pretrain_model_name: str, config: Any):
         self.num_vllm_engines = num_vllm_engines
-        self.vllm_tensor_parallel_size = config.variables.vllm_tensor_parallel_size
+        self.vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
         self.vllm_engines = create_vllm_engines(
                 num_engines=num_vllm_engines,
                 tensor_parallel_size=self.vllm_tensor_parallel_size,
