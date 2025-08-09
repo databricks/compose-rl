@@ -157,7 +157,7 @@ class WorkerWrap:
             shape (Union[Tuple[int, ...], List[int], torch.Size]): Shape of the weight
             empty_cache (bool): Whether to empty cache after updating weights
         """
-        log.info(f"Updating weight {name} in worker_wrap with shape {shape} and dtype {dtype}")
+        assert False, "update_weight in worker wrap called"
         weight = torch.empty(shape, dtype=dtype, device='cuda')
         torch.distributed.broadcast(
             weight,
