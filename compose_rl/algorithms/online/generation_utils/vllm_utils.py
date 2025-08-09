@@ -456,6 +456,7 @@ def broadcast_to_vllm(
             # This is needed otherwise FSDP will materialize parameters of size 0.
             # So just for the joint actor critic models we have to actually skip this module.
             if module_name == 'model' and loss_type == OnPolicyEnum.PPO:
+                log.info('Skipping model module')
                 continue
 
             # Only update if we haven't updated this module before
@@ -497,14 +498,16 @@ def broadcast_to_vllm(
 
                                 count += 1
                                 shape = param.shape
-                                refs = [
-                                    engine.update_weight.remote(
+                                refs = []
+                                for engine in vllm_engines:
+                                    log.info(f"Sending weight {parsed_name} to engine {engine} with dtype {param.dtype} and shape {shape}")
+                                    ref = engine.update_weight.remote(
                                         parsed_name,
                                         dtype=param.dtype,
                                         shape=shape,
                                         empty_cache=(count == num_params),
-                                    ) for engine in vllm_engines
-                                ]
+                                    )
+                                    refs.append(ref)
                                 refss.extend(refs)
                                 torch.distributed.broadcast(
                                     param.data,
