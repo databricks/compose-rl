@@ -55,6 +55,7 @@ parameters:
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
+  callbacks:
     ppo: {}
     orl_eval:
       evals:
