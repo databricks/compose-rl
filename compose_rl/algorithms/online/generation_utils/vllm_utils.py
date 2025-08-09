@@ -157,6 +157,7 @@ class WorkerWrap:
             shape (Union[Tuple[int, ...], List[int], torch.Size]): Shape of the weight
             empty_cache (bool): Whether to empty cache after updating weights
         """
+        log.info(f"Updating weight {name} in worker_wrap with shape {shape} and dtype {dtype}")
         weight = torch.empty(shape, dtype=dtype, device='cuda')
         torch.distributed.broadcast(
             weight,
@@ -528,8 +529,7 @@ def broadcast_to_vllm(
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
     results = ray.get(refss)
-    for result in results:
-        log.info(result[0])
+    log.info(f'results: {results}')
     if enable_prefix_caching:
         ray.get(cache_reset_refss)
     log.info(f'ray refs took: {time.time() - start_time}')

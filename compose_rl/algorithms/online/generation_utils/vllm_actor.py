@@ -124,8 +124,7 @@ class LLMRayActor:
         shape: Union[tuple[int, ...], list[int]],
         empty_cache: bool = False,
     ):
-        update_str = f'Updating weight {name} with shape {shape} and dtype {dtype}'
-        return update_str, self.llm.collective_rpc(
+        return self.llm.collective_rpc(
             'update_weight',
             args=(name, dtype, shape, empty_cache),
         )
