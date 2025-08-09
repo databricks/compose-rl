@@ -127,8 +127,6 @@ variables:
     activation_checkpointing_reentrant: false
   generations_per_prompt: 8
   num_batches_per_update: 8
-  vllm_tensor_parallel_size: 1
-  vllm_enable_prefix_caching: false
   device_generate_batch_size: 1
 algorithms:
   gradient_clipping:
@@ -177,4 +175,6 @@ eval_subset_num_batches: -1
 global_train_batch_size: 64
 device_train_microbatch_size: 1
 save_num_checkpoints_to_keep: 1
+vllm_tensor_parallel_size: 1
+vllm_enable_prefix_caching: false
 max_async_step: 0

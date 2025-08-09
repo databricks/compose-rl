@@ -718,7 +718,7 @@ def _run_single_controller_ppo(
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = config.variables.vllm_tensor_parallel_size
+            vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
