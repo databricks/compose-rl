@@ -117,7 +117,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.precision = self.config.precision
 
         variables = om.to_container(self.config.variables, resolve=True)
-        variables['non_train_fsdp_config'] = self.config.variables.non_train_fsdp_config
         algorithm_config = self.config.algorithms
 
         self.train_config = {
@@ -135,7 +134,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'max_seq_len': self.max_seq_len,
             'python_log_level': self.config.python_log_level,
             'console_log_interval': self.config.console_log_interval,
-            'eval_interval': '2iter',
+            'eval_interval': self.config.eval_interval,
         }
         self.logger.info("Finished build_train_config")
 
@@ -167,24 +166,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         from llmfoundry.utils.builders import build_callback
 
         self.logger.info("Building ORL eval callback")
-        kwargs = {
-            'evals': [
-                {
-                    'name': 'gsm8k',
-                },
-                {
-                    'name': 'math_500',
-                },
-                {
-                    'name': 'math_hard',
-                },
-            ],
-            'eval_overrides': {
-                'generation_params': {
-                    'max_tokens': self.max_gen_len
-                }
-            },
-        }
+        kwargs = om.to_container(self.config.callbacks.orl_eval, resolve=True)
         return build_callback(
             name='orl_eval',
             kwargs=kwargs,
