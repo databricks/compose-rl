@@ -425,7 +425,8 @@ class EvalAgent:
         # _run_evaluation requires that mlflow_logger is not None (even though it is not used)
         # As a consequence, we set it to 1 (as a placeholder) to circumvent the issue.
         self.callback.mlflow_logger = 1
-        self.callback._run_evaluation(self.experiment_name, self.run_name, step)
+        with time_it("run_evaluation"):
+            self.callback._run_evaluation(self.experiment_name, self.run_name, step)
 
     async def run(self, num_iterations: int, lock: asyncio.Lock, eval_semaphore: asyncio.Semaphore):
         """Async loop on driver to trigger evaluations.
