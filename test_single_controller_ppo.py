@@ -122,7 +122,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.train_config = {
             'seed': self.config.seed,
             'model': self.model_config,
-            'fsdp_config': self.config.non_train_fsdp_config,
+            'fsdp_config': self.config.fsdp_config,
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,
