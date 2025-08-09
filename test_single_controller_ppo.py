@@ -748,7 +748,7 @@ if __name__ == '__main__':
     
     # Load configuration using OmegaConf
     if args.file_path is None:
-        config = om.load("yamls/orig_ppo.yaml")
+        config = om.load("yamls/single-controller-grpo-workflow.yaml")
     else:
         config = om.load(args.file_path)
     
