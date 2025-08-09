@@ -5,7 +5,7 @@
 # Copy the test file in the root of the repo
 # NOTE: This actually runs GRPO instead of PPO
 # cd compose-rl
-# run cmd: composer test_single_controller_ppo.py
+# run cmd: composer test_single_controller_ppo.py --file_path yamls/orig_ppo.yaml
 # If I do ctrl+c to kill job
 # Check with `ray status` to see if the actors are still running
 # If they are, then run `ray stop`
@@ -49,21 +49,6 @@ from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
-GLOBAL_TRAIN_BATCH_SIZE = 64
-GENERATIONS_PER_PROMPT = 8  
-NUM_BATCHES_PER_UPDATE = 8
-
-AUTORESUME = True
-SAVE_FOLDER = '/checkpoints/grpo_single_controller'
-NUM_TRAIN_ITERATIONS = 50
-DO_SAMPLE = True
-
-_MAX_SEQ_LEN = 10240
-_MAX_GEN_LEN = 8192
-
-_MODEL_NAME = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
-_DATASET_PATH = 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/'
-MAX_ASYNC_STEP = 1
 
 @contextmanager
 def time_it(name: str):
@@ -73,7 +58,6 @@ def time_it(name: str):
     end_time = time.time()
     print(f"[{name}] finished at {time.strftime('%X')}")
     print(f"[{name}] took {end_time - start_time:.2f} seconds")
-
 
 
 class DistributedGPUActor(BaseDistributedGPUActor):
@@ -98,6 +82,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
         
+        self.config = None
         self.model = None
         self.model_update_group = None
         self.ref_path = None
@@ -116,108 +101,26 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.global_train_batch_size = None
         self.max_gen_len = None
 
-    def build_train_config(self, pretrain_model_name: str):
-        self.logger.info(f"Starting build_train_config with model: {pretrain_model_name}")
-        self.pretrain_model_name = pretrain_model_name
+    def build_train_config(self, config: Any):
+        self.config = config
+        self.logger.info(f"Starting build_train_config with model: {self.config.model.pretrained_model_name_or_path}")
+        self.pretrain_model_name = self.config.model.pretrained_model_name_or_path
 
-        self.model_config = {
-            'tokenizer': self.tokenizer,
-            'pretrained_model_name_or_path': self.pretrain_model_name,
-            'pretrained': True,
-            'use_flash_attention_2': True,
-            'allow_embedding_resizing': True,
-            'name': 'hf_critic_free_lm',
-            # 'init_device': 'mixed',
-            # This throws: [rank0]: ValueError: Detected mixed initialization where some ranks have model on cpu or gpu and some ranks are on meta. Either keep all ranks on the same device or set parallelism_config['fsdp']['sync_module_states'] = True. Otherwise, some weights may be randomly initialized when loading a checkpoint.
-            'loss_type': 'grpo',
-            'target_kl': 0.1,
-            'kl_estimator': 'k3',
-            'kl_clip_range': 40,
-            'use_auth_token': True,
-            'compute_kl_loss': False,
-            'policy_clip_ratio': 0.2,
-            'normalize_advantage': True,
-            'length_normalize_policy_loss': True,
-            'attn_implementation': 'flash_attention_2'
-        }
-        self.global_train_batch_size = GLOBAL_TRAIN_BATCH_SIZE
+        self.model_config = om.to_container(self.config.model, resolve=True)
+        self.model_config['tokenizer'] = self.tokenizer
+
+        self.global_train_batch_size = self.config.global_train_batch_size
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
-        self.num_batches_per_update = NUM_BATCHES_PER_UPDATE
-        self.max_seq_len = _MAX_SEQ_LEN
-        self.max_gen_len = _MAX_GEN_LEN
-        self.precision = 'amp_bf16'
+        self.num_batches_per_update = self.config.variables.num_batches_per_update
+        self.max_seq_len = self.config.max_seq_len
+        self.max_gen_len = self.config.variables.max_gen_len
+        self.precision = self.config.precision
 
-        ref_model_config = {
-            'name': 'hf_causal_lm',
-            'pretrained': self.model_config['pretrained'],
-            'pretrained_model_name_or_path': self.pretrain_model_name,
-            'use_auth_token': self.model_config['use_auth_token'],
-            'use_flash_attention_2': self.model_config['use_flash_attention_2'], 
-        }
+        variables = om.to_container(self.config.variables, resolve=True)
+        algorithm_config = self.config.algorithms
 
-        variables = {
-            'gamma': 1,
-            'lambda_gae': 1,
-            'epoch_per_iteration': 1,
-            'num_batches_per_update': self.num_batches_per_update,
-            'generations_per_prompt': GENERATIONS_PER_PROMPT,
-            'device_generate_batch_size': 1,
-            'vllm_enable_prefix_caching': True,
-            'generation_kwargs': {
-                'top_p': 1.0,
-                'use_cache': True,
-                'do_sample': DO_SAMPLE,
-                'temperature': 1.0,
-            },
-            'eos_token_ids': [
-                128001,
-                128008,
-                128009,
-            ],
-            'buffer': {
-                'name': 'MinibatchRolloutBuffer',
-                'max_buffer_size': self.num_batches_per_update,
-            },
-            'max_gen_len': self.max_gen_len,
-            'kl_controller': {
-                'init_kl_coef': 0.0, # no KL penalty
-                'kl_ctl_type': 'fixed',
-            },
-            'reference_model': {
-                'model_config': ref_model_config,
-                'precision': self.precision,
-                'load_path': self.ref_path,
-            },
-            'non_train_fsdp_config': self.fsdp_config,
-            'rewards': {
-                'math_verifier': {
-                    'reward_type': 'math_verifier',
-                    'reward': 4,
-                },
-                'bad_generation_end': {
-                    'reward': -1,
-                    'eos_penalty': True,
-                    'reward_type': 'bad_generation_end'
-                },
-                'math_format_verifier': {
-                    'reward': 1,
-                    'reward_type': 'math_format_verifier'
-                },
-                'penalize_extra_short_responses': {
-                    'reward': -1,
-                    'reward_type': 'short_response_reward',
-                    'len_threshold': 10
-                },
-            }
-        }
-        algorithm_config = {
-            'gradient_clipping': {
-                'clipping_type': 'norm',
-                'clipping_threshold': 0.001
-            }
-        }
         self.train_config = {
-            'seed': 17,
+            'seed': self.config.seed,
             'model': self.model_config,
             'fsdp_config': self.fsdp_config,
             'precision': self.precision,
@@ -226,12 +129,12 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'global_train_batch_size': self.device_train_batch_size * self.world_size,
             'device_train_batch_size': self.device_train_batch_size,
             'device_train_microbatch_size': self.device_train_batch_size,
-            'save_folder': SAVE_FOLDER,
-            'log_config': True,
+            'save_folder': self.config.save_folder,
+            'log_config': self.config.log_config,
             'max_seq_len': self.max_seq_len,
-            'python_log_level': 'debug',
-            'console_log_interval': '1ba',
-            'eval_interval': '2iter',
+            'python_log_level': self.config.python_log_level,
+            'console_log_interval': self.config.console_log_interval,
+            'eval_interval': self.config.eval_interval,
         }
         self.logger.info("Finished build_train_config")
 
@@ -240,14 +143,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # we may need token level log prob
         # TODO (infra): use the tokenizer/texts for prompt dataloader but
         # token (ids) for the experience buffer/manager
-        kwargs = {
-            'padding': 'longest',
-            'pad_token': '<|finetune_right_pad_id|>',
-            'truncation': True,
-            'padding_side': 'left',
-            'model_max_length': self.max_seq_len,
-            'trust_remote_code': True,
-        }
+        kwargs = self.config.tokenizer.kwargs
         tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name, **kwargs)
         return tokenizer
 
@@ -260,7 +156,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     @property
     def fsdp_config(self):
         # TODO (infra): use actual fsdp1 config
-        return {}
+        return {"sync_module_states": True}
 
     def init_composer_dist(self):
         print('Initializing composer dist', composer_dist.get_local_rank(), composer_dist.get_global_rank(), composer_dist.get_world_size())
@@ -270,24 +166,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         from llmfoundry.utils.builders import build_callback
 
         self.logger.info("Building ORL eval callback")
-        kwargs = {
-            'evals': [
-                {
-                    'name': 'gsm8k',
-                },
-                {
-                    'name': 'math_500',
-                },
-                {
-                    'name': 'math_hard',
-                },
-            ],
-            'eval_overrides': {
-                'generation_params': {
-                    'max_tokens': _MAX_GEN_LEN
-                }
-            },
-        }
+        kwargs = om.to_container(self.config.callbacks.orl_eval, resolve=True)
         return build_callback(
             name='orl_eval',
             kwargs=kwargs,
@@ -323,9 +202,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, sampler=dummy_distributed_sampler)
 
         mlflow_logger = MLFlowLogger(
-            experiment_name='test_single_controller_ppo',
-            run_name=f'test_single_controller_ppo_async_{MAX_ASYNC_STEP}_deepseek_l8b_{_DATASET_PATH.split("/")[-2]}',
-            tracking_uri='databricks',
+            experiment_name=self.config.loggers.mlflow.experiment_name,
+            run_name=f'test_single_controller_ppo_async_{self.config.max_async_step}_deepseek_l8b_open_r1_48k',
+            tracking_uri=self.config.loggers.mlflow.tracking_uri,
         )
 
         callbacks = [
@@ -357,13 +236,13 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             train_dataloader=dummy_dataloader,
             precision=self.precision,
             parallelism_config={'fsdp': self.fsdp_config},
-            max_duration=f'{NUM_TRAIN_ITERATIONS}iter',
+            max_duration=self.config.max_duration,
             loggers=[mlflow_logger],
-            device_train_microbatch_size=1,
+            device_train_microbatch_size=self.config.device_train_microbatch_size,
             load_path=self.ref_path,
-            save_folder=SAVE_FOLDER,
+            save_folder=self.config.save_folder,
             save_interval='1iter',
-            autoresume=AUTORESUME,
+            autoresume=self.config.autoresume,
         )
 
     def close_trainer(self):
@@ -446,9 +325,9 @@ class TrainActorGroup(SPMDActorGroup):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
 
-    def build_models(self, pretrain_model_name: str):
+    def build_models(self, config: Any):
         """Build reference models and PPO trainers for all actors."""
-        self.collective_methods.build_train_config(pretrain_model_name)
+        self.collective_methods.build_train_config(config)
         self.collective_methods.init_composer_dist()
 
         # Build PPO trainers
@@ -495,18 +374,18 @@ class TrainActorGroup(SPMDActorGroup):
 class InferenceServer:
     """Inference server with vLLM engines."""
 
-    def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str):
+    def __init__(self, num_vllm_engines: int, pretrain_model_name: str, config: Any):
         self.num_vllm_engines = num_vllm_engines
-        self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
+        self.vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
         self.vllm_engines = create_vllm_engines(
                 num_engines=num_vllm_engines,
-                tensor_parallel_size=vllm_tensor_parallel_size,
+                tensor_parallel_size=self.vllm_tensor_parallel_size,
                 enforce_eager=True,
                 pretrain=pretrain_model_name,
                 revision=None,
                 seed=1,
-                enable_prefix_caching=False,
-                max_model_len=_MAX_SEQ_LEN,
+                enable_prefix_caching=config.vllm_enable_prefix_caching,
+                max_model_len=config.max_seq_len,
                 device_bundle={
                     'GPU': 1,
                     'CPU': 1,
@@ -526,29 +405,25 @@ class RolloutAgent:
         self,
         inference_server: InferenceServer,
         streaming_dataset_actor: 'StreamingDatasetActor',
+        config: Any,
     ):
         self.inference_server = inference_server
         self.streaming_dataset_actor = streaming_dataset_actor
-        self.generation_kwargs = {
-            'top_p': 1.0,
-            'use_cache': True,
-            'do_sample': DO_SAMPLE,
-            'temperature': 1.0,
-        }
-        self.precision = 'amp_bf16'
+        self.generation_kwargs = config.variables.generation_kwargs
+        self.precision = config.precision
         self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
         self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
         self.max_gen_len = self.prompt_handler_config['max_gen_len']
 
         # Load iter_num from the checkpoint
-        self.save_folder = os.path.join(SAVE_FOLDER, 'RolloutAgent')
+        self.save_folder = os.path.join(config.save_folder, 'RolloutAgent')
 
         self.iter_num = 0
 
         # Load the latest checkpoint
         self.latest_checkpoint = os.path.join(self.save_folder, 'latest.symlink')
 
-        if AUTORESUME and os.path.exists(self.latest_checkpoint):
+        if config.autoresume and os.path.exists(self.latest_checkpoint):
             print(f'Autoresuming from checkpoint for RolloutAgent.')
             with open(self.latest_checkpoint, 'rb') as f:
                 checkpoint = pickle.load(f)
@@ -669,7 +544,7 @@ class ExperienceBuffer(Buffer):
 class StreamingDatasetActor(BaseDistributedGPUActor):
     """Streaming actor for loading prompts onto the experience buffer."""
 
-    def __init__(self):
+    def __init__(self, config: Any):
         # Setting up the distributed environment (WORLD_SIZE = 1)
         super().__init__(
             rank=0,
@@ -682,44 +557,25 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: We should move these to dataclasses
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
-        self.pretrain_model_name = _MODEL_NAME
+        self.pretrain_model_name = config.model.pretrained_model_name_or_path
         self.prompt_handler_config = {
-            "global_train_batch_size": GLOBAL_TRAIN_BATCH_SIZE,
-            "generations_per_prompt": GENERATIONS_PER_PROMPT,
-            "num_batches_per_update": NUM_BATCHES_PER_UPDATE,
-            "max_seq_len": _MAX_SEQ_LEN,
-            "max_gen_len": _MAX_GEN_LEN,
+            'global_train_batch_size': config.global_train_batch_size,
+            'generations_per_prompt': config.variables.generations_per_prompt,
+            'num_batches_per_update': config.variables.num_batches_per_update,
+            'max_seq_len': config.max_seq_len,
+            'max_gen_len': config.variables.max_gen_len,
         }
-        self.tokenizer_config = {
-            'padding': 'longest',
-            'pad_token': '<|finetune_right_pad_id|>',
-            'truncation': True,
-            'padding_side': 'left',
-            'model_max_length': self.prompt_handler_config['max_seq_len'],
-            'trust_remote_code': True,
-        }
+        self.tokenizer_config = config.tokenizer.kwargs
+        self.dataloader_config = config.train_loader
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp_dataset_dir = f"/tmp/dataset/prompt_{timestamp}/"
-        self.dataloader_config = {
-            'name': 'prompt',
-            'dataset': {
-                'local': temp_dataset_dir,
-                'split': 'train',
-                'remote': _DATASET_PATH,
-                'shuffle': True,
-                'max_gen_len': self.prompt_handler_config['max_gen_len'],
-                'max_seq_len': self.prompt_handler_config['max_seq_len'],
-                'shuffle_seed': 17,
-                'download_timeout': 1800
-            },
-            'drop_last': True,
-            'num_workers': 1,
-        }
+        self.dataloader_config['dataset']['local'] = \
+            self.dataloader_config['dataset']['local'].format(timestamp=timestamp)
 
         # Key variables
-        global_train_batch_size = self.prompt_handler_config['global_train_batch_size']
-        self.generations_per_prompt = self.prompt_handler_config['generations_per_prompt']
-        num_batches_per_update = self.prompt_handler_config['num_batches_per_update']
+        global_train_batch_size = config.global_train_batch_size
+        self.generations_per_prompt = config.variables.generations_per_prompt
+        num_batches_per_update = config.variables.num_batches_per_update
         total_num_generations = global_train_batch_size * num_batches_per_update
         self.num_prompts_per_iteration = total_num_generations // self.generations_per_prompt
 
@@ -780,31 +636,36 @@ class PPOController:
         rollout_agent: RolloutAgent,
         parameter_buffer: ParameterBuffer,
         experience_buffer: ExperienceBuffer,
-        pretrain_model_name: str,
+        config: Any,
     ):
         self.train_actor = train_actor
         self.inference_server = inference_server
         self.rollout_agent = rollout_agent
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
-        self.train_actor.build_models(pretrain_model_name)
+        self.train_actor.build_models(config)
         setup_process_groups(
             self.train_actor.master_actor,
             inference_server.engines,
             inference_server.vllm_tensor_parallel_size,
         )
         self.lock = asyncio.Lock()
-        self.semaphore = asyncio.Semaphore(MAX_ASYNC_STEP)
+        self.semaphore = asyncio.Semaphore(config.max_async_step)
         self.train_actor.collective_methods.attach_vllm_engines(self.inference_server.engines)
+        self.config = config
     
-    async def train_async(self, num_iterations: int):
+    async def train_async(self, max_duration: int | str):
+        if isinstance(max_duration, str):
+            num_iterations = int(max_duration.replace('iter', ''))
+        else:
+            num_iterations = max_duration
+
         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
         await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'semaphore': self.semaphore})
         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.semaphore))
         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.semaphore))
         await asyncio.gather(rollout_task, train_task)
         self.train_actor.collective_methods.close_trainer()
-
 
 
 def _run_single_controller_ppo(
@@ -839,16 +700,15 @@ def _run_single_controller_ppo(
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = 1
+            vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
-            pretrain_model_name = config.pretrain_model_name
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
-                vllm_tensor_parallel_size=vllm_tensor_parallel_size,
-                pretrain_model_name=pretrain_model_name,
+                pretrain_model_name=config.model.pretrained_model_name_or_path,
+                config=config,
             )
 
             # We are using a CPU worker for the StreamingActor
@@ -865,8 +725,8 @@ def _run_single_controller_ppo(
             # We uninstall megablocks after the Train Actors have been
             # created so that those actors still have megablocks functionality.
             uninstall_megablocks_if_exists()
-            streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote()
-            rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor)
+            streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote(config)
+            rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, config)
 
             ppo_controller = PPOController(
                 train_actor,
@@ -874,9 +734,9 @@ def _run_single_controller_ppo(
                 rollout_agent,
                 parameter_buffer,
                 experience_buffer,
-                pretrain_model_name,
+                config,
             )
-            asyncio.run(ppo_controller.train_async(NUM_TRAIN_ITERATIONS))
+            asyncio.run(ppo_controller.train_async(config.max_duration))
 
 
 if __name__ == '__main__':
@@ -887,12 +747,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     # Load configuration using OmegaConf
-    if args.file_path is not None:
-        config = om.load(args.file_path)
+    if args.file_path is None:
+        config = om.load("yamls/single-controller-grpo-workflow.yaml")
     else:
-        config = om.create({
-            'pretrain_model_name': _MODEL_NAME,
-        })
+        config = om.load(args.file_path)
     
     # This is an example of how to move the controller logic from PPO Callback
     # to a separate trainer actor above and this main single controller
