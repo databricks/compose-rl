@@ -1,4 +1,4 @@
-name: compose-rl-distributed-orig-ppo
+name: single-controller-hackathon
 
 scheduling:
   priority: low
@@ -62,13 +62,8 @@ parameters:
     pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
   loggers:
     mlflow:
-      tags:
-        run:
-          run_name: null
-        group: grpo
       tracking_uri: databricks
-      experiment_name: /Users/ashutosh.baheti@databricks.com/mlflow_experiments/online_rl/benchmark_math/llama_8b_grpo_lr_gc_sweep1
-  callbacks:
+      experiment_name: test_single_controller_ppo
     ppo: {}
     orl_eval:
       evals:

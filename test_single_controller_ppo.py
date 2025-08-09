@@ -220,9 +220,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, sampler=dummy_distributed_sampler)
 
         mlflow_logger = MLFlowLogger(
-            experiment_name='test_single_controller_ppo',
+            experiment_name=self.config.loggers.mlflow.experiment_name,
             run_name=f'test_single_controller_ppo_async_{self.config.max_async_step}_deepseek_l8b_open_r1_48k',
-            tracking_uri='databricks',
+            tracking_uri=self.config.loggers.mlflow.tracking_uri,
         )
 
         callbacks = [
