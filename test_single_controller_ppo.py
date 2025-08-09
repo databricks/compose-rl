@@ -256,7 +256,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             parallelism_config={'fsdp': self.fsdp_config},
             max_duration=self.config.max_duration,
             loggers=[mlflow_logger],
-            device_train_microbatch_size=1,
+            device_train_microbatch_size=self.config.device_train_microbatch_size,
             load_path=self.ref_path,
             save_folder=self.config.save_folder,
             save_interval='1iter',
