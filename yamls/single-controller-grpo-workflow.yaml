@@ -6,8 +6,8 @@ scheduling:
   resumable: false
   preemptible: false
 compute:
-  gpus: 8
-  cluster: r5z2p3
+  gpus: 16
+  cluster: r5z2p1
   instance: oci.bm.gpu.h200.8.oke
 integrations:
 - integration_type: git_repo
