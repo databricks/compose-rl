@@ -1,26 +1,25 @@
 name: single-controller-hackathon
 
+image: mosaicml/dle:nightly-latest
 scheduling:
-  priority: low
-  preemptible: true
-
+  priority: medium
+  resumable: false
+  preemptible: false
 compute:
   gpus: 8
-  cluster: r5z2p1
-
+  cluster: r5z2p3
+  instance: oci.bm.gpu.h200.8.oke
 integrations:
 - integration_type: git_repo
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
+  ssh_clone: true
   git_branch: ethantang-db/orig_yaml
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
   ssh_clone: true
   git_branch: update-orl-eval
-
-image: mosaicml/dle:nightly-latest
-
 command: |-
   python -m uv pip install --system /workspace/research-universe/minieval
   python -m uv pip install --system /workspace/research-universe/orl_eval
@@ -28,18 +27,6 @@ command: |-
 
   cd /workspace/compose-rl
   composer test_single_controller_ppo.py --file_path /mnt/config/parameters.yaml
-
-env_variables:
-  AWS_PROFILE: data-force-one
-  AWS_MAX_ATTEMPTS: 10
-  LLM_FOUNDRY_SAVE_FOLDER_HF_MAX_SHARD_SIZE: 5GB
-  NCCL_CUMEM_ENABLE: 0
-  GLOO_SOCKET_IFNAME: eth0
-  TP_SOCKET_IFNAME: eth0
-  VLLM_ATTENTION_BACKEND: FLASHINFER
-  VLLM_ENABLE_V1_MULTIPROCESSING: 0
-  TOTAL_NUM_NODES: 1  # might be dangerous?
-  TRAIN_NUM_NODES: 1  # might be dangerous?
 
 parameters:
   seed: 17
@@ -62,6 +49,10 @@ parameters:
     pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
   loggers:
     mlflow:
+      tags:
+        run:
+          run_name: null
+        group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
     ppo: {}
