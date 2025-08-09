@@ -209,7 +209,7 @@ parameters:
       shuffle_seed: 17
       download_timeout: 1800
     drop_last: true
-    num_workers: 8
+    num_workers: 1
   eval_interval: 2iter
   save_interval: 100iter
   log_to_console: true
