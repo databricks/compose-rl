@@ -122,7 +122,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.train_config = {
             'seed': self.config.seed,
             'model': self.model_config,
-            'fsdp_config': self.fsdp_config,
+            'fsdp_config': self.config.non_train_fsdp_config,
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,
@@ -152,11 +152,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         if self._tokenizer is None:
             self._tokenizer = self.build_tokenizer()
         return self._tokenizer
-
-    @property
-    def fsdp_config(self):
-        # TODO (infra): use actual fsdp1 config
-        return {"sync_module_states": True}
 
     def init_composer_dist(self):
         print('Initializing composer dist', composer_dist.get_local_rank(), composer_dist.get_global_rank(), composer_dist.get_world_size())
@@ -235,7 +230,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             callbacks=callbacks,
             train_dataloader=dummy_dataloader,
             precision=self.precision,
-            parallelism_config={'fsdp': self.fsdp_config},
+            parallelism_config={'fsdp': self.config.fsdp_config},
             max_duration=self.config.max_duration,
             loggers=[mlflow_logger],
             device_train_microbatch_size=self.config.device_train_microbatch_size,
