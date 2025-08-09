@@ -145,6 +145,7 @@ parameters:
       temperature: 1
     epoch_per_iteration: 1
     non_train_fsdp_config:
+      sync_module_states: true
       verbose: false
       cpu_offload: false
       mixed_precision: PURE
@@ -166,6 +167,7 @@ parameters:
   autoresume: true
   log_config: true
   fsdp_config:
+    sync_module_states: true
     verbose: false
     cpu_offload: false
     mixed_precision: PURE
