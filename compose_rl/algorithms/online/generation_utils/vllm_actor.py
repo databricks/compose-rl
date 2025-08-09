@@ -124,6 +124,7 @@ class LLMRayActor:
         shape: Union[tuple[int, ...], list[int]],
         empty_cache: bool = False,
     ):
+        assert False, "weight update"
         log.info(f'Updating weight {name} with shape {shape} and dtype {dtype}')
         return self.llm.collective_rpc(
             'update_weight',
