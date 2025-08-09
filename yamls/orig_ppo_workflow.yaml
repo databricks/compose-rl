@@ -55,6 +55,7 @@ parameters:
     compute_kl_loss: true
     policy_clip_ratio: 0.2
     attn_implementation: flash_attention_2
+    allow_embedding_resizing: true
     normalize_advantage: true
     use_flash_attention_2: true
     length_normalize_policy_loss: true
