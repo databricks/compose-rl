@@ -403,7 +403,7 @@ class InferenceServer:
                 revision=None,
                 seed=1,
                 enable_prefix_caching=config.variables.vllm_enable_prefix_caching,
-                max_model_len=config.variables.max_gen_len,
+                max_model_len=config.variables.max_seq_len,
                 device_bundle={
                     'GPU': 1,
                     'CPU': 1,
