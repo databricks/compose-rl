@@ -134,7 +134,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'max_seq_len': self.max_seq_len,
             'python_log_level': self.config.python_log_level,
             'console_log_interval': self.config.console_log_interval,
-            'eval_interval': self.config.eval_interval,
         }
         self.logger.info("Finished build_train_config")
 
@@ -161,17 +160,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def init_composer_dist(self):
         print('Initializing composer dist', composer_dist.get_local_rank(), composer_dist.get_global_rank(), composer_dist.get_world_size())
         composer_dist.initialize_dist('gpu')
-
-    def build_orl_eval_callback(self):
-        from llmfoundry.utils.builders import build_callback
-
-        self.logger.info("Building ORL eval callback")
-        kwargs = om.to_container(self.config.callbacks.orl_eval, resolve=True)
-        return build_callback(
-            name='orl_eval',
-            kwargs=kwargs,
-            train_config=self.train_config,
-        )
 
     def build_ppo_trainer(self):
         name = self.model_config.pop('name')
@@ -393,48 +381,49 @@ class EvalAgent:
     def __init__(
         self,
         vllm_engines: list[Any],
-        evals: list[dict[str, Any]],
-        eval_overrides: dict[str, Any],
-        experiment_name: str,
-        run_name: str,
+        config: Any,
     ):
         self.vllm_engines = vllm_engines
-        self.evals = evals
-        self.eval_overrides = eval_overrides
-        self.experiment_name = experiment_name
-        self.run_name = run_name
+        self.config = config
+
+        # Variables from the config used in the eval_agent
+        # TODO: Support eval_interval_num in a more generic way (e.g. handle more than just `iter`)
+        self.eval_interval_num = int(config.eval_interval.strip("iter"))
+        self.num_batches_per_update = config.num_batches_per_update
+        self.experiment_name = config.loggers.mlflow.experiment_name
+        self.run_name = f'test_single_controller_ppo_async_{config.max_async_step}_deepseek_l8b_open_r1_48k'
+
         self.callback = self.build_callback()
 
     def build_callback(self):
         from llmfoundry.utils.builders import build_callback
-        # Using a minimal train_config to built the callback correctly.
-        train_config = {
-            'eval_interval': f'{EVAL_INTERVAL}iter',
+        # Creating the evals and eval_overrides from the config.
+        kwargs = om.to_container(self.config.callbacks.orl_eval, resolve=True)
+        # Using a minimal (fake) train_config to built the callback correctly.
+        # The setup actually doesn't matter as we just want to expose the
+        # run_evaluation function to this eval agent.
+        fake_train_config = {
+            'eval_interval': f'{self.eval_interval_num}iter',
             'python_log_level': 'debug',
-        }
-        kwargs = {
-            'evals': self.evals,
-            'eval_overrides': self.eval_overrides,
         }
         callback = build_callback(
             name='orl_eval',
             kwargs=kwargs,
-            train_config=train_config,
+            train_config=fake_train_config,
         )
-
         # Need to create a fake state to pass to fit_start to help the callback register correctly.
         class _State:
             vllm_engines = []
         fake_state = _State()
         fake_state.vllm_engines = self.vllm_engines
-
+        # fit_start needs to be called to allow us to call _run_evaluation
         callback.fit_start(fake_state, logger=None)
         return callback
 
     def run_evaluation(self, step: int = 0):
         """Run evaluation after weights are broadcast to vLLM engines."""
         # _run_evaluation requires that mlflow_logger is not None (even though it is not used)
-        # As a consequence, we set it to 1 to circumvent the issue.
+        # As a consequence, we set it to 1 (as a placeholder) to circumvent the issue.
         self.callback.mlflow_logger = 1
         self.callback._run_evaluation(self.experiment_name, self.run_name, step)
 
@@ -446,10 +435,10 @@ class EvalAgent:
         """
         # TODO: We could potentially use an async queue instead of a semaphore to trigger the eval
         # We could potentially circumvent this iteration loop in that scenario.
-        for iteration in range(0, num_iterations, EVAL_INTERVAL):
+        for iteration in range(0, num_iterations, self.eval_interval_num):
             await eval_semaphore.acquire()
             async with lock:
-                await asyncio.to_thread(self.run_evaluation, step=iteration*NUM_BATCHES_PER_UPDATE)
+                await asyncio.to_thread(self.run_evaluation, step=iteration*self.num_batches_per_update)
 
 
 class RolloutAgent:
@@ -557,9 +546,11 @@ class RolloutAgent:
 class ParameterBuffer(Buffer):
     """Buffer for updating the inference model."""
 
-    def __init__(self):
+    def __init__(self, config: Any):
         super().__init__()
         self.num_times_param_updated = 0
+        # TODO: Support eval_interval_num in a more generic way (e.g. handle more than just `iter`)
+        self.eval_interval_num = int(config.eval_interval.strip("iter"))
 
     def update_inference_model(self, actor: DistributedGPUActor, inference_server: InferenceServer):
         start_time = time.time()
@@ -590,7 +581,7 @@ class ParameterBuffer(Buffer):
         # Since we updated the params, we need to check if we need to schedule an eval
         # based on the previous value of num_times_param_updated as we want to run an eval
         # at timestep 0.
-        if (self.num_times_param_updated - 1) % EVAL_INTERVAL == 0:
+        if (self.num_times_param_updated - 1) % self.eval_interval_num == 0:
             struct['eval_semaphore'].release()
 
 
@@ -718,10 +709,9 @@ class PPOController:
             inference_server.vllm_tensor_parallel_size,
         )
         self.lock = asyncio.Lock()
-        self.train_actor.collective_methods.attach_vllm_engines(self.inference_server.engines)
-        self.config = config
         self.rollout_semaphore = asyncio.Semaphore(config.max_async_step)
         self.eval_semaphore = asyncio.Semaphore(0)
+        self.config = config
     
     async def train_async(self, max_duration: int | str):
         if isinstance(max_duration, str):
@@ -762,7 +752,7 @@ def _run_single_controller_ppo(
 
             # Create buffers for the parameter and experience buffers
             # first since they don't have external dependencies
-            parameter_buffer = ParameterBuffer()
+            parameter_buffer = ParameterBuffer(config)
             experience_buffer = ExperienceBuffer()
 
             # create SPMD training actors of the system
@@ -800,17 +790,7 @@ def _run_single_controller_ppo(
 
             # EvalAgent doesn't need to be a Ray actor since we don't need to
             # set a world_size or use GPUs for this process.
-            eval_agent = EvalAgent(
-                inference_server.engines,
-                evals=[{'name': 'gsm8k'}, {'name': 'math_500'}, {'name': 'math_hard'}],
-                eval_overrides={
-                    'generation_params': {
-                        'max_tokens': config.max_gen_len,
-                    },
-                },
-                experiment_name='test_single_controller_ppo',
-                run_name=f'test_single_controller_ppo_async_{config.max_async_step}_deepseek_l8b_open_r1_48k'
-            )
+            eval_agent = EvalAgent(inference_server.engines, config)
 
             ppo_controller = PPOController(
                 train_actor,
