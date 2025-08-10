@@ -299,14 +299,14 @@ def setup_process_groups(
             i * vllm_tensor_parallel_size + 1,
             world_size // 2 + 1,
             'weight-update',
-            backend='gloo',
+            backend='nccl',
         ) for i, engine in enumerate(vllm_engines)
     ]
 
     # Add master actor to the process group
     refs.append(
         master_actor.add_process_group.remote(
-            backend='gloo',
+            backend='nccl',
             master_addr=master_addr,
             master_port=new_port,
             world_size=world_size // 2 + 1,
