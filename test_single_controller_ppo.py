@@ -5,7 +5,7 @@
 # Copy the test file in the root of the repo
 # NOTE: This actually runs GRPO instead of PPO
 # cd compose-rl
-# run cmd: composer test_single_controller_ppo.py --file_path yamls/orig_ppo.yaml
+# run cmd: composer test_single_controller_ppo.py
 # If I do ctrl+c to kill job
 # Check with `ray status` to see if the actors are still running
 # If they are, then run `ray stop`
