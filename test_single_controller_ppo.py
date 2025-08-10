@@ -53,10 +53,12 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 @contextmanager
 def time_it(name: str):
     start_time = time.time()
-    print(f"[{name}] started at {time.strftime('%X')}")
+    pst_start_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-8)))
+    print(f"[{name}] started at {pst_start_time.strftime('%Y-%m-%d %H:%M PST')}")
     yield
     end_time = time.time()
-    print(f"[{name}] finished at {time.strftime('%X')}")
+    pst_end_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-8)))
+    print(f"[{name}] finished at {pst_end_time.strftime('%Y-%m-%d %H:%M PST')}")
     print(f"[{name}] took {end_time - start_time:.2f} seconds")
 
 
