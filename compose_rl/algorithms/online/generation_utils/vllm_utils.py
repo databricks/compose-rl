@@ -129,6 +129,17 @@ class WorkerWrap:
         assert group_name != '', 'group name must not be empty'
 
         rank = torch.distributed.get_rank() + rank_offset
+
+        with open(f'/tmp/compose-rl-init_process_group_log_{rank}.txt', 'w') as f:
+            f.write(f'torch_rank: {torch.distributed.get_rank()}\n')
+            f.write(f'offset: {rank_offset}\n')
+            f.write(f'rank: {rank}\n')
+            f.write(f'world_size: {world_size}\n')
+            f.write(f'group_name: {group_name}\n')
+            f.write(f'backend: {backend}\n')
+            f.write(f'master_address: {master_address}\n')
+            f.write(f'master_port: {master_port}\n')
+
         self._model_update_group = init_process_group( # type: ignore
             backend=backend,
             init_method=f'tcp://{master_address}:{master_port}',
