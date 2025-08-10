@@ -144,19 +144,6 @@ parameters:
       use_cache: true
       temperature: 1
     epoch_per_iteration: 1
-    non_train_fsdp_config:
-      sync_module_states: true
-      verbose: false
-      cpu_offload: false
-      mixed_precision: PURE
-      state_dict_type: sharded
-      use_orig_params: true
-      forward_prefetch: true
-      backward_prefetch: BACKWARD_PRE
-      sharding_strategy: FULL_SHARD
-      activation_cpu_offload: false
-      activation_checkpointing: true
-      activation_checkpointing_reentrant: false
     generations_per_prompt: 8
     num_batches_per_update: 8
     device_generate_batch_size: 1
