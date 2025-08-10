@@ -188,7 +188,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name=self.config.loggers.mlflow.experiment_name,
-            run_name=f'test_single_controller_ppo_async_{self.config.max_async_step}_deepseek_l8b_open_r1_48k',
+            run_name=self.config.loggers.mlflow.run_name,
             tracking_uri=self.config.loggers.mlflow.tracking_uri,
         )
 
