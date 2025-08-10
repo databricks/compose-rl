@@ -5,7 +5,7 @@
 # Copy the test file in the root of the repo
 # NOTE: This actually runs GRPO instead of PPO
 # cd compose-rl
-# run cmd: composer test_single_controller_ppo.py --file_path yamls/orig_ppo.yaml
+# run cmd: composer test_single_controller_ppo.py
 # If I do ctrl+c to kill job
 # Check with `ray status` to see if the actors are still running
 # If they are, then run `ray stop`
@@ -53,10 +53,12 @@ from compose_rl.algorithms.online.callback_utils import preprocess_batches
 @contextmanager
 def time_it(name: str):
     start_time = time.time()
-    print(f"[{name}] started at {time.strftime('%X')}")
+    pst_start_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-8)))
+    print(f"[{name}] started at {pst_start_time.strftime('%Y-%m-%d %H:%M PST')}")
     yield
     end_time = time.time()
-    print(f"[{name}] finished at {time.strftime('%X')}")
+    pst_end_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-8)))
+    print(f"[{name}] finished at {pst_end_time.strftime('%Y-%m-%d %H:%M PST')}")
     print(f"[{name}] took {end_time - start_time:.2f} seconds")
 
 
@@ -122,7 +124,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.train_config = {
             'seed': self.config.seed,
             'model': self.model_config,
-            'fsdp_config': self.fsdp_config,
+            'fsdp_config': self.config.fsdp_config,
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,
@@ -151,11 +153,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         if self._tokenizer is None:
             self._tokenizer = self.build_tokenizer()
         return self._tokenizer
-
-    @property
-    def fsdp_config(self):
-        # TODO (infra): use actual fsdp1 config
-        return {"sync_module_states": True}
 
     def init_composer_dist(self):
         print('Initializing composer dist', composer_dist.get_local_rank(), composer_dist.get_global_rank(), composer_dist.get_world_size())
@@ -191,7 +188,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name=self.config.loggers.mlflow.experiment_name,
-            run_name=f'test_single_controller_ppo_async_{self.config.max_async_step}_deepseek_l8b_open_r1_48k',
+            run_name=self.config.loggers.mlflow.run_name,
             tracking_uri=self.config.loggers.mlflow.tracking_uri,
         )
 
@@ -215,7 +212,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             callbacks=callbacks,
             train_dataloader=dummy_dataloader,
             precision=self.precision,
-            parallelism_config={'fsdp': self.fsdp_config},
+            parallelism_config={'fsdp': self.config.fsdp_config},
             max_duration=self.config.max_duration,
             loggers=[mlflow_logger],
             device_train_microbatch_size=self.config.device_train_microbatch_size,
@@ -722,12 +719,11 @@ class PPOController:
 
         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
         await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'rollout_semaphore': self.rollout_semaphore, 'eval_semaphore': self.eval_semaphore})
+        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
         eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.rollout_semaphore, self.eval_semaphore))
-        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
-        await asyncio.gather(train_task, rollout_task, eval_task)
+        await asyncio.gather(rollout_task, eval_task, train_task)
         self.train_actor.collective_methods.close_trainer()
-
 
 def _run_single_controller_ppo(
     config: Any,
