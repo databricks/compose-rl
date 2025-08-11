@@ -543,8 +543,7 @@ def broadcast_to_vllm(
 
     log.info(f'for loop took: {time.time() - start_time}')
     start_time = time.time()
-    results = ray.get(refss)
-    log.info(f'results: {results}')
+    ray.get(refss)
     if enable_prefix_caching:
         ray.get(cache_reset_refss)
     log.info(f'ray refs took: {time.time() - start_time}')
