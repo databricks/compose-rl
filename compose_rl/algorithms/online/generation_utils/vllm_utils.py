@@ -174,8 +174,9 @@ class WorkerWrap:
             0,
             group=self._model_update_group,
         )
-        with open(f"/tmp/compose-rl-worker-{torch.distributed.get_rank(self._model_update_group)}.txt", "a") as f:
-            f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight[..., :3]}\n")
+        if "5" in name:
+            with open(f"/tmp/compose-rl-worker-{torch.distributed.get_rank(self._model_update_group)}.txt", "a") as f:
+                f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight[..., :3]}\n")
 
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
@@ -513,7 +514,6 @@ def broadcast_to_vllm(
                                 shape = param.shape
                                 refs = []
                                 for engine in vllm_engines:
-                                    log.info(f"Sending weight {parsed_name} to engine {engine} with dtype {param.dtype} and shape {shape}")
                                     ref = engine.update_weight.remote(
                                         parsed_name,
                                         dtype=param.dtype,
@@ -522,8 +522,9 @@ def broadcast_to_vllm(
                                     )
                                     refs.append(ref)
                                 refss.extend(refs)
-                                with open(f"/tmp/compose-rl-master.txt", "a") as f:
-                                    f.write(f"Sending weight {parsed_name} to engine {engine} with dtype {param.dtype} and shape {shape} with data {param.data[..., :3]}\n")
+                                if "5" in parsed_name:
+                                    with open(f"/tmp/compose-rl-master.txt", "a") as f:
+                                        f.write(f"Sending weight {parsed_name} to engine {engine} with dtype {param.dtype} and shape {shape} with data {param.data[..., :3]}\n")
                                 torch.distributed.broadcast(
                                     param.data,
                                     0,
