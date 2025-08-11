@@ -11,21 +11,6 @@ def get_mlflow_run_id() -> Optional[str]:
     return os.environ.get('MLFLOW_RUN_ID', None)
 
 
-def get_valid_mlflow_experiment_name(config: Any) -> str:
-    """Fixes the experiment name to be an absolute path for mlflow.
-
-    MLflow requires the experiment name to be an absolute path.
-    If the experiment name is not an absolute path, we turn it
-    into an absolute path.
-    """
-    mlflow_experiment_name = config.loggers.mlflow.experiment_name
-    if mlflow_experiment_name.startswith('/'):
-        return mlflow_experiment_name
-    else:
-        from databricks.sdk import WorkspaceClient
-        return f'/Users/{WorkspaceClient().current_user.me().user_name}/{mlflow_experiment_name}'
-
-
 def get_mlflow_relative_path_for_save_folder(save_folder: str) -> str:
     """Returns the relative path for the given save folder"""
     return save_folder.lstrip('/')
@@ -72,6 +57,59 @@ def artifact_exists_on_mlflow(artifact_path: str) -> bool:
     return True
 
 
+def get_valid_mlflow_experiment_name(config: Any) -> str:
+    """Fixes the experiment name to be an absolute path for mlflow.
+
+    MLflow requires the experiment name to be an absolute path.
+    If the experiment name is not an absolute path, we turn it
+    into an absolute path.
+    """
+    mlflow_experiment_name = config.loggers.mlflow.experiment_name
+    if mlflow_experiment_name.startswith('/'):
+        return mlflow_experiment_name
+    else:
+        from databricks.sdk import WorkspaceClient
+        return f'/Users/{WorkspaceClient().current_user.me().user_name}/{mlflow_experiment_name}'
+
+
+def get_mlflow_run_name(config: Any) -> str:
+    """Gets the mlflow run name from the config.
+
+    If the run name is not set in the config, it will return the COMPOSER_RUN_NAME environment variable
+    as this is set for interactive mode as well.
+    """
+    try:
+        return config.loggers.mlflow.run_name
+    except:
+        return os.environ['COMPOSER_RUN_NAME']
+
+# NOTE: This doesn't work yet for a few reasons:
+# 1. Downloading nested mlflow artifacts doesn't work correctly due to the MlflowObjectStore
+# having issues. For instance, https://github.com/mosaicml/composer/blob/4ae29b1afec56ce2d54f6fa07a7f9578a0d364b0/composer/utils/object_store/mlflow_object_store.py#L465-L476
+# requires `tmp_path = os.path.join(tmp_dir, os.path.basename(artifact_path))` instead of what it currently
+# does. By doing that, the symlink can be loaded correctly.
+# 2. If save_folder is an absolute path (e.g. /tmp/checkpoints), the symlink will be created using this
+# absolute path. This is not a valid symlink in mlflow so we need to do some os.path gymnastics to
+# support absolute paths for save_folder.
+# 3. We also need to support save_folder being a dbfs path eventually.
+# Proposed Approach
+# - Create an MlflowCheckpointActor (allowing us to set WORLD_SIZE=1)
+# and create functions within that are based on MlflowObjectStore.
+# that safely handle dbfs paths and absolute paths.
+def get_file(path: str, destination: str, overwrite: bool = True):
+    """
+    A helper function to get a file from mlflow. The existing mlflow utils code
+    uses dist operations which isn't supported in the RolloutAgent so this approach
+    works around that limitation.
+    """
+    from composer.utils.file_helpers import parse_uri, get_file as composer_get_file
+    from composer.utils.object_store import MLFlowObjectStore
+    backend, _, path = parse_uri(path)
+    assert backend == 'dbfs', "Only dbfs paths are supported"
+    object_store = MLFlowObjectStore(path)
+    composer_get_file(path, destination, object_store, overwrite)
+
+
 def setup_mlflow(config: Any):
     """
     Sets up mlflow for the current process.
@@ -83,11 +121,9 @@ def setup_mlflow(config: Any):
     dist.init_process_group(backend='gloo')
     mlflow.set_tracking_uri('databricks')
 
-    # mlflow experiment name needs to be an absolute path for databricks mlflow.
     mlflow_experiment_name = get_valid_mlflow_experiment_name(config)
     setattr(config.loggers.mlflow, 'experiment_name', mlflow_experiment_name)
-    # COMPOSER_RUN_NAME is set for interactive mode as well.
-    mlflow_run_name = os.environ['COMPOSER_RUN_NAME']
+    mlflow_run_name = get_mlflow_run_name(config)
     setattr(config.loggers.mlflow, 'run_name', mlflow_run_name)
 
     # get mlflow experiment if it exists, otherwise create it and set it to all ranks.

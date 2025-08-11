@@ -29,7 +29,7 @@ import torch.distributed as dist
 from composer import Trainer
 from composer.core import get_precision_context
 from composer.optim import DecoupledAdamW
-from composer.utils import create_symlink_file, dist as composer_dist, get_file
+from composer.utils import create_symlink_file, dist as composer_dist
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
@@ -52,6 +52,7 @@ from compose_rl.utils.mlflow_utils import (
     get_mlflow_absolute_path_for_save_folder,
     get_mlflow_relative_path_for_save_folder,
     validate_save_folder,
+    get_file,
 )
 from compose_rl.utils.ray_utils import start_ray_server, uninstall_megablocks_if_exists
 from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
@@ -475,7 +476,11 @@ class RolloutAgent:
         self.iter_num = 0
 
         self.local_save_folder = os.path.join(config.save_folder, 'RolloutAgent')
-        self.mlflow_absolute_save_folder = get_mlflow_absolute_path_for_save_folder(self.local_save_folder)
+        # We need to format the full path correctly for MlflowObjectStore to be created.
+        self.mlflow_absolute_save_folder = get_mlflow_absolute_path_for_save_folder(self.local_save_folder).format(
+            mlflow_experiment_id=os.environ['MLFLOW_EXPERIMENT_ID'],
+            mlflow_run_id=os.environ['MLFLOW_RUN_ID'],
+        )
         self.mlflow_relative_save_folder = get_mlflow_relative_path_for_save_folder(self.local_save_folder)
 
         # Load the latest checkpoint if we are autoresuming.
@@ -491,6 +496,7 @@ class RolloutAgent:
         if config.autoresume and artifact_exists_on_mlflow(self.mlflow_latest_checkpoint_relative_path):
             print(f'Autoresuming from checkpoint for RolloutAgent.')
             get_file(self.mlflow_latest_checkpoint_absolute_path, self.latest_checkpoint_path, overwrite=True)
+            print(f'Got autoresume checkpoint from mlflow: {self.latest_checkpoint_path}')
             with open(self.latest_checkpoint_path, 'rb') as f:
                 checkpoint = pickle.load(f)
             self.iter_num = checkpoint['iter_num']
