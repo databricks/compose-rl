@@ -188,7 +188,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name=self.config.loggers.mlflow.experiment_name,
-            run_name=self.config.loggers.mlflow.run_name,
+            run_name=self.config.loggers.mlflow.tags.run,
             tracking_uri=self.config.loggers.mlflow.tracking_uri,
         )
 
@@ -218,7 +218,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             device_train_microbatch_size=self.config.device_train_microbatch_size,
             load_path=self.ref_path,
             save_folder=self.config.save_folder,
-            save_interval='1iter',
+            save_interval=self.config.save_interval,
             autoresume=self.config.autoresume,
         )
 
@@ -388,7 +388,7 @@ class EvalAgent:
         self.eval_interval_num = int(config.eval_interval.strip("iter"))
         self.num_batches_per_update = config.variables.num_batches_per_update
         self.experiment_name = config.loggers.mlflow.experiment_name
-        self.run_name = f'test_single_controller_ppo_async_{config.max_async_step}_deepseek_l8b_open_r1_48k'
+        self.run_name = config.loggers.mlflow.tags.run
 
         self.callback = self.build_callback()
 
