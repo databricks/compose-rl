@@ -79,7 +79,7 @@ def get_mlflow_run_name(config: Any) -> str:
     as this is set for interactive mode as well.
     """
     try:
-        return config.loggers.mlflow.run_name
+        return config.loggers.mlflow.tags.run
     except:
         return os.environ['COMPOSER_RUN_NAME']
 
@@ -124,7 +124,7 @@ def setup_mlflow(config: Any):
     mlflow_experiment_name = get_valid_mlflow_experiment_name(config)
     setattr(config.loggers.mlflow, 'experiment_name', mlflow_experiment_name)
     mlflow_run_name = get_mlflow_run_name(config)
-    setattr(config.loggers.mlflow, 'run_name', mlflow_run_name)
+    setattr(config.loggers.mlflow.tags, 'run', mlflow_run_name)
 
     # get mlflow experiment if it exists, otherwise create it and set it to all ranks.
     experiment_id = None
