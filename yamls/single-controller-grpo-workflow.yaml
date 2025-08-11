@@ -157,7 +157,7 @@ parameters:
     verbose: false
     cpu_offload: false
     mixed_precision: PURE
-    state_dict_type: sharded
+    state_dict_type: full # TODO: Sharded state dicts are having issues. Need to investigate further.
     use_orig_params: true
     forward_prefetch: true
     backward_prefetch: BACKWARD_PRE

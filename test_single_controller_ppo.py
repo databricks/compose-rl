@@ -22,13 +22,14 @@ from functools import partial
 from typing import Any, Optional
 
 from composer.loggers import MLFlowLogger
+import mlflow
 import ray
 import torch
 import torch.distributed as dist
 from composer import Trainer
 from composer.core import get_precision_context
 from composer.optim import DecoupledAdamW
-from composer.utils import dist as composer_dist
+from composer.utils import create_symlink_file, dist as composer_dist
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
@@ -43,6 +44,15 @@ from compose_rl.algorithms.online.generation_utils import (
     broadcast_to_vllm,
     create_vllm_engines,
     _vllm_generate,
+)
+from compose_rl.utils.mlflow_utils import (
+    get_mlflow_run_id,
+    setup_mlflow,
+    artifact_exists_on_mlflow,
+    get_mlflow_absolute_path_for_save_folder,
+    get_mlflow_relative_path_for_save_folder,
+    validate_save_folder,
+    get_file,
 )
 from compose_rl.utils.ray_utils import start_ray_server, uninstall_megablocks_if_exists
 from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
@@ -121,6 +131,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         variables = om.to_container(self.config.variables, resolve=True)
         algorithm_config = self.config.algorithms
 
+        mlflow_save_folder = get_mlflow_absolute_path_for_save_folder(self.config.save_folder)
+
         self.train_config = {
             'seed': self.config.seed,
             'model': self.model_config,
@@ -131,7 +143,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'global_train_batch_size': self.device_train_batch_size * self.world_size,
             'device_train_batch_size': self.device_train_batch_size,
             'device_train_microbatch_size': self.device_train_batch_size,
-            'save_folder': self.config.save_folder,
+            'save_folder': mlflow_save_folder,
             'log_config': self.config.log_config,
             'max_seq_len': self.max_seq_len,
             'python_log_level': self.config.python_log_level,
@@ -186,6 +198,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         dummy_distributed_sampler = torch.utils.data.distributed.DistributedSampler(dummy_dataset)
         dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, sampler=dummy_distributed_sampler)
 
+        # TODO: We might be able to skip part of the setup here as some mlflow
+        # environment variables are set in the setup_mlflow function
         mlflow_logger = MLFlowLogger(
             experiment_name=self.config.loggers.mlflow.experiment_name,
             run_name=self.config.loggers.mlflow.tags.run,
@@ -206,6 +220,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             SpeedMonitor(window_size=10),
         ]
 
+        mlflow_save_folder = get_mlflow_absolute_path_for_save_folder(self.config.save_folder)
+
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
@@ -217,7 +233,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             loggers=[mlflow_logger],
             device_train_microbatch_size=self.config.device_train_microbatch_size,
             load_path=self.ref_path,
-            save_folder=self.config.save_folder,
+            save_folder=mlflow_save_folder,
             save_interval=self.config.save_interval,
             autoresume=self.config.autoresume,
         )
@@ -335,6 +351,8 @@ class TrainActorGroup(SPMDActorGroup):
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore, eval_semaphore: asyncio.Semaphore):
         # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
         # asyncio.to_thread to bridge the async and sync world
+
+        # TODO: Load experience buffer from checkpoints, this will make checkpointing work for async
         for _ in range(num_iterations):
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
@@ -455,23 +473,35 @@ class RolloutAgent:
         self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
         self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
         self.max_gen_len = self.prompt_handler_config['max_gen_len']
-
-        # Load iter_num from the checkpoint
-        self.save_folder = os.path.join(config.save_folder, 'RolloutAgent')
-
         self.iter_num = 0
 
-        # Load the latest checkpoint
-        self.latest_checkpoint = os.path.join(self.save_folder, 'latest.symlink')
+        self.local_save_folder = os.path.join(config.save_folder, 'RolloutAgent')
+        # We need to format the full path correctly for MlflowObjectStore to be created.
+        self.mlflow_absolute_save_folder = get_mlflow_absolute_path_for_save_folder(self.local_save_folder).format(
+            mlflow_experiment_id=os.environ['MLFLOW_EXPERIMENT_ID'],
+            mlflow_run_id=os.environ['MLFLOW_RUN_ID'],
+        )
+        self.mlflow_relative_save_folder = get_mlflow_relative_path_for_save_folder(self.local_save_folder)
 
-        if config.autoresume and os.path.exists(self.latest_checkpoint):
+        # Load the latest checkpoint if we are autoresuming.
+        # Note that since we are checking if the checkpoint exists with
+        # mlflow.client.list_artifacts, we need to use the relative path to
+        # the checkpoint (i.e. not include dbfs:/.../{mlflow_experiment_id}/{mlflow_run_id}
+        # in the path). Note: we don't support UC Volumes for storage otherwise
+        # _artifact_exists would not work.
+        self.latest_checkpoint_path = os.path.join(self.local_save_folder, 'latest_rollout_agent.symlink')
+        self.mlflow_latest_checkpoint_absolute_path = os.path.join(self.mlflow_absolute_save_folder, 'latest_rollout_agent.symlink')
+        self.mlflow_latest_checkpoint_relative_path = os.path.join(self.mlflow_relative_save_folder, 'latest_rollout_agent.symlink')
+
+        if config.autoresume and artifact_exists_on_mlflow(self.mlflow_latest_checkpoint_relative_path):
             print(f'Autoresuming from checkpoint for RolloutAgent.')
-            with open(self.latest_checkpoint, 'rb') as f:
+            get_file(self.mlflow_latest_checkpoint_absolute_path, self.latest_checkpoint_path, overwrite=True)
+            print(f'Got autoresume checkpoint from mlflow: {self.latest_checkpoint_path}')
+            with open(self.latest_checkpoint_path, 'rb') as f:
                 checkpoint = pickle.load(f)
             self.iter_num = checkpoint['iter_num']
             print(f'Loading streaming dataloader state dict for RolloutAgent.', checkpoint['streaming_dataloader'])
             self.streaming_dataset_actor.load_dataloader_state_dict.remote(checkpoint['streaming_dataloader'])
-
 
     def get_next_iter_rollouts(self):
         """
@@ -510,15 +540,15 @@ class RolloutAgent:
         processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
         iter_data['sequences'] = processed_sequences
 
-        save_folder_iter = os.path.join(self.save_folder, f'iter_{self.iter_num}')
-        checkpoint_path = os.path.join(save_folder_iter, 'checkpoint.pt')
+        save_folder_for_curr_iter = os.path.join(self.local_save_folder, f'iter_{self.iter_num}')
+        checkpoint_path = os.path.join(save_folder_for_curr_iter, 'checkpoint.pt')
         self.iter_num += 1
 
         streaming_dataloader_state_dict = ray.get(self.streaming_dataset_actor.get_dataloader_state_dict.remote())
         print(f'Streaming dataloader state dict for RolloutAgent.', streaming_dataloader_state_dict)
 
         # make sure that the folder path can exist
-        os.makedirs(save_folder_iter, exist_ok=True)
+        os.makedirs(save_folder_for_curr_iter, exist_ok=True)
         with open(checkpoint_path, 'wb') as f:
             pickle.dump({
                 'iter_data': iter_data,
@@ -526,9 +556,23 @@ class RolloutAgent:
                 'streaming_dataloader': streaming_dataloader_state_dict,
             }, f)
 
-        if os.path.exists(self.latest_checkpoint):
-            os.remove(self.latest_checkpoint)
-        os.symlink(checkpoint_path, self.latest_checkpoint)
+        # log the checkpoint to mlflow
+        mlflow.log_artifact(
+            checkpoint_path,
+            get_mlflow_relative_path_for_save_folder(save_folder_for_curr_iter),
+            run_id=get_mlflow_run_id(),
+        )
+
+        if os.path.exists(self.latest_checkpoint_path):
+            os.remove(self.latest_checkpoint_path)
+        create_symlink_file(checkpoint_path, self.latest_checkpoint_path)
+
+        # log the latest checkpoint to mlflow
+        mlflow.log_artifact(
+            self.latest_checkpoint_path,
+            self.mlflow_relative_save_folder,
+            run_id=get_mlflow_run_id(),
+        )
         return iter_data
 
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore):
@@ -739,6 +783,9 @@ def _run_single_controller_ppo(
 
     # Disable setting CUDA_VISIBLE_DEVICES by ray, we will set it manually
     os.environ['RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES'] = '1'
+
+    validate_save_folder(config.save_folder)
+    setup_mlflow(config)
 
     with start_ray_server() as _address:
         # only rank 0 is the master controller

@@ -53,6 +53,15 @@ from compose_rl.utils.utils import (
     switch_left_to_right_padding,
     print_batch_shapes,
 )
+from compose_rl.utils.mlflow_utils import (
+    get_mlflow_run_id,
+    get_valid_mlflow_experiment_name,
+    setup_mlflow,
+    artifact_exists_on_mlflow,
+    get_mlflow_absolute_path_for_save_folder,
+    get_mlflow_relative_path_for_save_folder,
+    validate_save_folder,
+)
 
 __all__ = [
     'get_mb_load_balancing_loss',
@@ -103,4 +112,11 @@ __all__ = [
     'remove_boxed',
     'ray_utils',
     'print_batch_shapes',
+    'get_mlflow_run_id',
+    'get_valid_mlflow_experiment_name',
+    'setup_mlflow',
+    'artifact_exists_on_mlflow',
+    'get_mlflow_absolute_path_for_save_folder',
+    'get_mlflow_relative_path_for_save_folder',
+    'validate_save_folder',
 ]
