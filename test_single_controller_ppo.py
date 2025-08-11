@@ -218,7 +218,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             device_train_microbatch_size=self.config.device_train_microbatch_size,
             load_path=self.ref_path,
             save_folder=self.config.save_folder,
-            save_interval='1iter',
+            save_interval=self.config.save_interval,
             autoresume=self.config.autoresume,
         )
 
@@ -812,7 +812,7 @@ if __name__ == '__main__':
     if args.file_path is None:
         config = om.load("yamls/single-controller-grpo-workflow.yaml").parameters
     else:
-        config = om.load(args.file_path).parameters
+        config = om.load(args.file_path)
     
     # This is an example of how to move the controller logic from PPO Callback
     # to a separate trainer actor above and this main single controller
