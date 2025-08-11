@@ -375,6 +375,12 @@ class InferenceServer:
     """Inference server with vLLM engines."""
 
     def __init__(self, num_vllm_engines: int, pretrain_model_name: str, config: Any):
+        import os
+        if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
+            os.environ['NCCL_CUMEM_ENABLE'] = '0'
+            os.environ['RAY_BACKEND_LOG_LEVEL'] = 'DEBUG'
+            os.environ['RAY_DEBUG_LOGS'] = '1'
+
         self.num_vllm_engines = num_vllm_engines
         self.vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
         self.vllm_engines = create_vllm_engines(

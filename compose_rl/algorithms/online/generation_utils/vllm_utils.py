@@ -178,6 +178,8 @@ class WorkerWrap:
         if ".5." in name:
             with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
                 f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight[..., :3]}\n")
+                import os
+                f.write(f"os.environ['NCCL_CUMEM_ENABLE'] = {os.environ['NCCL_CUMEM_ENABLE']}\n")
 
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
