@@ -812,7 +812,7 @@ if __name__ == '__main__':
     if args.file_path is None:
         config = om.load("yamls/single-controller-grpo-workflow.yaml").parameters
     else:
-        config = om.load(args.file_path).parameters
+        config = om.load(args.file_path)
     
     # This is an example of how to move the controller logic from PPO Callback
     # to a separate trainer actor above and this main single controller
