@@ -140,6 +140,7 @@ class WorkerWrap:
             f.write(f'master_address: {master_address}\n')
             f.write(f'master_port: {master_port}\n')
 
+        self._rank = rank
         self._model_update_group = init_process_group( # type: ignore
             backend=backend,
             init_method=f'tcp://{master_address}:{master_port}',
@@ -174,8 +175,8 @@ class WorkerWrap:
             0,
             group=self._model_update_group,
         )
-        if "5" in name:
-            with open(f"/tmp/compose-rl-worker-{torch.distributed.get_rank(self._model_update_group)}.txt", "a") as f:
+        if ".5." in name:
+            with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
                 f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight[..., :3]}\n")
 
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
@@ -522,7 +523,7 @@ def broadcast_to_vllm(
                                     )
                                     refs.append(ref)
                                 refss.extend(refs)
-                                if "5" in parsed_name:
+                                if ".5." in parsed_name:
                                     with open(f"/tmp/compose-rl-master.txt", "a") as f:
                                         f.write(f"Sending weight {parsed_name} to engine {engine} with dtype {param.dtype} and shape {shape} with data {param.data[..., :3]}\n")
                                 torch.distributed.broadcast(
