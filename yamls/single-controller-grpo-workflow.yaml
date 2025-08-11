@@ -50,8 +50,7 @@ parameters:
   loggers:
     mlflow:
       tags:
-        run:
-          run_name: test_single_controller_ppo_deepseek_l8b_open_r1_48k
+        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
