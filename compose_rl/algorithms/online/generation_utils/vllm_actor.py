@@ -33,7 +33,7 @@ except:
 log = logging.getLogger(__name__)
 
 
-@ray.remote
+@ray.remote(runtime_env={"env_vars": {"NCCL_CUMEM_ENABLE": "0"}})
 class LLMRayActor:
 
     def __init__(
