@@ -33,7 +33,7 @@ except:
 log = logging.getLogger(__name__)
 
 
-@ray.remote()
+@ray.remote
 class LLMRayActor:
 
     def __init__(
