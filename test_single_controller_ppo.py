@@ -188,7 +188,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         mlflow_logger = MLFlowLogger(
             experiment_name=self.config.loggers.mlflow.experiment_name,
-            run_name=self.config.loggers.mlflow.run_name,
+            run_name=self.config.loggers.mlflow.tags.run,
             tracking_uri=self.config.loggers.mlflow.tracking_uri,
         )
 
@@ -388,7 +388,7 @@ class EvalAgent:
         self.eval_interval_num = int(config.eval_interval.strip("iter"))
         self.num_batches_per_update = config.variables.num_batches_per_update
         self.experiment_name = config.loggers.mlflow.experiment_name
-        self.run_name = f'test_single_controller_ppo_async_{config.max_async_step}_deepseek_l8b_open_r1_48k'
+        self.run_name = config.loggers.mlflow.tags.run
 
         self.callback = self.build_callback()
 
@@ -812,7 +812,7 @@ if __name__ == '__main__':
     if args.file_path is None:
         config = om.load("yamls/single-controller-grpo-workflow.yaml").parameters
     else:
-        config = om.load(args.file_path)
+        config = om.load(args.file_path).parameters
     
     # This is an example of how to move the controller logic from PPO Callback
     # to a separate trainer actor above and this main single controller
