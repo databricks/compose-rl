@@ -299,14 +299,14 @@ def setup_process_groups(
             i * vllm_tensor_parallel_size + 1,
             world_size // 2 + 1,
             'weight-update',
-            backend='nccl',
+            backend='gloo',
         ) for i, engine in enumerate(vllm_engines)
     ]
 
     # Add master actor to the process group
     refs.append(
         master_actor.add_process_group.remote(
-            backend='nccl',
+            backend='gloo',
             master_addr=master_addr,
             master_port=new_port,
             world_size=world_size // 2 + 1,
@@ -513,7 +513,7 @@ class ParameterBuffer(Buffer):
             actor.ppo_callback.actor_critic,
             inference_server.engines,
             actor.model_update_group,
-            device=torch.device('cuda'),
+            device=torch.device('cpu'),
             loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
         )
         print('Finished broadcasting to vLLM')
