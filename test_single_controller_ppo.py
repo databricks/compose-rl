@@ -513,7 +513,7 @@ class ParameterBuffer(Buffer):
             actor.ppo_callback.actor_critic,
             inference_server.engines,
             actor.model_update_group,
-            device=torch.device('cpu'),
+            device=torch.device('cuda'),
             loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
         )
         print('Finished broadcasting to vLLM')
