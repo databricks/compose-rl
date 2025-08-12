@@ -25,6 +25,7 @@ from composer.loggers import MLFlowLogger
 import ray
 import torch
 import torch.distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP # type: ignore
 from composer import Trainer
 from composer.core import get_precision_context
 from composer.optim import DecoupledSGDW
@@ -248,6 +249,32 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # fit() can also potentially overwrite the mlflow
         self.ppo_trainer.fit(duration='1iter')
         self.logger.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
+        model = self.ppo_trainer.state.model
+
+        param2fullname = build_param_fullnames(model)
+
+        for _, module in model.named_modules():
+            if isinstance(module, FSDP):
+                with FSDP.summon_full_params(
+                    module,
+                    writeback=False,
+                    rank0_only=True,
+                    recurse=False,
+                ):
+                    for _, param in module.named_parameters(recurse=True):
+                        full_name = param2fullname[param]
+                        parsed_name = simplify_param_path(full_name)
+                        shape = param.shape
+                        if ".25." in parsed_name:
+                            with open(f"/tmp/compose-rl-master.txt", "a") as f:
+                                if len(shape) == 2:
+                                    weight_str = f"{param.data[0, :10]}, ... {param.data[-1, -10:]}"
+                                elif len(shape) == 1:
+                                    weight_str = f"{param.data[:10]}, ... {param.data[-10:]}"
+                                else:
+                                    weight_str = f"{param.data[..., :10]}, ... {param.data[..., -10:]}"
+                                f.write(f"Weight {parsed_name}\n")
+                                f.write(f"size = {shape}, weight = {weight_str}\n")
 
 
 def setup_process_groups(
@@ -805,6 +832,61 @@ def _run_single_controller_ppo(
                 config,
             )
             asyncio.run(ppo_controller.train_async(config.max_duration))
+
+
+def simplify_param_path(path: str) -> str:
+    """Simplifies the parameter path by removing unnecessary parts.
+
+    Args:
+        path (str): The original parameter path.
+    """
+    # Parts we want to remove
+    remove_parts = [
+        '_fsdp_wrapped_module',
+        '_checkpoint_wrapped_module',
+        'lm_backbone',
+        'model',
+    ]
+
+    # Split the path into parts
+    parts = path.split('.')
+
+    # Keep only parts that don't contain any of the remove_parts
+    clean_parts = []
+    if 'lm_head' not in path:
+        clean_parts = ['model']
+    for part in parts:
+        if not any(remove in part for remove in remove_parts):
+            clean_parts.append(part)
+
+    return '.'.join(clean_parts)
+
+
+def build_param_fullnames(top_module: torch.nn.Module) -> dict:
+    """Builds a mapping of parameter objects to their fully-qualified names.
+
+    Traverses the entire model from the top level and map each parameter
+    object to its fully-qualified name (e.g.,
+    "lm_backbone.layer1.mlp.down_proj.weight").
+
+    Args:
+        top_module (torch.nn.Module): The top-level module to traverse.
+    """
+    param2fullname = {}
+
+    def _dfs(current_module: torch.nn.Module, prefix: str = ''):
+        # Get local parameters (without recursing into children).
+        for local_name, param in current_module.named_parameters(recurse=False):
+            full_name = f'{prefix}.{local_name}' if prefix else local_name
+            param2fullname[param] = full_name
+
+        # Recurse on child modules.
+        for child_name, child_module in current_module.named_children():
+            child_prefix = f'{prefix}.{child_name}' if prefix else child_name
+            _dfs(child_module, prefix=child_prefix)
+
+    _dfs(top_module)
+    return param2fullname
 
 
 if __name__ == '__main__':
