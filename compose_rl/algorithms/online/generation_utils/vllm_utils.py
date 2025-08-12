@@ -229,7 +229,7 @@ class WorkerWrap:
                         f.write(f"size = {weight.size()}, weight = {weight_str}\n")
                         f.write(f"updated_weights = {updated_weights}\n")
                         f.write(f"size = {updated_weight_tensor.size()}, weight = {updated_weight_tensor_str}\n")
-
+                        f.write("\n\n")
         del weight
 
         if empty_cache:
@@ -575,6 +575,7 @@ def broadcast_to_vllm(
                                             weight_str = f"{param.data[..., :10]}, ... {param.data[..., -10:]}"
                                         f.write(f"Sending weight {parsed_name} to engine {engine} with dtype {param.dtype}\n")
                                         f.write(f"size = {shape}, weight = {weight_str}\n")
+                                        f.write("\n\n")
                                 torch.distributed.broadcast(
                                     param.data,
                                     0,
