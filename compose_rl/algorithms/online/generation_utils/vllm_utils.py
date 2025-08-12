@@ -205,9 +205,19 @@ class WorkerWrap:
 
                 if ".5." in name:
                     with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
-                        f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight[..., :3]}\n")
+                        if len(shape) == 2:
+                            weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
+                            updated_weight_tensor_str = f"{updated_weight_tensor[0, :10]}, ... {updated_weight_tensor[-1, -10:]}"
+                        elif len(shape) == 1:
+                            weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
+                            updated_weight_tensor_str = f"{updated_weight_tensor[0, :10]}, ... {updated_weight_tensor[-1, -10:]}"
+                        else:
+                            weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
+                            updated_weight_tensor_str = f"{updated_weight_tensor[0, :10]}, ... {updated_weight_tensor[-1, -10:]}"
+
+                        f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight_str}\n")
                         f.write(f"updated_weights = {updated_weights}\n")
-                        f.write(f"updated_weight_tensor = {updated_weight_tensor[..., :3]}\n")
+                        f.write(f"updated_weight_tensor = {updated_weight_tensor_str}\n")
 
         del weight
 
