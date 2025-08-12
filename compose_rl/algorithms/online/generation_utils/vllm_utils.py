@@ -148,6 +148,7 @@ class WorkerWrap:
             rank=rank,
             group_name=group_name,
         )
+        self._chaos_updates = [1, 3, 5, 7, 11]
         log.info(f'init process group for: {torch.distributed.get_rank()}')
         log.info(
             f'init_process_group: master_address={master_address}, master_port={master_port}, '
@@ -175,6 +176,9 @@ class WorkerWrap:
             0,
             group=self._model_update_group,
         )
+
+        weight = weight * self._chaos_updates[0]
+        self._chaos_updates = self._chaos_updates[1:] + [self._chaos_updates[0]]
 
         if ".25." in name:
             if len(shape) == 2:
