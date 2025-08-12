@@ -176,6 +176,14 @@ class WorkerWrap:
             group=self._model_update_group,
         )
 
+        if ".5." in name:
+            if len(shape) == 2:
+                weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
+            elif len(shape) == 1:
+                weight_str = f"{weight[:10]}, ... {weight[-10:]}"
+            else:
+                weight_str = f"{weight[..., :10]}, ... {weight[..., -10:]}"
+
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
         if weight.dtype != self.model_config.dtype:  # type: ignore
@@ -212,13 +220,10 @@ class WorkerWrap:
                 if ".5." in name:
                     with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
                         if len(shape) == 2:
-                            weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
                             updated_weight_tensor_str = f"{updated_weight_tensor[0, :10]}, ... {updated_weight_tensor[-1, -10:]}"
                         elif len(shape) == 1:
-                            weight_str = f"{weight[:10]}, ... {weight[-10:]}"
                             updated_weight_tensor_str = f"{updated_weight_tensor[:10]}, ... {updated_weight_tensor[-10:]}"
                         else:
-                            weight_str = f"{weight[..., :10]}, ... {weight[..., -10:]}"
                             updated_weight_tensor_str = f"{updated_weight_tensor[..., :10]}, ... {updated_weight_tensor[..., -10:]}"
                         f.write(f"Received weight {name} with shape {shape} and dtype {dtype}\n")
                         f.write(f"size = {weight.size()}, weight = {weight_str}\n")
@@ -562,7 +567,14 @@ def broadcast_to_vllm(
                                 refss.extend(refs)
                                 if ".5." in parsed_name:
                                     with open(f"/tmp/compose-rl-master.txt", "a") as f:
-                                        f.write(f"Sending weight {parsed_name} to engine {engine} with dtype {param.dtype} and shape {shape} with data {param.data[..., :3]}\n")
+                                        if len(shape) == 2:
+                                            weight_str = f"{param.data[0, :10]}, ... {param.data[-1, -10:]}"
+                                        elif len(shape) == 1:
+                                            weight_str = f"{param.data[:10]}, ... {param.data[-10:]}"
+                                        else:
+                                            weight_str = f"{param.data[..., :10]}, ... {param.data[..., -10:]}"
+                                        f.write(f"Sending weight {parsed_name} to engine {engine} with dtype {param.dtype}\n")
+                                        f.write(f"size = {shape}, weight = {weight_str}\n")
                                 torch.distributed.broadcast(
                                     param.data,
                                     0,
