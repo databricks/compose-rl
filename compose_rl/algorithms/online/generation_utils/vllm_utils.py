@@ -318,7 +318,7 @@ def create_vllm_engines(
                 'compose_rl.algorithms.online.generation_utils.vllm_utils.WorkerWrap',
                 tensor_parallel_size=tensor_parallel_size,  # type: ignore
                 enforce_eager=enforce_eager,  # type: ignore
-                dtype='bfloat16',  # type: ignore
+                dtype='float32',  # type: ignore
                 seed=seed + i,  # type: ignore
                 distributed_executor_backend=  # type: ignore
                 distributed_executor_backend,
