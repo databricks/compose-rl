@@ -259,8 +259,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 with FSDP.summon_full_params(
                     module,
                     writeback=False,
-                    rank0_only=True,
-                    recurse=False,
+                    rank0_only=False,
+                    recurse=True,
                 ):
                     for _, param in module.named_parameters(recurse=True):
                         full_name = param2fullname[param]
