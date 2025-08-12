@@ -148,7 +148,7 @@ class WorkerWrap:
             rank=rank,
             group_name=group_name,
         )
-        self._chaos_updates = [1, 3, 5, 7, 11]
+        self._chaos_updates = [0.95, 1.05, 1.1, 0.9, 1]
         log.info(f'init process group for: {torch.distributed.get_rank()}')
         log.info(
             f'init_process_group: master_address={master_address}, master_port={master_port}, '
