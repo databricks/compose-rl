@@ -21,7 +21,8 @@ from compose_rl.algorithms.offline import (
     ComposerHFPairwiseOfflinePolicyLM,
     ComposerMPTPairwiseOfflinePolicyLM,
 )
-from compose_rl.algorithms.offline.callback import ReferencePolicyCallback
+from compose_rl.algorithms.offline.callback import \
+    PairwiseReferencePolicyCallback
 from compose_rl.data import pairwise_preference_dataset_collate_fn
 from tests.common import PairwisePreference, world_size
 
@@ -64,7 +65,7 @@ def test_load_checkpoint_with_offline_callback(
     train_config = {
         'model': model_config,
     }
-    reference_policy_callback = ReferencePolicyCallback(
+    reference_policy_callback = PairwiseReferencePolicyCallback(
         train_config=train_config,
     )
 
@@ -125,7 +126,7 @@ def test_reference_policy_callback_forward(
         'fsdp_config': {},
         'seed': 17,
     }
-    callback = ReferencePolicyCallback(train_config=train_config)
+    callback = PairwiseReferencePolicyCallback(train_config=train_config)
     Trainer(
         model=model,
         callbacks=callback,
@@ -209,7 +210,7 @@ def test_train(
     trainer = Trainer(
         model=model,
         train_dataloader=dataloader,
-        callbacks=ReferencePolicyCallback(train_config=train_config),
+        callbacks=PairwiseReferencePolicyCallback(train_config=train_config),
         parallelism_config={'fsdp': fsdp_config},
         max_duration='1ep',
     )
@@ -295,7 +296,7 @@ def test_checkpoint_reloading(
         model=model,
         train_dataloader=dataloader,
         loggers=in_memory_logger,
-        callbacks=ReferencePolicyCallback(train_config=train_config),
+        callbacks=PairwiseReferencePolicyCallback(train_config=train_config),
         parallelism_config={'fsdp': fsdp_config},
         max_duration='8ba',
         autoresume=True,
@@ -317,7 +318,7 @@ def test_checkpoint_reloading(
         model=model,
         train_dataloader=dataloader,
         loggers=in_memory_logger,
-        callbacks=ReferencePolicyCallback(train_config=train_config),
+        callbacks=PairwiseReferencePolicyCallback(train_config=train_config),
         parallelism_config={'fsdp': fsdp_config},
         max_duration='8ba',
         save_overwrite=True,
