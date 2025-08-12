@@ -209,11 +209,12 @@ class WorkerWrap:
                             weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
                             updated_weight_tensor_str = f"{updated_weight_tensor[0, :10]}, ... {updated_weight_tensor[-1, -10:]}"
                         elif len(shape) == 1:
-                            weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
-                            updated_weight_tensor_str = f"{updated_weight_tensor[0, :10]}, ... {updated_weight_tensor[-1, -10:]}"
+                            weight_str = f"{weight[:10]}, ... {weight[-10:]}"
+                            updated_weight_tensor_str = f"{updated_weight_tensor[:10]}, ... {updated_weight_tensor[-10:]}"
                         else:
-                            weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
-                            updated_weight_tensor_str = f"{updated_weight_tensor[0, :10]}, ... {updated_weight_tensor[-1, -10:]}"
+                            weight_str = f"{weight[..., :10]}, ... {weight[..., -10:]}"
+                            updated_weight_tensor_str = f"{updated_weight_tensor[..., :10]}, ... {updated_weight_tensor[..., -10:]}"
+                        f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight_str}\n")
 
                         f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight_str}\n")
                         f.write(f"updated_weights = {updated_weights}\n")
