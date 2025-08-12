@@ -177,8 +177,8 @@ class WorkerWrap:
             group=self._model_update_group,
         )
 
-        # weight = weight * self._chaos_updates[0]
-        # self._chaos_updates = self._chaos_updates[1:] + [self._chaos_updates[0]]
+        weight = weight * self._chaos_updates[0]
+        self._chaos_updates = self._chaos_updates[1:] + [self._chaos_updates[0]]
 
         if ".25." in name:
             if len(shape) == 2:
