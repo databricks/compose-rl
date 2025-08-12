@@ -71,6 +71,7 @@ ppo = "compose_rl.algorithms.online:OnPolicyCallback"
 [project.entry-points."llmfoundry_metrics"]
 pairwise_rm_accuracy = "compose_rl.metrics.reward_model_metrics:PairwiseRewardClassificationAccuracy"
 classifier_accuracy = "compose_rl.metrics.reward_model_metrics:BinaryRewardClassificationAccuracy"
+classifier_auc = "compose_rl.metrics.reward_model_metrics:BinaryRewardClassificationAUC"
 
 [project.entry-points."llmfoundry_load_planners"]
 actor_critic_load_planner = "compose_rl.utils.load_planner:ActorCriticModelLoadPlanner"

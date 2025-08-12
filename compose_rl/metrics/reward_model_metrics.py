@@ -6,6 +6,7 @@ from typing import Any
 import torch
 from torch import Tensor
 from torchmetrics import Metric
+from torchmetrics.classification import BinaryAUROC
 
 
 class PairwiseRewardClassificationAccuracy(Metric):
@@ -101,3 +102,69 @@ class BinaryRewardClassificationAccuracy(Metric):
         assert isinstance(self.correct, Tensor)
         assert isinstance(self.total, Tensor)
         return self.correct / self.total
+
+
+class BinaryRewardClassificationAUC(Metric):
+    """Binary classification AUC metric.
+
+    Computes the Area Under the ROC Curve (AUC) for binary classification
+    by comparing predicted probabilities against ground truth labels.
+    """
+
+    # Make torchmetrics call update only once
+    full_state_update = False
+
+    def __init__(
+        self,
+        dist_sync_on_step: bool = False,
+        **kwargs: Any,
+    ):
+        """Initialize the metric.
+
+        Args:
+            dist_sync_on_step: Synchronize metric state across processes
+        """
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+
+        # Use torchmetrics' BinaryAUROC for the actual computation
+        self.auroc = BinaryAUROC()
+
+        # Store predictions and targets for batch computation
+        self.add_state(
+            'preds',
+            default=[],
+            dist_reduce_fx='cat',
+        )
+        self.add_state(
+            'targets',
+            default=[],
+            dist_reduce_fx='cat',
+        )
+
+    def update(self, batch: dict, output_logits: torch.Tensor):
+        """Update state with predictions and targets.
+
+        Args:
+            batch: Dictionary containing 'output_scores' and 'labels'
+            output_logits: `None`
+        """
+        del output_logits
+        logits = batch['output_scores']
+        targets = batch['labels'].squeeze(-1)
+        assert logits.shape[0] == targets.shape[0], 'Batch sizes must match'
+
+        # Convert logits to probabilities
+        probs = torch.sigmoid(logits.squeeze())
+
+        # Store for later computation
+        self.preds.append(probs.detach().cpu())
+        self.targets.append(targets.detach().cpu())
+
+    def compute(self):
+        """Compute the AUC."""
+        # Concatenate all stored predictions and targets
+        all_preds = torch.cat(self.preds)
+        all_targets = torch.cat(self.targets)
+
+        # Compute AUC using torchmetrics
+        return self.auroc(all_preds, all_targets)
