@@ -175,22 +175,25 @@ class WorkerWrap:
             0,
             group=self._model_update_group,
         )
-        if ".5." in name:
-            with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
-                f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight[..., :3]}\n")
-                import os
-                f.write(f"os.environ['NCCL_CUMEM_ENABLE'] = {os.environ['NCCL_CUMEM_ENABLE']}\n")
-                f.write(f"model_type = {type(self.model_runner.model)}\n")
-                f.write(f"model_methods = {dir(self.model_runner.model)}\n")
 
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
         if weight.dtype != self.model_config.dtype:  # type: ignore
             weight = weight.to(self.model_config.dtype)  # type: ignore
 
-        self.model_runner.model.load_weights( # type: ignore
+        updated_weights = self.model_runner.model.load_weights( # type: ignore
             weights=[(name, weight)],
         )  # type: ignore
+
+        if ".5." in name:
+            with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
+                f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight[..., :3]}\n")
+                f.write(f"updated_weights = {updated_weights}\n")
+                import os
+                f.write(f"os.environ['NCCL_CUMEM_ENABLE'] = {os.environ['NCCL_CUMEM_ENABLE']}\n")
+                f.write(f"model_type = {type(self.model_runner.model)}\n")
+                f.write(f"model_methods = {dir(self.model_runner.model)}\n")
+                f.write(f"updated_weights = {updated_weights}\n")
 
         del weight
 
