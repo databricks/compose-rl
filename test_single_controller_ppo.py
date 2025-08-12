@@ -185,7 +185,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
         self.logger.info("Model created successfully")
 
-        optimizer = DecoupledAdamW(model.parameters(), lr=1e-6)
+        optimizer = DecoupledAdamW(model.parameters(), lr=1e-2)
 
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
