@@ -250,9 +250,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ppo_trainer.fit(duration='1iter')
         self.logger.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
 
-        if self.rank != 0:
-            return
-
         model = self.ppo_trainer.state.model
 
         param2fullname = build_param_fullnames(model)
@@ -270,7 +267,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                         parsed_name = simplify_param_path(full_name)
                         shape = param.shape
                         if ".25." in parsed_name:
-                            with open(f"/tmp/compose-rl-train.txt", "a") as f:
+                            with open(f"/tmp/compose-rl-train-{self.rank}.txt", "a") as f:
                                 if len(shape) == 2:
                                     weight_str = f"{param.data[0, :10]}, ... {param.data[-1, -10:]}"
                                 elif len(shape) == 1:
