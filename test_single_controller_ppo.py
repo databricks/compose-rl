@@ -171,7 +171,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
         self.logger.info("Model created successfully")
 
-        optimizer = DecoupledSGDW(model.parameters(), lr=1e-2)
+        optimizer = DecoupledSGDW(model.parameters(), lr=1)
 
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
