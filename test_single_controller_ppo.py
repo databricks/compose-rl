@@ -27,7 +27,7 @@ import torch
 import torch.distributed as dist
 from composer import Trainer
 from composer.core import get_precision_context
-from composer.optim import DecoupledAdamW
+from composer.optim import DecoupledSGDW
 from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
@@ -185,7 +185,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
         self.logger.info("Model created successfully")
 
-        optimizer = DecoupledAdamW(model.parameters(), lr=1e-2)
+        optimizer = DecoupledSGDW(model.parameters(), lr=1e-2)
 
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
