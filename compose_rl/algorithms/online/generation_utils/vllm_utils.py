@@ -185,14 +185,29 @@ class WorkerWrap:
             weights=[(name, weight)],
         )  # type: ignore
 
-        updated_weight_tensor = [weight_param.data for weight_name, weight_param in self.model_runner.model.named_parameters() if weight_name == updated_weights[0][0]][0]
-
-        if ".5." in name:
+        if len(updated_weights) == 0:
             with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
-                f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight[..., :3]}\n")
-                f.write(f"model_type = {type(self.model_runner.model)}\n")
-                f.write(f"updated_weights = {updated_weights}\n")
-                f.write(f"updated_weight_tensor = {updated_weight_tensor[..., :3]}\n")
+                f.write(f"Weight {name} not found in model\n")
+        else:
+            write = True
+            if isinstance(updated_weights, list):
+                updated_weights = updated_weights[0][0]
+            elif isinstance(updated_weights, set):
+                updated_weights = updated_weights.pop()
+            else:
+                with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
+                    f.write(f"updated_weights = {updated_weights}\n")
+                    f.write(f"type(updated_weights) = {type(updated_weights)}\n")
+                write = False
+
+            if write:   
+                updated_weight_tensor = [weight_param.data for weight_name, weight_param in self.model_runner.model.named_parameters() if weight_name == updated_weights][0]
+
+                if ".5." in name:
+                    with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
+                        f.write(f"Received weight {name} with shape {shape} and dtype {dtype} with data {weight[..., :3]}\n")
+                        f.write(f"updated_weights = {updated_weights}\n")
+                        f.write(f"updated_weight_tensor = {updated_weight_tensor[..., :3]}\n")
 
         del weight
 
