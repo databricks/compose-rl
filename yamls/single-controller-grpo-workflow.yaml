@@ -50,8 +50,7 @@ parameters:
   loggers:
     mlflow:
       tags:
-        run:
-          run_name: null
+        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
@@ -144,18 +143,6 @@ parameters:
       use_cache: true
       temperature: 1
     epoch_per_iteration: 1
-    non_train_fsdp_config:
-      verbose: false
-      cpu_offload: false
-      mixed_precision: PURE
-      state_dict_type: sharded
-      use_orig_params: true
-      forward_prefetch: true
-      backward_prefetch: BACKWARD_PRE
-      sharding_strategy: FULL_SHARD
-      activation_cpu_offload: false
-      activation_checkpointing: true
-      activation_checkpointing_reentrant: false
     generations_per_prompt: 8
     num_batches_per_update: 8
     device_generate_batch_size: 1
@@ -166,6 +153,7 @@ parameters:
   autoresume: true
   log_config: true
   fsdp_config:
+    sync_module_states: true
     verbose: false
     cpu_offload: false
     mixed_precision: PURE
