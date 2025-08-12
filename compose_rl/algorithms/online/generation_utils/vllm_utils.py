@@ -185,7 +185,7 @@ class WorkerWrap:
             weights=[(name, weight)],
         )  # type: ignore
 
-        updated_weight_tensor = [weight_param.data for weight_name, weight_param in self.model_runner.model.named_parameters() if weight_name == name][0]
+        updated_weight_tensor = [weight_param.data for weight_name, weight_param in self.model_runner.model.named_parameters() if weight_name == updated_weights[0][0]][0]
 
         if ".5." in name:
             with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
