@@ -78,7 +78,7 @@ parameters:
       save_interval: 1dur
     runtime_estimator: {}
   optimizer:
-    lr: 1.0e-03
+    lr: 0.5
     name: decoupled_adamw
     betas:
     - 0.9
