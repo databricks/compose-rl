@@ -176,7 +176,7 @@ class WorkerWrap:
             group=self._model_update_group,
         )
 
-        if ".5." in name:
+        if ".25." in name:
             if len(shape) == 2:
                 weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
             elif len(shape) == 1:
@@ -217,7 +217,7 @@ class WorkerWrap:
             if write:   
                 updated_weight_tensor = [weight_param.data for weight_name, weight_param in self.model_runner.model.named_parameters() if weight_name == updated_weights][0]
 
-                if ".5." in name:
+                if ".25." in name:
                     with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
                         if len(shape) == 2:
                             updated_weight_tensor_str = f"{updated_weight_tensor[0, :10]}, ... {updated_weight_tensor[-1, -10:]}"
@@ -565,7 +565,7 @@ def broadcast_to_vllm(
                                     )
                                     refs.append(ref)
                                 refss.extend(refs)
-                                if ".5." in parsed_name:
+                                if ".25." in parsed_name:
                                     with open(f"/tmp/compose-rl-master.txt", "a") as f:
                                         if len(shape) == 2:
                                             weight_str = f"{param.data[0, :10]}, ... {param.data[-1, -10:]}"
