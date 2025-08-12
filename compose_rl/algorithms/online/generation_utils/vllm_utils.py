@@ -190,6 +190,12 @@ class WorkerWrap:
                 f.write(f"Weight {name} not found in model\n")
         else:
             write = True
+            if len(updated_weights) > 1:
+                with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
+                    f.write(f"multiple updated_weights = {updated_weights}\n")
+                    f.write(f"type(updated_weights) = {type(updated_weights)}\n")
+                write = False
+
             if isinstance(updated_weights, list):
                 updated_weights = updated_weights[0][0]
             elif isinstance(updated_weights, set):
