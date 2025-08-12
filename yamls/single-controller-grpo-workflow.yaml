@@ -72,7 +72,7 @@ parameters:
     memory_monitor: {}
     hf_checkpointer:
       overwrite: true
-      precision: float32
+      precision: bfloat16
       save_folder: /tmp/hf_checkpoints/
       save_interval: 1dur
     runtime_estimator: {}
@@ -83,7 +83,7 @@ parameters:
     - 0.9
     - 0.95
     weight_decay: 0
-  precision: float32
+  precision: amp_bf16
   scheduler:
     name: constant_with_warmup
     alpha: 1
@@ -129,7 +129,7 @@ parameters:
     tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     num_train_nodes: 1
     reference_model:
-      precision: float32
+      precision: amp_bf16
       pretrained: true
       model_config:
         name: hf_causal_lm
@@ -156,7 +156,7 @@ parameters:
     sync_module_states: true
     verbose: false
     cpu_offload: false
-    mixed_precision: FULL
+    mixed_precision: PURE
     state_dict_type: sharded
     use_orig_params: true
     forward_prefetch: true
