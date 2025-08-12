@@ -250,7 +250,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ppo_trainer.fit(duration='1iter')
         self.logger.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
 
-        if dist.get_global_rank() != 0:
+        if self.rank != 0:
             return
 
         model = self.ppo_trainer.state.model
