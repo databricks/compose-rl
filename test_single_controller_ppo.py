@@ -769,7 +769,7 @@ def _run_single_controller_ppo(
     """
     # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend
     # takes too long to jit compile
-    # os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
+    os.environ['VLLM_ATTENTION_BACKEND'] = 'TORCH_SDPA'
 
     # Disable setting CUDA_VISIBLE_DEVICES by ray, we will set it manually
     os.environ['RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES'] = '1'
