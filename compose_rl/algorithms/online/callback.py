@@ -1128,3 +1128,6 @@ class OnPolicyCallback(CallbackWithConfig):
 
     def before_forward(self, state: State, logger: Logger):
         print(f"Before forward, training on {state.batch["prompt_id"]}")
+
+    def after_loss(self, state: State, logger: Logger):
+        print(f"After loss, {state.loss}")
