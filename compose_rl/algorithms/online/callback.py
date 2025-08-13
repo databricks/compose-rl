@@ -936,8 +936,9 @@ class OnPolicyCallback(CallbackWithConfig):
 
                 reward_sq = rewards * rewards
                 expanded_advantages_sq = expanded_advantages * expanded_advantages
+                print(f"prompt_ids: {prompt_id}")
                 print(f"mean_rewards: {mean_rewards.sum()}, std_rewards: {std_rewards.sum()}")
-                print(f"flat_rewards: {flat_rewards.sum()}, expanded_advantages_sq: {expanded_advantages_sq.sum()}")
+                print(f"flat_rewards: {flat_rewards.sum()}, expanded_advantages_sq: {expanded_advantages_sq.sum()}, action_masks: {env_outs['action_mask'].sum()}")
                 print(f"reward_sq: {reward_sq.sum()}, advantages: {advantages.sum()}")
                 env_outs['advantages'] = advantages
             else:
