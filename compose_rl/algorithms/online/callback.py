@@ -909,6 +909,7 @@ class OnPolicyCallback(CallbackWithConfig):
 
                 if dist.get_global_rank() == 0:
                     print(f"rewards: {rewards}")
+                    print(f"inverse_indices: {inverse_indices}")
                     print(f"flat_rewards: {flat_rewards}")
                     print(f"sums: {sums}")
                     print(f"sum_squares: {sum_squares}")
