@@ -1125,3 +1125,6 @@ class OnPolicyCallback(CallbackWithConfig):
     def load_state_dict(self, state_dict: dict[str, Any]):
         self.kl_ctl.load_state_dict(state_dict['KL_ctl_state_dict'])
         self.iter_num = state_dict['iter_num']
+
+    def before_forward(self, state: State, logger: Logger):
+        print(f"Before forward, training on {state.batch["prompt_id"]}")
