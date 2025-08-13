@@ -945,6 +945,8 @@ class OnPolicyCallback(CallbackWithConfig):
                 env_outs['action_mask'],
             )
 
+            print(f"batch_adv_mean: {batch_adv_mean}, batch_adv_var: {batch_adv_var}")
+
             bs = iter_batch['prompt_id'].shape[0]
             iter_batch.update({
                 'adv_masked_mean': torch.ones(bs, device=batch_adv_mean.device) * batch_adv_mean,
@@ -1126,16 +1128,16 @@ class OnPolicyCallback(CallbackWithConfig):
         self.kl_ctl.load_state_dict(state_dict['KL_ctl_state_dict'])
         self.iter_num = state_dict['iter_num']
 
-    def before_forward(self, state: State, logger: Logger):
-        if dist.get_global_rank() == 0:
-            skip_keys = ['prompt_id', 'prompt', 'prompt_len', 'verified_answer', 'prompt_attention_mask', 'sequences']
-            to_log = {k: v for k, v in state.batch.items() if k not in skip_keys}
-            print(f"Before forward, training on {to_log}")
+    # def before_forward(self, state: State, logger: Logger):
+    #     if dist.get_global_rank() == 0:
+    #         skip_keys = ['prompt_id', 'prompt', 'prompt_len', 'verified_answer', 'prompt_attention_mask', 'sequences']
+    #         to_log = {k: v for k, v in state.batch.items() if k not in skip_keys}
+    #         print(f"Before forward, training on {to_log}")
 
-    def after_forward(self, state: State, logger: Logger):
-        if dist.get_global_rank() == 0:
-            print(f"After forward, outputs: {state.outputs}")
+    # def after_forward(self, state: State, logger: Logger):
+    #     if dist.get_global_rank() == 0:
+    #         print(f"After forward, outputs: {state.outputs}")
 
-    def after_loss(self, state: State, logger: Logger):
-        if dist.get_global_rank() == 0:
-            print(f"After loss, {state.loss}")
+    # def after_loss(self, state: State, logger: Logger):
+    #     if dist.get_global_rank() == 0:
+    #         print(f"After loss, {state.loss}")
