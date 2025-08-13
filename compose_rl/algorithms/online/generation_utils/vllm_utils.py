@@ -130,16 +130,6 @@ class WorkerWrap:
 
         rank = torch.distributed.get_rank() + rank_offset
 
-        with open(f'/tmp/compose-rl-init_process_group_log_{rank}.txt', 'w') as f:
-            f.write(f'torch_rank: {torch.distributed.get_rank()}\n')
-            f.write(f'offset: {rank_offset}\n')
-            f.write(f'rank: {rank}\n')
-            f.write(f'world_size: {world_size}\n')
-            f.write(f'group_name: {group_name}\n')
-            f.write(f'backend: {backend}\n')
-            f.write(f'master_address: {master_address}\n')
-            f.write(f'master_port: {master_port}\n')
-
         self._rank = rank
         self._model_update_group = init_process_group( # type: ignore
             backend=backend,
@@ -148,7 +138,6 @@ class WorkerWrap:
             rank=rank,
             group_name=group_name,
         )
-        self._chaos_updates = [0.99, 1.01, 1.02, 0.98, 1]
         log.info(f'init process group for: {torch.distributed.get_rank()}')
         log.info(
             f'init_process_group: master_address={master_address}, master_port={master_port}, '
@@ -177,16 +166,8 @@ class WorkerWrap:
             group=self._model_update_group,
         )
 
-        # weight = weight * self._chaos_updates[0]
-        # self._chaos_updates = self._chaos_updates[1:] + [self._chaos_updates[0]]
-
-        if ".25." in name:
-            if len(shape) == 2:
-                weight_str = f"{weight[0, :10]}, ... {weight[-1, -10:]}"
-            elif len(shape) == 1:
-                weight_str = f"{weight[:10]}, ... {weight[-10:]}"
-            else:
-                weight_str = f"{weight[..., :10]}, ... {weight[..., -10:]}"
+        with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
+            f.write(f"Weight {name} at receiving weight, size = {shape}, weight_sum = {torch.sum(weight)}\n")
 
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
@@ -220,19 +201,9 @@ class WorkerWrap:
 
             if write:   
                 updated_weight_tensor = [weight_param.data for weight_name, weight_param in self.model_runner.model.named_parameters() if weight_name == updated_weights][0]
+                with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
+                    f.write(f"Weight {updated_weights} at updating weight, size = {updated_weight_tensor.shape}, weight_sum = {torch.sum(updated_weight_tensor)}\n")
 
-                if ".25." in name:
-                    with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
-                        if len(shape) == 2:
-                            updated_weight_tensor_str = f"{updated_weight_tensor[0, :10]}, ... {updated_weight_tensor[-1, -10:]}"
-                        elif len(shape) == 1:
-                            updated_weight_tensor_str = f"{updated_weight_tensor[:10]}, ... {updated_weight_tensor[-10:]}"
-                        else:
-                            updated_weight_tensor_str = f"{updated_weight_tensor[..., :10]}, ... {updated_weight_tensor[..., -10:]}"
-                        f.write(f"Received weight {name} with shape {shape} and dtype {dtype}\n")
-                        f.write(f"size = {weight.size()}, weight = {weight_str}\n")
-                        f.write(f"updated_weights = {updated_weights}\n")
-                        f.write(f"size = {updated_weight_tensor.size()}, weight = {updated_weight_tensor_str}\n")
         del weight
 
         if empty_cache:
@@ -568,16 +539,8 @@ def broadcast_to_vllm(
                                     )
                                     refs.append(ref)
                                 refss.extend(refs)
-                                if ".25." in parsed_name:
-                                    with open(f"/tmp/compose-rl-master.txt", "a") as f:
-                                        if len(shape) == 2:
-                                            weight_str = f"{param.data[0, :10]}, ... {param.data[-1, -10:]}"
-                                        elif len(shape) == 1:
-                                            weight_str = f"{param.data[:10]}, ... {param.data[-10:]}"
-                                        else:
-                                            weight_str = f"{param.data[..., :10]}, ... {param.data[..., -10:]}"
-                                        f.write(f"Sending weight {parsed_name} to engine {engine} with dtype {param.dtype}\n")
-                                        f.write(f"size = {shape}, weight = {weight_str}\n")
+                                with open(f"/tmp/compose-rl-master.txt", "a") as f:
+                                    f.write(f"Weight {parsed_name} at sending weight, size = {shape}, weight_sum = {torch.sum(param.data)}\n")
                                 torch.distributed.broadcast(
                                     param.data,
                                     0,

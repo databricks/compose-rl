@@ -247,35 +247,33 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # fit() checks if there is existing checkpoint, make a full forward pass, it will run eval pass and save pass.
         # We potentially want to run this https://github.com/mosaicml/composer/blob/dev/composer/trainer/trainer.py#L2826
         # fit() can also potentially overwrite the mlflow
-        self.ppo_trainer.fit(duration='1iter')
-        self.logger.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
+        def write_params(model: torch.nn.Module, param2fullname: dict, update_stamp: str):
+            for _, module in model.named_modules():
+                if isinstance(module, FSDP):
+                    with FSDP.summon_full_params(
+                        module,
+                        writeback=False,
+                        rank0_only=False,
+                        recurse=True,
+                    ):
+                        for _, param in module.named_parameters(recurse=True):
+                            full_name = param2fullname[param]
+                            parsed_name = simplify_param_path(full_name)
+                            shape = param.shape
+                            with open(f"/tmp/compose-rl-train-{self.rank}.txt", "a") as f:
+                                f.write(f"Weight {parsed_name} at {update_stamp}, size = {shape}, weight_sum = {torch.sum(param.data)}\n")
+
 
         model = self.ppo_trainer.state.model
 
         param2fullname = build_param_fullnames(model)
 
-        for _, module in model.named_modules():
-            if isinstance(module, FSDP):
-                with FSDP.summon_full_params(
-                    module,
-                    writeback=False,
-                    rank0_only=False,
-                    recurse=True,
-                ):
-                    for _, param in module.named_parameters(recurse=True):
-                        full_name = param2fullname[param]
-                        parsed_name = simplify_param_path(full_name)
-                        shape = param.shape
-                        if ".25." in parsed_name:
-                            with open(f"/tmp/compose-rl-train-{self.rank}.txt", "a") as f:
-                                if len(shape) == 2:
-                                    weight_str = f"{param.data[0, :10]}, ... {param.data[-1, -10:]}"
-                                elif len(shape) == 1:
-                                    weight_str = f"{param.data[:10]}, ... {param.data[-10:]}"
-                                else:
-                                    weight_str = f"{param.data[..., :10]}, ... {param.data[..., -10:]}"
-                                f.write(f"Weight {parsed_name}\n")
-                                f.write(f"size = {shape}, weight = {weight_str}\n")
+        write_params(model, param2fullname, 'before train iter')
+
+        self.ppo_trainer.fit(duration='1iter')
+        self.logger.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
+
+        write_params(model, param2fullname, 'after train iter')
 
 
 def setup_process_groups(
