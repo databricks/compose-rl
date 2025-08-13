@@ -907,6 +907,12 @@ class OnPolicyCallback(CallbackWithConfig):
                 sums.scatter_add_(0, inverse_indices, flat_rewards)
                 sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
 
+                if dist.get_global_rank() == 0:
+                    print(f"sums: {sums}")
+                    print(f"sum_squares: {sum_squares}")
+                    print(f"counts: {counts}")
+                    print(f"prompt_ids: {prompt_id}")
+
                 # Compute means and standard deviations
                 means = sums / counts
                 variances = (sum_squares / counts) - (means**2)
@@ -936,7 +942,6 @@ class OnPolicyCallback(CallbackWithConfig):
 
                 reward_sq = rewards * rewards
                 expanded_advantages_sq = expanded_advantages * expanded_advantages
-                print(f"prompt_ids: {prompt_id}")
                 print(f"mean_rewards: {mean_rewards.sum()}, std_rewards: {std_rewards.sum()}")
                 print(f"flat_rewards: {flat_rewards.sum()}, expanded_advantages_sq: {expanded_advantages_sq.sum()}, action_masks: {env_outs['action_mask'].sum()}")
                 print(f"reward_sq: {reward_sq.sum()}, advantages: {advantages.sum()}")
