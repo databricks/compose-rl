@@ -263,7 +263,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                             with open(f"/tmp/compose-rl-train-{self.rank}.txt", "a") as f:
                                 f.write(f"Weight {parsed_name} at {update_stamp}, size = {shape}, weight_sum = {torch.sum(param.data)}\n")
 
-
         model = self.ppo_trainer.state.model
 
         param2fullname = build_param_fullnames(model)
@@ -365,6 +364,7 @@ class TrainActorGroup(SPMDActorGroup):
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
             latest_rollouts = await experience_buffer.get()
+            print(f"Obtained {len(latest_rollouts['verified_answer'])} examples")
             self._add_latest_rollouts(latest_rollouts)
             await asyncio.to_thread(self.train_1_iter)
             # TODO decide where should we use the lock and the semaphore
