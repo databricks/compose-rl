@@ -908,6 +908,8 @@ class OnPolicyCallback(CallbackWithConfig):
                 sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
 
                 if dist.get_global_rank() == 0:
+                    print(f"rewards: {rewards}")
+                    print(f"flat_rewards: {flat_rewards}")
                     print(f"sums: {sums}")
                     print(f"sum_squares: {sum_squares}")
                     print(f"counts: {counts}")
