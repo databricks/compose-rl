@@ -935,6 +935,7 @@ class OnPolicyCallback(CallbackWithConfig):
                 )
 
                 reward_sq = rewards * rewards
+                print(f"flat_rewards: {flat_rewards.sum()}, expanded_advantages: {expanded_advantages.sum()}")
                 print(f"reward_sq: {reward_sq.sum()}, advantages: {advantages.sum()}")
                 env_outs['advantages'] = advantages
             else:
