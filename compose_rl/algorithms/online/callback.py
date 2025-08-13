@@ -1127,10 +1127,11 @@ class OnPolicyCallback(CallbackWithConfig):
         self.iter_num = state_dict['iter_num']
 
     def before_forward(self, state: State, logger: Logger):
-        print(f"Before forward, training on {state.batch}")
+        if dist.get_global_rank() == 0:
+            skip_keys = ['prompt_id', 'prompt', 'prompt_len', 'verified_answer', 'prompt_attention_mask', 'sequences']
+            to_log = {k: v for k, v in state.batch.items() if k not in skip_keys}
+            print(f"Before forward, training on {to_log}")
 
     def after_loss(self, state: State, logger: Logger):
-        print(f"After loss, {state.loss}")
-
-    def batch_start(self, state: State, logger: Logger):
-        print("Batch start, training on samples ", state.batch["prompt_id"])
+        if dist.get_global_rank() == 0:
+            print(f"After loss, {state.loss}")
