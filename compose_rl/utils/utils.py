@@ -406,6 +406,8 @@ def compute_advantages(
     for t in reversed(range(deltas.size(1) - 1)):
         advantages[:, t] = deltas[:, t] + discount * advantages[:, t + 1]
 
+    print(f"rewards: {rewards}, values: {values}, advantages: {advantages}")
+
     return advantages
 
 
