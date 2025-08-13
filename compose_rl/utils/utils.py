@@ -422,6 +422,8 @@ def dist_compute_masked_mean_and_var(
     # Get the masked tensor sum
     masked_tensor_sum = (tensor * mask).sum()
 
+    print(f"before dist, num_unmasked_elements: {num_unmasked_elements}, masked_tensor_sum: {masked_tensor_sum}")
+
     dist.all_reduce(num_unmasked_elements)
     dist.all_reduce(masked_tensor_sum)
 
