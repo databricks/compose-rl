@@ -63,7 +63,7 @@ parameters:
       - name: math_hard
       eval_overrides:
         generation_params:
-          max_tokens: 4000
+          max_tokens: 8192
     lr_monitor: {}
     scheduled_gc:
       batch_interval: 1000
@@ -95,7 +95,7 @@ parameters:
       pad_token: <|finetune_right_pad_id|>
       truncation: true
       padding_side: left
-      model_max_length: 6400
+      model_max_length: 10240
       trust_remote_code: true
   variables:
     gamma: 1
@@ -118,7 +118,7 @@ parameters:
         len_threshold: 10
     lambda_gae: 1
     global_seed: 17
-    max_gen_len: 4000
+    max_gen_len: 8192
     eos_token_ids:
     - 128001
     - 128008
@@ -165,7 +165,7 @@ parameters:
     activation_cpu_offload: false
     activation_checkpointing: true
     activation_checkpointing_reentrant: false
-  max_seq_len: 6400
+  max_seq_len: 10240
   save_folder: /tmp/checkpoints
   dist_timeout: 1800
   max_duration: 10iter
@@ -177,8 +177,8 @@ parameters:
       split: train
       remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/dpsk_8b_open_r1_48k/
       shuffle: true
-      max_gen_len: 4000
-      max_seq_len: 6400
+      max_gen_len: 8192
+      max_seq_len: 10240
       shuffle_seed: 17
       download_timeout: 1800
     drop_last: true
