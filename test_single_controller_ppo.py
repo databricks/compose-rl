@@ -11,8 +11,11 @@
 # If they are, then run `ray stop`
 
 import argparse
+import asyncio
+from contextlib import contextmanager
 import logging
 import os
+import pickle
 import time
 import datetime
 from itertools import chain
@@ -35,6 +38,7 @@ from llmfoundry.utils import build_composer_model
 from llmfoundry.utils.config_utils import process_init_device  # type: ignore
 from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
+from composer.callbacks import MemoryMonitor, SpeedMonitor, LRMonitor
 
 from compose_rl.algorithms.online import (
     ComposerHFPolicyLM,
@@ -74,8 +78,18 @@ from compose_rl.algorithms.online.reward_manager import (
     RewardOutput,
 )
 
-_MAX_SEQ_LEN = 6000
-_MAX_GEN_LEN = 4000
+
+@contextmanager
+def time_it(name: str):
+    start_time = time.time()
+    pst_start_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-8)))
+    print(f"[{name}] started at {pst_start_time.strftime('%Y-%m-%d %H:%M PST')}")
+    yield
+    end_time = time.time()
+    pst_end_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-8)))
+    print(f"[{name}] finished at {pst_end_time.strftime('%Y-%m-%d %H:%M PST')}")
+    print(f"[{name}] took {end_time - start_time:.2f} seconds")
+
 
 class DistributedGPUActor(BaseDistributedGPUActor):
     """Distributed GPU actor for testing."""
@@ -99,6 +113,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
         
+        self.config = None
         self.model = None
         self.model_update_group = None
         self.ref_path = None
@@ -117,103 +132,39 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.global_train_batch_size = None
         self.max_gen_len = None
 
-    def build_train_config(self, pretrain_model_name: str):
-        self.logger.info(f"Starting build_train_config with model: {pretrain_model_name}")
-        self.pretrain_model_name = pretrain_model_name
+    def build_train_config(self, config: Any):
+        self.config = config
+        self.logger.info(f"Starting build_train_config with model: {self.config.model.pretrained_model_name_or_path}")
+        self.pretrain_model_name = self.config.model.pretrained_model_name_or_path
 
-        self.model_config = {
-            'tokenizer': self.tokenizer,
-            'pretrained_model_name_or_path': self.pretrain_model_name,
-            'pretrained': True,
-            'use_flash_attention_2': True,
-            'allow_embedding_resizing': True,
-            'name': 'hf_critic_free_lm',
-            # 'init_device': 'mixed',
-            # This throws: [rank0]: ValueError: Detected mixed initialization where some ranks have model on cpu or gpu and some ranks are on meta. Either keep all ranks on the same device or set parallelism_config['fsdp']['sync_module_states'] = True. Otherwise, some weights may be randomly initialized when loading a checkpoint.
-            'loss_type': 'grpo',
-            'target_kl': 0.1,
-            'kl_estimator': 'k3',
-            'kl_clip_range': 40,
-            'use_auth_token': True,
-            'compute_kl_loss': False,
-            'policy_clip_ratio': 0.2,
-            'normalize_advantage': True,
-            'length_normalize_policy_loss': True,
-            'attn_implementation': 'flash_attention_2'
-        }
-        self.global_train_batch_size = 64
+        self.model_config = om.to_container(self.config.model, resolve=True)
+        self.model_config['tokenizer'] = self.tokenizer
+
+        self.global_train_batch_size = self.config.global_train_batch_size
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
-        self.num_batches_per_update = 8
-        self.max_seq_len = _MAX_SEQ_LEN
-        self.max_gen_len = _MAX_GEN_LEN
-        self.precision = 'amp_bf16'
+        self.num_batches_per_update = self.config.variables.num_batches_per_update
+        self.max_seq_len = self.config.max_seq_len
+        self.max_gen_len = self.config.variables.max_gen_len
+        self.precision = self.config.precision
 
-        ref_model_config = {
-            'name': 'hf_causal_lm',
-            'pretrained': self.model_config['pretrained'],
-            'pretrained_model_name_or_path': self.pretrain_model_name,
-            'use_auth_token': self.model_config['use_auth_token'],
-            'use_flash_attention_2': self.model_config['use_flash_attention_2'], 
-        }
+        variables = om.to_container(self.config.variables, resolve=True)
+        algorithm_config = self.config.algorithms
 
-        variables = {
-            'gamma': 1,
-            'lambda_gae': 1,
-            'epoch_per_iteration': 1,
-            'num_batches_per_update': self.num_batches_per_update,
-            'generations_per_prompt': 8,
-            'num_batches_per_update': 8,
-            'device_generate_batch_size': 1,
-            'vllm_enable_prefix_caching': True,
-            'generation_kwargs': {
-                'top_p': 1.0,
-                'use_cache': True,
-                'do_sample': False,
-                'temperature': 1.0,
-            },
-            'eos_token_ids': [
-                128001,
-                128008,
-                128009,
-            ],
-            'buffer': {
-                'name': 'MinibatchRolloutBuffer',
-                'max_buffer_size': self.num_batches_per_update,
-            },
-            'max_gen_len': self.max_gen_len,
-            'kl_controller': {
-                'init_kl_coef': 0.0, # no KL penalty
-                'kl_ctl_type': 'fixed',
-            },
-            'reference_model': {
-                'model_config': ref_model_config,
-                'precision': self.precision,
-                'load_path': self.ref_path,
-            },
-            'rewards': {}, # Testing with no rewards
-            'non_train_fsdp_config': self.fsdp_config,
-        }
-        algorithm_config = {
-            'gradient_clipping': {
-                'clipping_type': 'norm',
-                'clipping_threshold': 1.0
-            }
-        }
         self.train_config = {
-            'seed': 17,
+            'seed': self.config.seed,
             'model': self.model_config,
-            'fsdp_config': self.fsdp_config,
+            'fsdp_config': self.config.fsdp_config,
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,
             'global_train_batch_size': self.device_train_batch_size * self.world_size,
             'device_train_batch_size': self.device_train_batch_size,
             'device_train_microbatch_size': self.device_train_batch_size,
-            'save_folder': './checkpoints/grpo_single_controller',
-            'log_config': True,
+            'save_folder': self.config.save_folder,
+            'log_config': self.config.log_config,
             'max_seq_len': self.max_seq_len,
-            'python_log_level': 'debug',
-            'console_log_interval': '1ba',
+            'python_log_level': self.config.python_log_level,
+            'console_log_interval': self.config.console_log_interval,
         }
         self.logger.info("Finished build_train_config")
 
@@ -222,14 +173,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # we may need token level log prob
         # TODO (infra): use the tokenizer/texts for prompt dataloader but
         # token (ids) for the experience buffer/manager
-        kwargs = {
-            'padding': 'longest',
-            'pad_token': '<|finetune_right_pad_id|>',
-            'truncation': True,
-            'padding_side': 'left',
-            'model_max_length': self.max_seq_len,
-            'trust_remote_code': True,
-        }
+        kwargs = self.config.tokenizer.kwargs
         tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name, **kwargs)
         return tokenizer
 
@@ -239,12 +183,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             self._tokenizer = self.build_tokenizer()
         return self._tokenizer
 
-    @property
-    def fsdp_config(self):
-        # TODO (infra): use actual fsdp1 config
-        return {}
-
     def init_composer_dist(self):
+        print('Initializing composer dist', composer_dist.get_local_rank(), composer_dist.get_global_rank(), composer_dist.get_world_size())
         composer_dist.initialize_dist('gpu')
 
     def build_ppo_trainer(self):
@@ -276,23 +216,44 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, sampler=dummy_distributed_sampler)
 
         mlflow_logger = MLFlowLogger(
-            experiment_name='test_single_controller_ppo',
-            run_name='test_single_controller_grpo_reward_out',
-            tracking_uri='databricks',
+            experiment_name=self.config.loggers.mlflow.experiment_name,
+            run_name=self.config.loggers.mlflow.tags.run,
+            tracking_uri=self.config.loggers.mlflow.tracking_uri,
         )
+
+        callbacks = [
+            self.ppo_callback,
+            # callbacks for scheduled garbage collection
+            # this helps improve throughput by garbage collecting
+            # at regular intervals on all training processes
+            # ScheduledGarbageCollector(
+            #     batch_interval='1000',
+            # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
+            # callbacks for monitoring other metrics
+            LRMonitor(),
+            MemoryMonitor(),
+            SpeedMonitor(window_size=10),
+        ]
 
         self.ppo_trainer = Trainer(
             model=model,
             optimizers=optimizer,
-            callbacks=self.ppo_callback,
+            callbacks=callbacks,
             train_dataloader=dummy_dataloader,
             precision=self.precision,
-            parallelism_config={'fsdp': self.fsdp_config},
-            max_duration='5iter',
+            parallelism_config={'fsdp': self.config.fsdp_config},
+            max_duration=self.config.max_duration,
             loggers=[mlflow_logger],
-            device_train_microbatch_size=1,
+            device_train_microbatch_size=self.config.device_train_microbatch_size,
             load_path=self.ref_path,
+            save_folder=self.config.save_folder,
+            save_interval=self.config.save_interval,
+            autoresume=self.config.autoresume,
         )
+
+    def close_trainer(self):
+        self.ppo_trainer.close()
+    
 
     def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
         """Adds the current rank's rollouts to the callback."""
@@ -375,16 +336,16 @@ class TrainActorGroup(SPMDActorGroup):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
 
-    def build_models(self, pretrain_model_name: str):
+    def build_models(self, config: Any):
         """Build reference models and PPO trainers for all actors."""
-        self.collective_methods.build_train_config(pretrain_model_name)
+        self.collective_methods.build_train_config(config)
         self.collective_methods.init_composer_dist()
 
         # Build PPO trainers
         self.collective_methods.build_ppo_trainer()
         print('build ppo trainer done')
 
-    def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]):
+    def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]) -> list[dict[str, Any]]:
         """Partition the rollouts across all actors."""
         partitioned_rollouts = []
         per_rank_data_size = rollouts['prompt'].shape[0] // self.num_train_actors
@@ -406,35 +367,48 @@ class TrainActorGroup(SPMDActorGroup):
             partitioned_rollouts.append(current_rank_rollouts)
         return partitioned_rollouts
 
-    def add_latest_rollouts_from_buffer(self, experience_buffer: "ExperienceBuffer"):
-        assert experience_buffer is not None, "Experience buffer is not set"
-        assert len(experience_buffer) > 0, "Experience buffer is empty"
-        latest_rollouts = experience_buffer.popleft()
-        # Extract rewards dict separately from latest_rollouts
-        partitioned_rollouts = self._partition_rollouts_across_ranks(latest_rollouts)
+    def _add_latest_rollouts(self, rollouts: dict[str, Any]):
+        partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
         ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
 
+    def train_1_iter(self):
+        # added this method to time the collectivetraining time otherwise we can time each rank but the print/logging becomes messy to read
+        with time_it("training"):
+            self.collective_methods.train_1_iter()
+
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore, eval_semaphore: asyncio.Semaphore):
+        # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
+        # asyncio.to_thread to bridge the async and sync world
+        for _ in range(num_iterations):
+            # Simple example of adding elements to the experience buffer
+            # Populate the train actor group with the rollouts and then train
+            latest_rollouts = await experience_buffer.get()
+            self._add_latest_rollouts(latest_rollouts)
+            await asyncio.to_thread(self.train_1_iter)
+            # TODO decide where should we use the lock and the semaphore
+            # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
+            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'rollout_semaphore': rollout_semaphore, 'eval_semaphore': eval_semaphore})
 
 class InferenceServer:
     """Inference server with vLLM engines."""
 
-    def __init__(self, num_vllm_engines: int, vllm_tensor_parallel_size: int, pretrain_model_name: str):
+    def __init__(self, num_vllm_engines: int, pretrain_model_name: str, config: Any):
         self.num_vllm_engines = num_vllm_engines
-        self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
+        self.vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
         self.vllm_engines = create_vllm_engines(
                 num_engines=num_vllm_engines,
-                tensor_parallel_size=vllm_tensor_parallel_size,
+                tensor_parallel_size=self.vllm_tensor_parallel_size,
                 enforce_eager=True,
                 pretrain=pretrain_model_name,
                 revision=None,
                 seed=1,
-                enable_prefix_caching=False,
-                max_model_len=_MAX_GEN_LEN,
+                enable_prefix_caching=config.vllm_enable_prefix_caching,
+                max_model_len=config.max_seq_len,
                 device_bundle={
                     'GPU': 1,
                     'CPU': 1,
-                    'worker_node': 0,
+                    'worker_gpu': 0,
                 },
             )
 
@@ -442,8 +416,82 @@ class InferenceServer:
     def engines(self):
         return self.vllm_engines
 
+# Note: This needs to be re-worked once the repos are migrated.
+class EvalAgent:
+    """An async agent for handling evals."""
+
+    def __init__(
+        self,
+        vllm_engines: list[Any],
+        config: Any,
+    ):
+        self.vllm_engines = vllm_engines
+        self.config = config
+
+        # Variables from the config used in the eval_agent
+        # TODO: Support eval_interval_num in a more generic way (e.g. handle more than just `iter`)
+        self.eval_interval_num = int(config.eval_interval.strip("iter"))
+        self.num_batches_per_update = config.variables.num_batches_per_update
+        self.experiment_name = config.loggers.mlflow.experiment_name
+        self.run_name = config.loggers.mlflow.tags.run
+
+        self.callback = self.build_callback()
+
+    def build_callback(self):
+        from llmfoundry.utils.builders import build_callback
+        # Creating the evals and eval_overrides from the config.
+        kwargs = om.to_container(self.config.callbacks.orl_eval, resolve=True)
+        # Using a minimal (fake) train_config to built the callback correctly.
+        # The setup actually doesn't matter as we just want to expose the
+        # run_evaluation function to this eval agent.
+        fake_train_config = {
+            'eval_interval': f'{self.eval_interval_num}iter',
+            'python_log_level': 'debug',
+        }
+        callback = build_callback(
+            name='orl_eval',
+            kwargs=kwargs,
+            train_config=fake_train_config,
+        )
+        # Need to create a fake state to pass to fit_start to help the callback register correctly.
+        class _State:
+            vllm_engines = []
+        fake_state = _State()
+        fake_state.vllm_engines = self.vllm_engines
+        # fit_start needs to be called to allow us to call _run_evaluation
+        callback.fit_start(fake_state, logger=None)
+        return callback
+
+    def run_evaluation(self, step: int = 0):
+        """Run evaluation after weights are broadcast to vLLM engines."""
+        # _run_evaluation requires that mlflow_logger is not None (even though it is not used)
+        # As a consequence, we set it to 1 (as a placeholder) to circumvent the issue.
+        self.callback.mlflow_logger = 1
+        with time_it("run_evaluation"):
+            self.callback._run_evaluation(self.experiment_name, self.run_name, step)
+
+    async def run(self, num_iterations: int, lock: asyncio.Lock, eval_semaphore: asyncio.Semaphore):
+        """Async loop on driver to trigger evaluations.
+
+        We don't need to treat this as a Ray actor since we don't need to set a world_size or
+        use GPUs for this process.
+        """
+        # TODO: We could potentially use an async queue instead of a semaphore to trigger the eval
+        # We could potentially circumvent this iteration loop in that scenario.
+        for iteration in range(0, num_iterations, self.eval_interval_num):
+            await eval_semaphore.acquire()
+            async with lock:
+                await asyncio.to_thread(self.run_evaluation, step=iteration*self.num_batches_per_update)
+
+
 class ParameterBuffer(Buffer):
     """Buffer for updating the inference model."""
+
+    def __init__(self, config: Any):
+        super().__init__()
+        self.num_times_param_updated = 0
+        # TODO: Support eval_interval_num in a more generic way (e.g. handle more than just `iter`)
+        self.eval_interval_num = int(config.eval_interval.strip("iter"))
 
     def update_inference_model(self, actor: DistributedGPUActor, inference_server: InferenceServer):
         start_time = time.time()
@@ -462,25 +510,30 @@ class ParameterBuffer(Buffer):
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
         dist.barrier()
 
-    def put(self, struct: dict[str, Any]):
+    async def put(self, struct: dict[str, Any]):
         # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
-        struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
+        async with struct['lock']:
+            struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
+        # allow next rollout/generation step
+        struct['rollout_semaphore'].release()
+        # schedule eval if interval reached
+        self.num_times_param_updated += 1
+        # Since we updated the params, we need to check if we need to schedule an eval
+        # based on the previous value of num_times_param_updated as we want to run an eval
+        # at timestep 0.
+        if (self.num_times_param_updated - 1) % self.eval_interval_num == 0:
+            struct['eval_semaphore'].release()
 
 
-# TODO: Move this experience buffer earlier so that we can avoid
-# using "ExperienceBuffer" (with quotes) as a type hint.
 class ExperienceBuffer(Buffer):
     """Buffer for storing experiences."""
 
-    def put(self, struct: dict[str, Any]):
-        self.buffer.append(struct)
+    async def put(self, struct: dict[str, Any]):
+        await self.buffer.put(struct)
 
-    def get(self, struct: Optional[dict[str, Any]] = None):
-        return self.buffer[0]
-
-    def popleft(self, struct: Optional[dict[str, Any]] = None):
-        return self.buffer.pop(0)
+    async def get(self, struct: Optional[dict[str, Any]] = None):
+        return await self.buffer.get()
 
     def __len__(self):
         return len(self.buffer)
@@ -489,7 +542,7 @@ class ExperienceBuffer(Buffer):
 class StreamingDatasetActor(BaseDistributedGPUActor):
     """Streaming actor for loading prompts onto the experience buffer."""
 
-    def __init__(self):
+    def __init__(self, config: Any):
         # Setting up the distributed environment (WORLD_SIZE = 1)
         super().__init__(
             rank=0,
@@ -502,44 +555,25 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         # TODO: We should move these to dataclasses
         # TODO: In a future PR, create all configs in the main function and populate
         # the correct configs across all entities (e.g. DistributedGPUActor, StreamingDatasetActor, etc)
-        self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
+        self.pretrain_model_name = config.model.pretrained_model_name_or_path
         self.prompt_handler_config = {
-            "global_train_batch_size": 64,
-            "generations_per_prompt": 8,
-            "num_batches_per_update": 8,
-            "max_seq_len": _MAX_SEQ_LEN,
-            "max_gen_len": _MAX_GEN_LEN,
+            'global_train_batch_size': config.global_train_batch_size,
+            'generations_per_prompt': config.variables.generations_per_prompt,
+            'num_batches_per_update': config.variables.num_batches_per_update,
+            'max_seq_len': config.max_seq_len,
+            'max_gen_len': config.variables.max_gen_len,
         }
-        self.tokenizer_config = {
-            'padding': 'longest',
-            'pad_token': '<|finetune_right_pad_id|>',
-            'truncation': True,
-            'padding_side': 'left',
-            'model_max_length': self.prompt_handler_config['max_seq_len'],
-            'trust_remote_code': True,
-        }
+        self.tokenizer_config = config.tokenizer.kwargs
+        self.dataloader_config = config.train_loader
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp_dataset_dir = f"/tmp/dataset/prompt_{timestamp}/"
-        self.dataloader_config = {
-            'name': 'prompt',
-            'dataset': {
-                'local': temp_dataset_dir,
-                'split': 'train',
-                'remote': 'dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/math_lighteval/llama3_8b_math_prompts/',
-                'shuffle': True,
-                'max_gen_len': self.prompt_handler_config['max_gen_len'],
-                'max_seq_len': self.prompt_handler_config['max_seq_len'],
-                'shuffle_seed': 17,
-                'download_timeout': 1800
-            },
-            'drop_last': True,
-            'num_workers': 1,
-        }
+        self.dataloader_config['dataset']['local'] = \
+            self.dataloader_config['dataset']['local'].format(timestamp=timestamp)
 
         # Key variables
-        global_train_batch_size = self.prompt_handler_config['global_train_batch_size']
-        self.generations_per_prompt = self.prompt_handler_config['generations_per_prompt']
-        num_batches_per_update = self.prompt_handler_config['num_batches_per_update']
+        global_train_batch_size = config.global_train_batch_size
+        self.generations_per_prompt = config.variables.generations_per_prompt
+        num_batches_per_update = config.variables.num_batches_per_update
         total_num_generations = global_train_batch_size * num_batches_per_update
         self.num_prompts_per_iteration = total_num_generations // self.generations_per_prompt
 
@@ -569,6 +603,9 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
     def get_tokenizer_pad_token_id(self):
         return self.tokenizer.pad_token_id
 
+    def get_tokenizer(self):
+        return self.tokenizer
+
     def _get_single_iter_prompts(self):
         """Gets a single iteration's prompts from the dataloader."""
         try:
@@ -582,6 +619,13 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         batches = [self._get_single_iter_prompts()]
 
         return preprocess_batches(batches, self.generations_per_prompt, self.tokenizer.pad_token_id)
+
+    def get_dataloader_state_dict(self):
+        return self.dataloader.state_dict()
+    
+    def load_dataloader_state_dict(self, state_dict: dict):
+        self.dataloader.load_state_dict(state_dict)
+
 
 class RewardActor(BaseDistributedGPUActor):
     """Streaming actor for adding rewards on top the experience buffer."""
@@ -1154,33 +1198,48 @@ class RolloutAgent:
         inference_server: InferenceServer,
         streaming_dataset_actor: StreamingDatasetActor,
         reward_actor: RewardActor,
+        config: Any,
     ):
+        # Actors
         self.inference_server = inference_server
         self.streaming_dataset_actor = streaming_dataset_actor
         self.reward_actor = reward_actor
 
-        self.max_gen_len = _MAX_GEN_LEN
-        self.max_seq_len = _MAX_SEQ_LEN
-        self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
-        self.tokenizer_config = {
-            'padding': 'longest',
-            'pad_token': '<|finetune_right_pad_id|>',
-            'truncation': True,
-            'padding_side': 'left',
-            'model_max_length': self.max_seq_len,
-            'trust_remote_code': True,
-        }
-        self.tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name, **self.tokenizer_config)
-        self.generation_kwargs = {
-            'top_p': 1.0,
-            'use_cache': True,
-            'do_sample': False,
-            'temperature': 1.0,
-        }
-        self.precision = 'amp_bf16'
+        self.generation_kwargs = config.variables.generation_kwargs
+        self.precision = config.precision
+
+        self.tokenizer = ray.get(self.streaming_dataset_actor.get_tokenizer.remote())
         self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
+        if self.tokenizer_pad_token_id is None:
+            raise ValueError(
+                'Tokenizer does not have a pad token id. Please use a different tokenizer or add a pad token id.',
+            )
+
         self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
         self.max_gen_len = self.prompt_handler_config['max_gen_len']
+
+        # TODO: get from config
+        self.eos_token_ids = [
+                128001,
+                128008,
+                128009,
+            ]
+
+        # Load iter_num from the checkpoint
+        self.save_folder = os.path.join(config.save_folder, 'RolloutAgent')
+
+        self.iter_num = 0
+
+        # Load the latest checkpoint
+        self.latest_checkpoint = os.path.join(self.save_folder, 'latest.symlink')
+
+        if config.autoresume and os.path.exists(self.latest_checkpoint):
+            print(f'Autoresuming from checkpoint for RolloutAgent.')
+            with open(self.latest_checkpoint, 'rb') as f:
+                checkpoint = pickle.load(f)
+            self.iter_num = checkpoint['iter_num']
+            print(f'Loading streaming dataloader state dict for RolloutAgent.', checkpoint['streaming_dataloader'])
+            self.streaming_dataset_actor.load_dataloader_state_dict.remote(checkpoint['streaming_dataloader'])
 
     def get_next_iter_rollouts(self):
         """
@@ -1224,31 +1283,20 @@ class RolloutAgent:
         # Initialize the required variables from the reward actor
         tokenizer = self.tokenizer
         max_gen_len = self.max_gen_len
-        eos_token_ids = [
-                128001,
-                128008,
-                128009,
-            ]
-
+        eos_token_ids = self.eox_token_ids
+        pad_token_id = self.tokenizer_pad_token_id
 
         # NOTE: Borrowing the right snippets from env_rewards to create inputs for RewardActor
-        batch = iter_data
-        prompt_tokens = batch['prompt']
+        prompt_tokens = iter_data['prompt']
         batch_size, _ = prompt_tokens.shape
-        pad_token_id = tokenizer.pad_token_id
-        if pad_token_id is None:
-            raise ValueError(
-                'Tokenizer does not have a pad token id. Please use a different tokenizer or add a pad token id.',
-            )
-        prompt_len = batch['prompt_len']
-        verified_answers = batch.get('verified_answer', None)
-        prompt_id = batch['prompt_id']
+        prompt_len = iter_data['prompt_len']
+        verified_answers = iter_data.get('verified_answer', None)
         cur_device = prompt_tokens.device
         prompt_dtype = prompt_tokens.dtype
 
-        assert 'sequences' in batch, f'sequences is not in batch {batch.keys()=}'
+        assert 'sequences' in iter_data, f'sequences is not in iter_data {iter_data.keys()=}'
 
-        sequences = batch['sequences']
+        sequences = iter_data['sequences']
         generated_len = torch.ones(
             batch_size,
             device=cur_device,
@@ -1296,7 +1344,7 @@ class RolloutAgent:
             right_padded_obs,
             right_padded_attn_mask,
             generated_len,
-            action_mask,
+            _,
         ) = mask_eos(
             actions=actions,
             right_padded_obs=right_padded_obs,
@@ -1316,11 +1364,13 @@ class RolloutAgent:
                 get_decoded_sequence(actions[i], generated_len[i],
                                             max_gen_len))
             untokenized_prompt_and_responses.append((prompt, generated_text),)
+
         # Future implementations may change the way reward_seq_len is defined
         # e.g., if special formatting is applied
         reward_seq_len = prompt_len + generated_len
 
         # TODO: Don't think reward_manager is actually using action log probs... its likely just a tensor for shape management
+        # TODO: cleanup reward actor methods
         dummy_log_probs = torch.zeros_like(
             actions,
             dtype=torch.float32,
@@ -1344,6 +1394,27 @@ class RolloutAgent:
         iter_data["all_rewards_dict"] = all_rewards_dict
         print(f'Rollout agent generated {len(prompts_and_gens)} rollouts')
         print(f'With {len(all_rewards_dict)} rewards containing {list(all_rewards_dict.keys())} keys')
+
+        # Checkpointing
+        save_folder_iter = os.path.join(self.save_folder, f'iter_{self.iter_num}')
+        checkpoint_path = os.path.join(save_folder_iter, 'checkpoint.pt')
+        self.iter_num += 1
+
+        streaming_dataloader_state_dict = ray.get(self.streaming_dataset_actor.get_dataloader_state_dict.remote())
+        print(f'Streaming dataloader state dict for RolloutAgent.', streaming_dataloader_state_dict)
+
+        # make sure that the folder path can exist
+        os.makedirs(save_folder_iter, exist_ok=True)
+        with open(checkpoint_path, 'wb') as f:
+            pickle.dump({
+                'iter_data': iter_data,
+                'iter_num': self.iter_num,
+                'streaming_dataloader': streaming_dataloader_state_dict,
+            }, f)
+
+        if os.path.exists(self.latest_checkpoint):
+            os.remove(self.latest_checkpoint)
+        os.symlink(checkpoint_path, self.latest_checkpoint)
         return iter_data
 
 
@@ -1357,30 +1428,39 @@ class PPOController:
         rollout_agent: RolloutAgent,
         parameter_buffer: ParameterBuffer,
         experience_buffer: ExperienceBuffer,
-        pretrain_model_name: str,
+        eval_agent: EvalAgent,
+        config: Any,
     ):
         self.train_actor = train_actor
         self.inference_server = inference_server
         self.rollout_agent = rollout_agent
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
-        self.train_actor.build_models(pretrain_model_name)
+        self.train_actor.build_models(config)
+        self.eval_agent = eval_agent
         setup_process_groups(
             self.train_actor.master_actor,
             inference_server.engines,
             inference_server.vllm_tensor_parallel_size,
         )
+        self.lock = asyncio.Lock()
+        self.rollout_semaphore = asyncio.Semaphore(config.max_async_step)
+        self.eval_semaphore = asyncio.Semaphore(0)
+        self.config = config
+    
+    async def train_async(self, max_duration: int | str):
+        if isinstance(max_duration, str):
+            num_iterations = int(max_duration.replace('iter', ''))
+        else:
+            num_iterations = max_duration
 
-    def train(self):
-        for _ in range(5):  # Example: train for 5 iterations
-            # NOTE: this loop is represents the logic happening in the current `iteration_start` of the OnPolicyCallback
-            self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server})
-            # Simple example of adding elements to the experience buffer
-            self.experience_buffer.put(self.rollout_agent.get_next_iter_rollouts())
-            # Populate the train actor group with the rollouts and then train
-            self.train_actor.add_latest_rollouts_from_buffer(self.experience_buffer)
-            self.train_actor.collective_methods.train_1_iter()
-
+        # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
+        await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'rollout_semaphore': self.rollout_semaphore, 'eval_semaphore': self.eval_semaphore})
+        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
+        eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
+        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.rollout_semaphore, self.eval_semaphore))
+        await asyncio.gather(rollout_task, eval_task, train_task)
+        self.train_actor.collective_methods.close_trainer()
 
 def _run_single_controller_ppo(
     config: Any,
@@ -1394,6 +1474,9 @@ def _run_single_controller_ppo(
     # takes too long to jit compile
     os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
 
+    # Disable setting CUDA_VISIBLE_DEVICES by ray, we will set it manually
+    os.environ['RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES'] = '1'
+
     with start_ray_server() as _address:
         # only rank 0 is the master controller
         if dist.get_rank() == 0:
@@ -1403,7 +1486,7 @@ def _run_single_controller_ppo(
 
             # Create buffers for the parameter and experience buffers
             # first since they don't have external dependencies
-            parameter_buffer = ParameterBuffer()
+            parameter_buffer = ParameterBuffer(config)
             experience_buffer = ExperienceBuffer()
 
             # create SPMD training actors of the system
@@ -1411,16 +1494,15 @@ def _run_single_controller_ppo(
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = world_size - num_train_actors
+            vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
             num_vllm_engines = (
                 world_size - num_train_actors
             ) // vllm_tensor_parallel_size
             # TODO: Encapsulate this into a inference server manager class
-            pretrain_model_name = config.pretrain_model_name
             inference_server = InferenceServer(
                 num_vllm_engines=num_vllm_engines,
-                vllm_tensor_parallel_size=vllm_tensor_parallel_size,
-                pretrain_model_name=pretrain_model_name,
+                pretrain_model_name=config.model.pretrained_model_name_or_path,
+                config=config,
             )
 
             # We are using a CPU worker for the StreamingActor
@@ -1441,15 +1523,20 @@ def _run_single_controller_ppo(
             reward_actor = ray.remote(num_gpus=0)(RewardActor).remote()
             rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, reward_actor)
 
+            # EvalAgent doesn't need to be a Ray actor since we don't need to
+            # set a world_size or use GPUs for this process.
+            eval_agent = EvalAgent(inference_server.engines, config)
+
             ppo_controller = PPOController(
                 train_actor,
                 inference_server,
                 rollout_agent,
                 parameter_buffer,
                 experience_buffer,
-                pretrain_model_name,
+                eval_agent,
+                config,
             )
-            ppo_controller.train()
+            asyncio.run(ppo_controller.train_async(config.max_duration))
 
 
 if __name__ == '__main__':
@@ -1460,14 +1547,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     # Load configuration using OmegaConf
-    if args.file_path is not None:
-        config = om.load(args.file_path)
+    if args.file_path is None:
+        config = om.load("yamls/single-controller-grpo-workflow.yaml").parameters
     else:
-        config = om.create({
-            'pretrain_model_name': 'meta-llama/Llama-3.1-8B-Instruct',
-        })
+        config = om.load(args.file_path)
     
     # This is an example of how to move the controller logic from PPO Callback
     # to a separate trainer actor above and this main single controller
     # function.
     _run_single_controller_ppo(config)
+

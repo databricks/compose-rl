@@ -6,6 +6,7 @@
 import logging
 from itertools import chain
 from multiprocessing import get_context
+from multiprocessing.context import TimeoutError as MultiprocessingTimeoutError
 from multiprocessing.pool import AsyncResult, Pool
 from typing import Any, MutableMapping, Optional, Union
 
@@ -163,10 +164,13 @@ class RewardManager:
         self.granularity_types = list(set(self.granularities.values()))
 
         self.pool = None
+        self._num_reward_procs = None
         if self.inference_rewards or self.functional_rewards:
+            self._num_reward_procs = (
+                len(self.inference_rewards) + len(self.functional_rewards)
+            )
             self.pool = Pool(
-                processes=len(self.inference_rewards) +
-                len(self.functional_rewards),
+                processes=self._num_reward_procs,
                 context=get_context('spawn'),
             )
 
@@ -584,9 +588,22 @@ class RewardManager:
         resolved_reward_outputs: dict[str, torch.Tensor] = {}
         bad_end_generation_mask = None
         bad_end_generation_name = None
+        encountered_timeout = False
         for name, subreward in reward_output.items():
             if isinstance(subreward, AsyncResult):
-                resolved_reward: torch.Tensor = subreward.get()
+                try:
+                    resolved_reward: torch.Tensor = subreward.get(
+                        timeout=self.all_rewards[name].BLOCKING_TIMEOUT,
+                    )
+                except (TimeoutError, MultiprocessingTimeoutError):
+                    encountered_timeout = True
+                    log.error(
+                        f'Timeout while waiting for {name} reward to finish. ' +
+                        'This may indicate a problem with the reward. Using a default reward of 0.',
+                    )
+                    resolved_reward = self.make_zero_reward(action_mask).to(
+                        torch.float32,
+                    )
             else:
                 resolved_reward: torch.Tensor = subreward
             resolved_reward_outputs[name] = resolved_reward.to(device=device)
@@ -602,6 +619,17 @@ class RewardManager:
                 bad_end_generation_mask = bad_end_generation_mask.to(
                     device=device,
                 )
+        # Rather than trying to signal to the stuck process, or do anything more careful,
+        # since we know we are fully done with reward computation, we can just recreate the pool
+        # to ensure that all processes are cleaned up and we can continue without resources leaking.
+        if encountered_timeout and self.pool is not None:
+            self.pool.terminate()
+            self.pool.join()
+
+            self.pool = Pool(
+                processes=self._num_reward_procs,
+                context=get_context('spawn'),
+            )
 
         ref_kl = ref_output[0].to(device=device)
         ref_log_probs = ref_output[1].to(device=device)
