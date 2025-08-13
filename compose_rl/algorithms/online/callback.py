@@ -1132,6 +1132,10 @@ class OnPolicyCallback(CallbackWithConfig):
             to_log = {k: v for k, v in state.batch.items() if k not in skip_keys}
             print(f"Before forward, training on {to_log}")
 
+    def after_forward(self, state: State, logger: Logger):
+        if dist.get_global_rank() == 0:
+            print(f"After forward, outputs: {state.outputs}")
+
     def after_loss(self, state: State, logger: Logger):
         if dist.get_global_rank() == 0:
             print(f"After loss, {state.loss}")
