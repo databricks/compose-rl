@@ -4,6 +4,7 @@
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 from torchmetrics import Metric
 from torchmetrics.classification import BinaryAUROC
@@ -151,3 +152,65 @@ class BinaryRewardClassificationAUC(Metric):
         """Compute the AUC."""
         # Compute AUC using torchmetrics
         return self.auroc.compute()
+
+
+class BinaryRewardClassificationBCE(Metric):
+    """Binary Cross-Entropy loss metric for binary reward classification.
+
+    Computes the average BCE loss between predicted probabilities and ground
+    truth labels for binary classification tasks.
+    """
+
+    # Make torchmetrics call update only once
+    full_state_update = False
+
+    def __init__(
+        self,
+        dist_sync_on_step: bool = False,
+        **kwargs: Any,
+    ):
+        """Initialize the metric.
+
+        Args:
+            dist_sync_on_step: Synchronize metric state across processes
+        """
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+
+        self.add_state(
+            'total_loss',
+            default=torch.tensor(0.),
+            dist_reduce_fx='sum',
+        )
+        self.add_state(
+            'total_samples',
+            default=torch.tensor(0.),
+            dist_reduce_fx='sum',
+        )
+
+    def update(self, batch: dict, output_logits: torch.Tensor):
+        """Update state with predictions and targets.
+
+        Args:
+            batch: Dictionary containing 'output_scores' and 'labels'
+            output_logits: `None`
+        """
+        del output_logits
+        logits = batch['output_scores']
+        targets = batch['labels'].squeeze(-1).float()
+        assert logits.shape[0] == targets.shape[0], 'Batch sizes must match'
+
+        # Compute BCE loss with logits (more numerically stable than using probabilities)
+        loss = F.binary_cross_entropy_with_logits(
+            logits.squeeze(),
+            targets,
+            reduction='sum',
+        )
+
+        self.total_loss += loss.detach().cpu()
+        self.total_samples += targets.shape[0]
+
+    def compute(self):
+        """Compute the average BCE loss."""
+        assert isinstance(self.total_loss, Tensor)
+        assert isinstance(self.total_samples, Tensor)
+        return self.total_loss / self.total_samples
