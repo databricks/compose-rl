@@ -129,18 +129,6 @@ class BinaryRewardClassificationAUC(Metric):
         # Use torchmetrics' BinaryAUROC for the actual computation
         self.auroc = BinaryAUROC()
 
-        # Store predictions and targets for batch computation
-        self.add_state(
-            'preds',
-            default=[],
-            dist_reduce_fx='cat',
-        )
-        self.add_state(
-            'targets',
-            default=[],
-            dist_reduce_fx='cat',
-        )
-
     def update(self, batch: dict, output_logits: torch.Tensor):
         """Update state with predictions and targets.
 
@@ -156,15 +144,10 @@ class BinaryRewardClassificationAUC(Metric):
         # Convert logits to probabilities
         probs = torch.sigmoid(logits.squeeze())
 
-        # Store for later computation
-        self.preds.append(probs.detach().cpu())
-        self.targets.append(targets.detach().cpu())
+        # Update the internal AUROC metric directly
+        self.auroc.update(probs, targets)
 
     def compute(self):
         """Compute the AUC."""
-        # Concatenate all stored predictions and targets
-        all_preds = torch.cat(self.preds)
-        all_targets = torch.cat(self.targets)
-
         # Compute AUC using torchmetrics
-        return self.auroc(all_preds, all_targets)
+        return self.auroc.compute()
