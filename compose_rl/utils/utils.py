@@ -433,7 +433,6 @@ def dist_compute_masked_mean_and_var(
 
     dist.all_reduce(centered_values)
 
-    print(f"masked_tensor_sum: {masked_tensor_sum}, centered_values: {centered_values}, num_unmasked_elements: {num_unmasked_elements}")
     global_variance = centered_values / num_unmasked_elements
     if unbiased:
         bessel_correction = num_unmasked_elements / (num_unmasked_elements - 1)
