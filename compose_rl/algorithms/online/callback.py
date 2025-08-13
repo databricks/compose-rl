@@ -947,8 +947,8 @@ class OnPolicyCallback(CallbackWithConfig):
 
             bs = iter_batch['prompt_id'].shape[0]
             iter_batch.update({
-                'adv_masked_mean': torch.ones(bs) * batch_adv_mean,
-                'adv_masked_var': torch.ones(bs) * batch_adv_var,
+                'adv_masked_mean': torch.ones(bs, device=batch_adv_mean.device) * batch_adv_mean,
+                'adv_masked_var': torch.ones(bs, device=batch_adv_var.device) * batch_adv_var,
             })
 
         mean_ift = masked_mean(
