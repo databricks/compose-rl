@@ -6,6 +6,8 @@ from compose_rl.utils import flatten
 
 def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx: int):
     ret_batch = {}
+    print(f"Length of batches: {len(batches)}")
+    print(f"Length of prompts in first batch: {len(batches[0]['prompt_id'])}")
     for key in batches[0].keys():
         curr_values = []
 
@@ -57,6 +59,6 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
             else:
                 ret_batch[key] = curr_values
 
-        print(f"Ret batch: {ret_batch['prompt_id']}")
+    print(f"Ret batch: {ret_batch['prompt_id']}")
 
     return ret_batch
