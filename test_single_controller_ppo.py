@@ -705,7 +705,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         """Gets the next iteration's prompts across all ranks and prepares them for the rollout agent."""
         batches = [self._get_single_iter_prompts()]
 
-        print(f"Batches: {batches}")
+        print(f"Batches: {batches[0]['prompt_id']}")
 
         return preprocess_batches(batches, self.generations_per_prompt, self.tokenizer.pad_token_id)
 

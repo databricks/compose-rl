@@ -57,4 +57,6 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
             else:
                 ret_batch[key] = curr_values
 
+        print(f"Ret batch: {ret_batch['prompt_id']}")
+
     return ret_batch
