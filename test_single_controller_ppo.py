@@ -234,7 +234,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         init_context = process_init_device(
             self.ref_model_config,
-            self.config.non_train_fsdp_config,
+            self.config.variables.non_train_fsdp_config,
         )
 
         self.reference_model = build_composer_model(
@@ -245,7 +245,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             master_weights_dtype=self.ref_model_config.get('master_weights_dtype', None),
         )
 
-        parallelism_config = {'fsdp': self.config.non_train_fsdp_config}
+        parallelism_config = {'fsdp': self.config.variables.non_train_fsdp_config}
 
         # Create a Trainer object to load from checkpoint and FSDP the model
         _ = Trainer(
