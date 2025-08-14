@@ -171,6 +171,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         # Reward Coefficients
         all_rewards_config = om.to_container(self.config.variables.rewards, resolve=True)
+        self.reward_coefficients = {}
         for reward_name, reward_config in all_rewards_config.items():
             self.reward_coefficients[reward_name] = reward_config.get(
                 'reward_coefficient',
