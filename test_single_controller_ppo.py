@@ -187,7 +187,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'ref_model': self.ref_model_config,
             'fsdp_config': self.config.fsdp_config,
             'kl_controller': self.kl_controller_config,
-            'non_train_fsdp_config': self.config.non_train_fsdp_config,
+            'non_train_fsdp_config': self.config.variables.non_train_fsdp_config,
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,

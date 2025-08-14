@@ -137,6 +137,16 @@ parameters:
         use_auth_token: true
         use_flash_attention_2: true
         pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+    # The non-train-FSDP config
+    non_train_fsdp_config:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision: DEFAULT
+      activation_checkpointing: true
+      activation_cpu_offload: false
+      verbose: true
+      limit_all_gathers: true
+      state_dict_type: sharded
+      use_orig_params: true
     generation_kwargs:
       top_p: 1
       do_sample: true
