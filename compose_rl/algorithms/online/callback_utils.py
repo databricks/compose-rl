@@ -39,7 +39,7 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
 
                     if key == 'prompt':
                         padding_key = pad_token_idx
-                        if (item[:, -1] == padding_key).any():
+                        if (item[-1] == padding_key).any():
                             raise ValueError(
                                 'The last token in the prompt should not be the pad token. Please double '
                                 +
