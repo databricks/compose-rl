@@ -355,10 +355,19 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             for k, v in partial_batch.items():
                 self.logger.info(f"{k}: {v.shape}")
 
+            self.logger.info("======= STARTING REFERENCE LOG PROBS =======")
+            reference_output = self.get_reference_log_probs_and_kl(partial_batch)
+            for k, v in reference_output.items():
+                self.logger.info(f"{k}: {v.shape}")
+
+            self.logger.info("======= STARTING UPDATE REWARDS =======")
+            reward_output = self.update_rewards(current_rank_rollouts['all_rewards_dict'], reference_output, partial_batch['action_mask'], device)
+            for k, v in reward_output.items():
+                self.logger.info(f"{k}: {v.shape}")
+
+
         print(adsfadsfasf)
         self.ppo_callback.batch_rollouts = current_rank_rollouts
-        #self.logger.info(current_rank_rollouts)
-        print(adsfadsfasf)
 
     def get_log_probs_and_entropy(self, current_rank_rollouts, device):
         prompt_tokens = current_rank_rollouts['prompt']
