@@ -345,6 +345,17 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 current_rank_rollouts[k] = rewards_dict_for_rank
             elif not (isinstance(v, list)):
                 raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
+
+
+        
+        device = torch.device('cuda')
+        with get_precision_context(self.precision), torch.no_grad():
+            self.logger.info("======= STARTING LOG PROBS =======")
+            partial_batch = self.get_log_probs_and_entropy(current_rank_rollouts, device)
+            for k, v in partial_batch.items():
+                self.logger.info(f"{k}: {v.shape}")
+
+        print(adsfadsfasf)
         self.ppo_callback.batch_rollouts = current_rank_rollouts
         #self.logger.info(current_rank_rollouts)
         print(adsfadsfasf)
