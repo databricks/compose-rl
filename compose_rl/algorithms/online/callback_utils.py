@@ -35,7 +35,7 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
                         curr_values.append(item)
                         continue
 
-                    seq_len = item.shape
+                    seq_len, = item.shape  # expect this to be a 1D tensor
 
                     if key == 'prompt':
                         padding_key = pad_token_idx
