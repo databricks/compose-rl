@@ -32,11 +32,11 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
                         curr_values.append(item)
                         continue
 
-                    bs, seq_len = batch[key].shape
+                    bs, seq_len = item.shape
 
                     if key == 'prompt':
                         padding_key = pad_token_idx
-                        if (batch[key][:, -1] == padding_key).any():
+                        if (item[:, -1] == padding_key).any():
                             raise ValueError(
                                 'The last token in the prompt should not be the pad token. Please double '
                                 +
@@ -48,9 +48,9 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
                     # Compute the required padding and concatenate with the batch tensor
                     pad = torch.ones(
                         (bs, max_len - seq_len),
-                        dtype=batch[key].dtype,
+                        dtype=item.dtype,
                     ) * padding_key  # type: ignore
-                    curr_values.append(torch.cat([pad, batch[key]], dim=-1))
+                    curr_values.append(torch.cat([pad, item], dim=-1))
 
         # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
         print(f"{key}'s curr values type: {type(curr_values[0])}")
