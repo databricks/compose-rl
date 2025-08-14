@@ -35,7 +35,7 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
                         curr_values.append(item)
                         continue
 
-                    bs, seq_len = item.shape
+                    seq_len = item.shape
 
                     if key == 'prompt':
                         padding_key = pad_token_idx
@@ -50,7 +50,7 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
 
                     # Compute the required padding and concatenate with the batch tensor
                     pad = torch.ones(
-                        (bs, max_len - seq_len),
+                        max_len - seq_len,
                         dtype=item.dtype,
                     ) * padding_key  # type: ignore
                     curr_values.append(torch.cat([pad, item], dim=-1))
