@@ -454,7 +454,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         for split in microbatch_splits:
             curr_kwargs = split
 
-            cur_output = self.actor_critic(curr_kwargs)
+            cur_output = self.ppo_trainer.state.model(curr_kwargs)
             cur_logits = cur_output['logits']
             # need to pull out current actions and prompt len
             cur_actions = curr_kwargs['actions']
