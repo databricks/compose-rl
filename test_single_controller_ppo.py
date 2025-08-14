@@ -532,7 +532,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
         for split in microbatch_splits:
             curr_batch = split
-            curr_ref_output = self.reference_model(curr_batch)
+            curr_ref_output = self.reference_model({
+                "input_ids": curr_batch['obs'],
+                "attention_mask": curr_batch['attention_mask'],
+            })
             curr_ref_log_probs = get_log_probs(
                 logits=curr_ref_output.logits,
                 actions=curr_batch['actions'],
