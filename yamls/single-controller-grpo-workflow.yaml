@@ -153,8 +153,10 @@ parameters:
       use_cache: true
       temperature: 1
     epoch_per_iteration: 1
-    generations_per_prompt: 8
-    num_batches_per_update: 8
+    #generations_per_prompt: 8
+    #num_batches_per_update: 8
+    generations_per_prompt: 2
+    num_batches_per_update: 2
     device_generate_batch_size: 1
   algorithms:
     gradient_clipping:
@@ -201,7 +203,7 @@ parameters:
   console_log_interval: 1ba
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
-  global_train_batch_size: 64
+  global_train_batch_size: 16
   device_train_microbatch_size: 1
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
