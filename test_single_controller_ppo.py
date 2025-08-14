@@ -170,7 +170,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.kl_penalty_in_reward = not self.model_config.get('compute_kl_loss', False)
 
         # Reward Coefficients
-        all_rewards_config = om.to_container(self.config.rewards, resolve=True)
+        all_rewards_config = om.to_container(self.config.variables.rewards, resolve=True)
         for reward_name, reward_config in all_rewards_config.items():
             self.reward_coefficients[reward_name] = reward_config.get(
                 'reward_coefficient',
