@@ -254,7 +254,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             precision=self.precision,
             load_weights_only=True,
             load_strict_model_weights=False,
-            load_path=self.config.reference_model.load_path,
+            load_path=self.config.variables.reference_model.load_path,
             python_log_level='debug',
         )
         self.logger.info(f'Initialized {name} reference model')
