@@ -364,6 +364,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         prompt_tokens = current_rank_rollouts['prompt']
         batch_size, _ = prompt_tokens.shape
         pad_token_id = self.tokenizer.pad_token_id
+        eos_token_ids = self.config.variables.eos_token_ids
         prompt_len = current_rank_rollouts['prompt_len']
         prompt_id = current_rank_rollouts['prompt_id']
 
