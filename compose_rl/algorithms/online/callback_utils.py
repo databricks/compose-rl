@@ -51,7 +51,7 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
                 curr_values.append(torch.cat([pad, batch[key]], dim=-1))
 
         # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
-        print(f"Curr values type: {type(curr_values[0])}")
+        print(f"{key}'s curr values type: {type(curr_values[0])}")
         if isinstance(curr_values[0], torch.Tensor):
             ret_batch[key] = torch.cat(curr_values)
         else:
