@@ -12,6 +12,7 @@
 
 import argparse
 import asyncio
+import copy
 from contextlib import contextmanager
 import logging
 import os
@@ -31,6 +32,7 @@ import torch
 import torch.distributed as dist
 from composer import Trainer
 from composer.core import get_precision_context, Precision
+from composer.core.data_spec import _default_split_batch
 from composer.optim import DecoupledAdamW
 from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
@@ -40,6 +42,7 @@ from omegaconf import OmegaConf as om
 from transformers import AutoTokenizer
 from composer.callbacks import MemoryMonitor, SpeedMonitor, LRMonitor
 
+from compose_rl.registry_builders import build_kl_controller
 from compose_rl.algorithms.online import (
     ComposerHFPolicyLM,
     ComposerHFCriticFreePolicyLM,
@@ -68,6 +71,7 @@ from compose_rl.utils import (
     approx_kl,
     batch_process_fine_granularities,
     get_log_probs,
+    get_entropies,
     scatter_gather_rewards,
     switch_left_to_right_padding,
     mask_eos,
@@ -102,19 +106,20 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         master_port: Optional[int] = None,
     ):
         super().__init__(rank, world_size, master_addr, master_port)
-        
+
         # Configure Ray actor logging - this will go to Ray logs
         self.logger = logging.getLogger(f"Actor-{rank}")
         self.logger.setLevel(logging.INFO)
-        
+
         # Create console handler that will be captured by Ray
         handler = logging.StreamHandler()
         formatter = logging.Formatter(f'[ACTOR-{rank}] %(asctime)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
-        
+
         self.config = None
         self.model = None
+        self.reference_model = None
         self.model_update_group = None
         self.ref_path = None
         self._dataloader = None
@@ -129,8 +134,17 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.precision = None  # type: ignore
         self.train_config: dict = None  # type: ignore
         self.model_config = None
+        self.ref_model_config = None
         self.global_train_batch_size = None
         self.max_gen_len = None
+
+        # KL Penalty and Controller
+        self.kl_controller = None
+        self.kl_controller_config = None
+        self.kl_penalty_in_reward = None
+
+        # Reward info
+        self.reward_coefficients: dict = None  # type: ignore
 
     def build_train_config(self, config: Any):
         self.config = config
@@ -140,6 +154,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.model_config = om.to_container(self.config.model, resolve=True)
         self.model_config['tokenizer'] = self.tokenizer
 
+        # Reference Model Initializing
+        self.ref_model_config = om.to_container(self.config.reference_model.model_config, resolve=True)
+
         self.global_train_batch_size = self.config.global_train_batch_size
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
         self.num_batches_per_update = self.config.variables.num_batches_per_update
@@ -147,13 +164,29 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.max_gen_len = self.config.variables.max_gen_len
         self.precision = self.config.precision
 
+        # NOTE: if compute kl loss then no reward penalty
+        # TODO: we should be more explicit about this toggle / make each kl regularization mechanism explicit
+        self.kl_controller_config = om.to_container(self.config.kl_controller, resolve=True)
+        self.kl_penalty_in_reward = not self.model_config.get('compute_kl_loss', False)
+
+        # Reward Coefficients
+        all_rewards_config = om.to_container(self.config.rewards, resolve=True)
+        for reward_name, reward_config in all_rewards_config.items():
+            self.reward_coefficients[reward_name] = reward_config.get(
+                'reward_coefficient',
+                1.0,
+            )
+
         variables = om.to_container(self.config.variables, resolve=True)
         algorithm_config = self.config.algorithms
 
         self.train_config = {
             'seed': self.config.seed,
             'model': self.model_config,
+            'ref_model': self.ref_model_config,
             'fsdp_config': self.config.fsdp_config,
+            'kl_controller': self.kl_controller_config,
+            'non_train_fsdp_config': self.config.non_train_fsdp_config,
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,
@@ -187,9 +220,47 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         print('Initializing composer dist', composer_dist.get_local_rank(), composer_dist.get_global_rank(), composer_dist.get_world_size())
         composer_dist.initialize_dist('gpu')
 
+    def build_kl_controller(self):
+        kl_controller_name = self.kl_controller_config.pop('kl_ctl_type')
+        self.kl_controller = build_kl_controller(
+            name=kl_controller_name,
+            kwargs=self.kl_controller_config,
+        )
+        self.logger.info(f'Built KL Controller')
+
+    def build_reference_model(self):
+        name = self.ref_model_config.pop('name')
+
+        init_context = process_init_device(
+            self.ref_model_config,
+            self.config.non_train_fsdp_config,
+        )
+
+        self.reference_model = build_composer_model(
+            name=name,
+            cfg=self.ref_model_config,
+            tokenizer=self.tokenizer,
+            init_context=init_context,
+            master_weights_dtype=self.ref_model_config.get('master_weights_dtype', None),
+        )
+
+        parallelism_config = {'fsdp': self.config.non_train_fsdp_config}
+
+        # Create a Trainer object to load from checkpoint and FSDP the model
+        _ = Trainer(
+            model=self.reference_model,
+            parallelism_config=parallelism_config,
+            precision=self.precision,
+            load_weights_only=True,
+            load_strict_model_weights=False,
+            load_path=self.config.reference_model.load_path,
+            python_log_level='debug',
+        )
+        self.logger.info(f'Initialized {name} reference model')
+
     def build_ppo_trainer(self):
         name = self.model_config.pop('name')
-        
+
         self.logger.info(f"Model type: {name}")
         if name == 'hf_ppo_lm':
             self.logger.info("Creating ComposerHFPolicyLM")
@@ -199,6 +270,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
         self.logger.info("Model created successfully")
 
+        # TODO: Add weight decay
         optimizer = DecoupledAdamW(model.parameters(), lr=1e-6)
 
         # TODO (infra): pull the rest of the training logic from the callback
@@ -253,7 +325,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def close_trainer(self):
         self.ppo_trainer.close()
-    
 
     def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
         """Adds the current rank's rollouts to the callback."""
@@ -270,6 +341,271 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             elif not (isinstance(v, list)):
                 raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
         self.ppo_callback.batch_rollouts = current_rank_rollouts
+
+    def get_log_probs_and_entropy(self, current_rank_rollouts, device):
+        prompt_tokens = current_rank_rollouts['prompt']
+        batch_size, _ = prompt_tokens.shape
+        pad_token_id = self.tokenizer.pad_token_id
+        prompt_len = current_rank_rollouts['prompt_len']
+        prompt_id = current_rank_rollouts['prompt_id']
+
+        #cur_device = prompt_tokens.device
+
+        prompt_dtype = prompt_tokens.dtype
+
+        assert 'sequences' in current_rank_rollouts, f'sequences is not in batch {current_rank_rollouts.keys()=}'
+
+        sequences = current_rank_rollouts['sequences']
+        generated_len = torch.ones(
+            batch_size,
+            device=device,
+            dtype=prompt_dtype,
+        ) * self.max_gen_len
+
+        # If all the processes early exit generate, then we need to manually pad everything
+        # we can pad this with pad tokens, since we switch the padding between left and right
+        # padding based on the sequence length + max_sequence_length.
+        if prompt_tokens.size(1) + self.max_gen_len > sequences.size(1):
+            len_to_pad = self.max_gen_len - (
+                sequences.size(1) - prompt_tokens.size(1)
+            )
+
+            extra_padding = torch.ones(
+                (batch_size, len_to_pad),
+                device=device,
+                dtype=prompt_dtype,
+            ) * pad_token_id
+            sequences = torch.cat(
+                [sequences, extra_padding],  # type: ignore
+                dim=-1,  # type: ignore
+            )
+
+        # Sanity checking we're adding max_gen_len to prompt_tokens
+        if prompt_tokens.size(1) + self.max_gen_len != sequences.size(1):
+            raise ValueError(
+                f'Prompts {prompt_tokens.size(1)} + max_gen_len {self.max_gen_len} != sequences {sequences.size(1)}',
+            )
+
+        # Actions are what tokens the current policy would generate.
+        actions = sequences[:, -self.max_gen_len:]
+
+        right_padded_obs = switch_left_to_right_padding(
+            sequences,
+            prompt_len,
+            self.max_gen_len,
+            pad_token_id,  # type: ignore
+        )
+        right_padded_attn_mask = torch.logical_not(
+            torch.eq(right_padded_obs, pad_token_id),  # type: ignore
+        )
+
+        (
+            right_padded_obs,
+            right_padded_attn_mask,
+            generated_len,
+            action_mask,
+        ) = mask_eos(
+            actions=actions,
+            right_padded_obs=right_padded_obs,
+            right_padded_attn_mask=right_padded_attn_mask,
+            prompt_len=prompt_len,
+            generated_len=generated_len,
+            max_gen_len=self.max_gen_len,
+            eos_token_ids=eos_token_ids,  # type: ignore
+            pad_token=pad_token_id,  # type: ignore
+        )
+        log_probs = []
+        entropies = []
+        values = []
+
+        input_model_kwargs = {
+            'obs': right_padded_obs,
+            'right_padded_attn_mask': right_padded_attn_mask,
+            'prompt_len': prompt_len,
+            'max_gen_len': self.max_gen_len,
+            'action_mask': action_mask,
+            'actions': actions,
+        }
+
+        microbatch_splits = _default_split_batch(
+            batch=input_model_kwargs,
+            microbatch_size=self.device_train_microbatch_size,
+        )
+        # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
+        for split in microbatch_splits:
+            curr_kwargs = split
+
+            cur_output = self.actor_critic(curr_kwargs)
+            cur_logits = cur_output['logits']
+            # need to pull out current actions and prompt len
+            cur_actions = curr_kwargs['actions']
+            cur_action_mask = curr_kwargs['action_mask']
+            cur_prompt_len = curr_kwargs['prompt_len']
+
+            cur_log_probs = get_log_probs(
+                logits=cur_logits,
+                actions=cur_actions,
+                prompt_len=cur_prompt_len,
+                max_gen_len=self.max_gen_len,
+            )
+            cur_entropies = get_entropies(
+                logits=cur_logits,
+                action_mask=cur_action_mask,
+                prompt_len=cur_prompt_len,
+                max_gen_len=self.max_gen_len,
+            )
+            log_probs.append(cur_log_probs)
+            entropies.append(cur_entropies)
+            # Ignore values when the model doesn't have a value head
+            if 'values' in cur_output:
+                cur_values = cur_output['values']
+                values.append(cur_values)
+
+        device_train_microbatch_log_probs = torch.cat(log_probs)
+        device_train_microbatch_entropies = torch.cat(entropies)
+
+        partial_env_output = {
+            'prompt_id': prompt_id,
+            'old_log_probs': device_train_microbatch_log_probs,
+            'old_entropies': device_train_microbatch_entropies,
+            'obs': right_padded_obs,
+            'attention_mask': right_padded_attn_mask,
+            'actions': actions,
+            'action_mask': action_mask,
+            'generated_len': generated_len,
+            'prompt_len': prompt_len,
+        }
+        if len(values) > 0:
+            device_train_microbatch_values = torch.cat(values)
+
+            # Need to add in the padding for the value function
+            value_action_mask = torch.cat([
+                action_mask,
+                torch.zeros((batch_size, 1), device=device),
+            ],
+                                          dim=-1)
+            device_train_microbatch_values *= value_action_mask
+            partial_env_output['values'] = device_train_microbatch_values
+
+        # TODO: old_log_probs, old_entropies, metadata as a clearer output
+        return partial_env_output
+
+    def get_reference_log_probs_and_kl(self, batch):
+        """
+        This function computes the reference log probs and computes KL estimates between pi and pi_ref.
+        """
+        kl = []
+        ref_model_log_probs = []
+
+        microbatch_splits = _default_split_batch(
+            batch=batch,
+            microbatch_size=self.device_train_microbatch_size,
+        )
+        for split in microbatch_splits:
+            curr_batch = split
+            curr_ref_output = self.reference_model(curr_batch)
+            curr_ref_log_probs = get_log_probs(
+                logits=curr_ref_output.logits,
+                actions=curr_batch['actions'],
+                prompt_len=curr_batch['prompt_len'],
+                max_gen_len=self.max_gen_len,
+                temperature=self.config.generation_kwargs.temperature,
+            )
+
+            kl_dict = approx_kl(
+                log_p=curr_ref_log_probs,
+                log_q=curr_batch['old_log_probs'],
+                kl_clip_range=self.model_config['kl_clip_range'],  # pyright: ignore
+            )
+            curr_kl = kl_dict[self.model_config['kl_estimator']]  # pyright: ignore
+
+            kl.append(curr_kl)
+            ref_model_log_probs.append(curr_ref_log_probs)
+
+        kl = torch.cat(kl)
+        ref_model_log_probs = torch.cat(ref_model_log_probs)
+        ref_output = {
+            "kl": kl,
+            "reference_log_probs": ref_model_log_probs,
+        }
+        return ref_output
+
+    def update_rewards(self, raw_rewards_dict, ref_output, action_mask, device):
+        resolved_reward_outputs: dict[str, torch.Tensor] = {}
+        bad_end_generation_name, bad_end_generation_mask = None, None
+        for name, subreward in raw_rewards_dict.items():
+            # Functional Rewards
+            resolved_reward_outputs[name] = subreward.to(device=device)
+
+            # NOTE: all rewards is not accesible here
+            #if isinstance(self.all_rewards[name], BadGenerationEndReward):
+            if name == "bad_generation_end":
+                bad_end_generation_name = name
+                bad_generation_row_mask = torch.any(subreward != 0, dim=1)
+
+                bad_end_generation_mask = (
+                    ~bad_generation_row_mask
+                ).unsqueeze(1).expand_as(subreward)
+                bad_end_generation_mask = bad_end_generation_mask.to(
+                    device=device,
+                )
+        
+        # Reward Penalty
+        ref_kl = ref_output['kl'].to(device=device)
+        ref_log_probs = ref_output['reference_log_probs'].to(device=device)
+
+        if self.kl_penalty_in_reward:
+            rewards: torch.Tensor = -self.kl_controller.value * ref_kl.detach()
+        else:
+            rewards: torch.Tensor = torch.zeros_like(ref_kl)
+
+        env_rewards = self.make_zero_reward(rewards)
+
+        rews_dict_out: dict[str, torch.Tensor] = {}
+        for name, subreward in resolved_reward_outputs.items():
+            if name not in self.reward_coefficients:
+                raise KeyError(
+                    f'Reward with {name=} is not recognized by the reward manager.',
+                )
+            env_rewards += subreward.detach() * self.reward_coefficients[name]
+
+            # In the output, make sure each key has 'reward' in it to engage
+            # proper logging (see .loss of policy class)
+            out_name = name + '_reward' if 'reward' not in name else ''
+            rews_dict_out[out_name] = subreward.detach() * action_mask
+
+        # Masking out all rewards if the generation ends with a bad token
+        # And strictly adding a penalty for bad generation ending.
+        if bad_end_generation_mask is not None and bad_end_generation_name is not None:
+            env_rewards *= bad_end_generation_mask
+            env_rewards += (
+                resolved_reward_outputs[bad_end_generation_name].detach() *
+                self.reward_coefficients[bad_end_generation_name]
+            )
+
+        # Optionally apply an offset to the environment rewards
+        # TODO: General scaling of reward values through whitening should be revisited
+        # if center_reward_mean is not None:
+        #    env_rewards -= center_reward_mean
+        #
+
+        # Final rewards is total env rewards + KL penalties
+        rewards += env_rewards
+
+        # Zero rewards at padded tokens
+        rewards *= action_mask
+        env_rewards *= action_mask
+
+        outputs = {
+            'rewards': rewards.detach(),
+            'env_rewards': env_rewards.detach(),
+        }
+        outputs.update(rews_dict_out)
+
+        return outputs
+
+
+
 
     def train_1_iter(self):
         # TODO (algo): implement the top level PPO algo here instead of the
@@ -344,6 +680,12 @@ class TrainActorGroup(SPMDActorGroup):
         # Build PPO trainers
         self.collective_methods.build_ppo_trainer()
         print('build ppo trainer done')
+
+        # Build Reference Model
+        self.collective_methods.build_reference_model()
+
+        # Build KL Controller
+        self.collective_methods.build_kl_controller()
 
     def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]) -> list[dict[str, Any]]:
         """Partition the rollouts across all actors."""
@@ -649,7 +991,8 @@ class RewardActor(BaseDistributedGPUActor):
         self.logger.addHandler(handler)
         
         # For fine-grained rewards. Not necessarily used.
-        self.max_seq_len = _MAX_SEQ_LEN
+        #
+        # TODO: use config
         self.max_seq_len = _MAX_SEQ_LEN
         self.precision = Precision.AMP_BF16
         self.parser = spacy.load('en_core_web_sm')
@@ -1009,7 +1352,8 @@ class RewardActor(BaseDistributedGPUActor):
                     f'Unknown reward model type {type(curr_reward)}. Expected `Reward` or `RewardModel`.',
                 )
 
-        batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
+        # NOTE: is this needed?
+        # batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
 
         # convert all AsyncResult objects to tensors because ray cannot return Pool objects
         for reward_name, subreward in computed_rewards.items():
@@ -1017,6 +1361,7 @@ class RewardActor(BaseDistributedGPUActor):
                 computed_rewards[reward_name] = subreward.get()
             else:
                 computed_rewards[reward_name] = subreward
+
         return computed_rewards
 
     def _create_batch(
@@ -1417,6 +1762,14 @@ class RolloutAgent:
         os.symlink(checkpoint_path, self.latest_checkpoint)
         return iter_data
 
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore):
+        for _ in range(num_iterations):
+            # semaphore has be to acquired before the lock is acquired
+            # otherwise it could hang the parameter_buffer due to lock is already acquired
+            await rollout_semaphore.acquire()
+            async with lock:
+                rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
+            await experience_buffer.put(rollouts)
 
 class PPOController:
     """PPO controller for training the policy and value networks."""
@@ -1519,9 +1872,9 @@ def _run_single_controller_ppo(
             # We uninstall megablocks after the Train Actors have been
             # created so that those actors still have megablocks functionality.
             uninstall_megablocks_if_exists()
-            streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote()
+            streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote(config)
             reward_actor = ray.remote(num_gpus=0)(RewardActor).remote()
-            rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, reward_actor)
+            rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, reward_actor, config)
 
             # EvalAgent doesn't need to be a Ray actor since we don't need to
             # set a world_size or use GPUs for this process.

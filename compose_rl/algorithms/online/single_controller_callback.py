@@ -9,7 +9,8 @@ import logging
 from typing import Union
 import torch
 
-from composer.core import State
+from composer.core import State, get_precision_context
+from composer.core.data_spec import _default_split_batch
 from composer.loggers import Logger
 from composer.trainer.trainer import _get_initial_device_train_microbatch_size
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -19,6 +20,18 @@ from compose_rl.algorithms.online.callback import OnPolicyCallback, env_reward
 from compose_rl.algorithms.online.model import (
     ComposerHFPolicyLM,
     ComposerMPTPolicyLM,
+)
+from compose_rl.utils import (
+    add_right_padding,
+    compute_advantages,
+    dist_compute_masked_mean_and_var,
+    get_decoded_sequence,
+    get_entropies,
+    get_log_probs,
+    mask_eos,
+    masked_mean,
+    masked_sum,
+    switch_left_to_right_padding,
 )
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
@@ -36,6 +49,12 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
     trainer actor instead of the callback, we kept them here for now to minimize
     a drastic refactor to PPO Callback code
     """
+
+    def _compute_advantages(self):
+        pass
+
+    def _compute_kl(self):
+        pass
 
     def _get_reward(self, batch: dict[str, torch.Tensor]):
         """Compute rewards for a batch of generated sequences.
@@ -58,7 +77,8 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
             kl_clip_range=self.kl_clip_range,
         )
         log.info(f"Empty rewards dict keys: {empty_rewards_dict.keys()}")
-
+        # TODO: This is already computed in Reward Actor at the moment
+        # Only used for logging at the moment. Find better place to record and log. Rollout Actor?
         self.prompts_and_gens.extend(prompts_and_gens)
 
         gen_batch_partial_outputs = (env_outputs, ref_outputs, all_rewards_dict)
