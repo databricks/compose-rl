@@ -972,7 +972,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
 class RewardActor(BaseDistributedGPUActor):
     """Streaming actor for adding rewards on top the experience buffer."""
 
-    def __init__(self):
+    def __init__(self, config):
         # Setting up the distributed environment (WORLD_SIZE = 1)
         super().__init__(
             rank=0,
@@ -993,7 +993,9 @@ class RewardActor(BaseDistributedGPUActor):
         # For fine-grained rewards. Not necessarily used.
         #
         # TODO: use config
-        self.max_seq_len = _MAX_SEQ_LEN
+        self.config = config
+
+        self.max_seq_len = self.config.max_seq_len
         self.precision = Precision.AMP_BF16
         self.parser = spacy.load('en_core_web_sm')
         self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
