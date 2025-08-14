@@ -70,11 +70,14 @@ from compose_rl.algorithms.reward_modeling import (
 from compose_rl.utils import (
     approx_kl,
     batch_process_fine_granularities,
+    dist_compute_masked_mean_and_var,
     get_log_probs,
     get_entropies,
     scatter_gather_rewards,
     switch_left_to_right_padding,
     mask_eos,
+    masked_sum,
+    masked_mean,
     get_decoded_sequence,
 )
 from compose_rl.algorithms.online.reward_manager import (
@@ -347,7 +350,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
 
 
-        
         device = torch.device('cuda')
         with get_precision_context(self.precision), torch.no_grad():
             self.logger.info("======= STARTING LOG PROBS =======")
@@ -365,6 +367,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             for k, v in reward_output.items():
                 self.logger.info(f"{k}: {v.shape}")
 
+            self.logger.info("======= STARTING Advantage Calculation =======")
+            advantage_output = self.compute_advantages(partial_batch, reward_output)
+            for k, v in advantage_output.items():
+                self.logger.info(f"{k}: {v.shape}")
 
         print(adsfadsfasf)
         self.ppo_callback.batch_rollouts = current_rank_rollouts
@@ -581,10 +587,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 bad_end_generation_mask = bad_end_generation_mask.to(
                     device=device,
                 )
-        
+
         # Reward Penalty
         ref_kl = ref_output['kl'].to(device=device)
-        ref_log_probs = ref_output['reference_log_probs'].to(device=device)
 
         if self.kl_penalty_in_reward:
             rewards: torch.Tensor = -self.kl_controller.value * ref_kl.detach()
@@ -635,7 +640,80 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         return outputs
 
+    def compute_advantages(self, batch, reward_output):
+        # compute GRPO advantages
+        bs = batch['prompt_id'].shape[0]
+        prompt_id = batch['prompt_id']
+        rewards = reward_output['rewards']
 
+        # Flatten the rewards by summing on sequence length/action_mask
+        flat_rewards = masked_sum(
+            rewards,
+            batch['action_mask'],
+            dim=-1,
+        )
+
+        # Get unique prompt IDs and their indices
+        unique_prompt_ids, inverse_indices = torch.unique(
+            prompt_id,
+            return_inverse=True,
+        )
+
+        # Use scatter to compute means and standard deviations
+        # First, we'll create a tensor to track counts, sums, and sum of squares
+        n_unique = len(unique_prompt_ids)
+        counts = torch.zeros(n_unique, device=prompt_id.device)
+        sums = torch.zeros(n_unique, device=prompt_id.device)
+        sum_squares = torch.zeros(n_unique, device=prompt_id.device)
+
+        # Use scatter_add to accumulate values
+        counts.scatter_add_(
+            0,
+            inverse_indices,
+            torch.ones_like(flat_rewards),
+        )
+        sums.scatter_add_(0, inverse_indices, flat_rewards)
+        sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
+
+        # Compute means and standard deviations
+        means = sums / counts
+        variances = (sum_squares / counts) - (means**2)
+        stds = torch.sqrt(variances)
+
+        # Map back to original tensor shape
+        mean_rewards = means[inverse_indices]
+        std_rewards = stds[inverse_indices]
+
+        # Calculate GRPO advantage
+        grpo_advantage = (flat_rewards - mean_rewards)
+        # Only normalize the advantage if flag is set
+        if self.model_config.normalize_advantage:
+            grpo_advantage /= (std_rewards + 1e-4)
+
+        # Create advantages of the same shape as original rewards
+        advantages = torch.zeros_like(rewards)
+        # Copy the flat grpo_advantage according to action_mask
+        expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
+            batch['action_mask'],
+        )
+        advantages = torch.where(
+            batch['action_mask'].bool(),
+            expanded_advantages,
+            advantages,
+        )
+
+        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
+            advantages,
+            batch['action_mask'],
+        )
+
+        advantage_output = {
+            'advantages': advantages,
+            'adv_masked_mean': torch.ones(bs) * batch_adv_mean.cpu(),
+            'adv_masked_var': torch.ones(bs) * batch_adv_var.cpu(),
+            'reward_std': torch.ones(bs) * rewards.std().to('cpu'),
+        }
+        return advantage_output
 
 
     def train_1_iter(self):
@@ -921,7 +999,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
             rank=0,
             world_size=1,
             master_addr=None,
-            master_port=None,
+master_port=None,
         )
 
         # Setting up all of the configs
