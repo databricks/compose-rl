@@ -557,16 +557,17 @@ class OnPolicyCallback(CallbackWithConfig):
         if hasattr(self.actor_critic, 'compute_kl_loss'):
             kl_penalty_in_reward = not self.actor_critic.compute_kl_loss
 
-        self.reward_manager = RewardManager(
-            config=self.reward_cfg,
-            ref_config=self.ref_config,
-            tokenizer=self.actor_critic.tokenizer, # type: ignore
-            max_seq_len=self.max_seq_len,
-            fsdp_config=self.non_train_fsdp_config,
-            precision=state.precision,
-            kl_penalty_in_reward=kl_penalty_in_reward,
-            temperature=self.generation_kwargs['temperature'],
-        )
+        self.reward_manager = None
+        #self.reward_manager = RewardManager(
+        #    config=self.reward_cfg,
+        #    ref_config=self.ref_config,
+        #    tokenizer=self.actor_critic.tokenizer, # type: ignore
+        #    max_seq_len=self.max_seq_len,
+        #    fsdp_config=self.non_train_fsdp_config,
+        #    precision=state.precision,
+        #    kl_penalty_in_reward=kl_penalty_in_reward,
+        #    temperature=self.generation_kwargs['temperature'],
+        #)
 
         # This is needed to ensure PyTorch 2.4 checkpointing doesn't break
         self.actor_critic.tokenizer.batch_encode_plus( # type: ignore
