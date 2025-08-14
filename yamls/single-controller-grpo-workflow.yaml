@@ -193,7 +193,7 @@ parameters:
       download_timeout: 1800
     drop_last: true
     num_workers: 1
-  eval_interval: 2iter
+  eval_interval: 100iter
   save_interval: 100iter
   log_to_console: true
   save_overwrite: true
