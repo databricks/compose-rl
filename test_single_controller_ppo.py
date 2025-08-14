@@ -687,7 +687,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # Calculate GRPO advantage
         grpo_advantage = (flat_rewards - mean_rewards)
         # Only normalize the advantage if flag is set
-        if self.model_config.normalize_advantage:
+        if self.model_config['normalize_advantage']:
             grpo_advantage /= (std_rewards + 1e-4)
 
         # Create advantages of the same shape as original rewards
