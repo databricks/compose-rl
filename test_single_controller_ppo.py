@@ -332,6 +332,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
     def close_trainer(self):
         self.ppo_trainer.close()
 
+    # TODO: maybe make the name more informative?
     def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
         """Adds the current rank's rollouts to the callback."""
         for k, v in current_rank_rollouts.items():
@@ -349,31 +350,42 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             elif not (isinstance(v, list)):
                 raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
 
-
         device = torch.device('cuda')
         with get_precision_context(self.precision), torch.no_grad():
-            self.logger.info("======= STARTING LOG PROBS =======")
+            # 1) Compute Log Probs and Entropy
             partial_batch = self.get_log_probs_and_entropy(current_rank_rollouts, device)
-            for k, v in partial_batch.items():
-                self.logger.info(f"{k}: {v.shape}")
-
-            self.logger.info("======= STARTING REFERENCE LOG PROBS =======")
+            # 2) Compute Reference Log Probs and KL
             reference_output = self.get_reference_log_probs_and_kl(partial_batch)
-            for k, v in reference_output.items():
-                self.logger.info(f"{k}: {v.shape}")
+ 
+            # Log to callback for KL Controller Update
+            mean_ift = masked_mean(
+                reference_output['kl'],
+                partial_batch['action_mask'],
+            )
+            self.ppo_callback.kl_ift.append(mean_ift.cpu())
 
-            self.logger.info("======= STARTING UPDATE REWARDS =======")
+            # 3) Scale rewards and apply KL Penalty
             reward_output = self.update_rewards(current_rank_rollouts['all_rewards_dict'], reference_output, partial_batch['action_mask'], device)
-            for k, v in reward_output.items():
-                self.logger.info(f"{k}: {v.shape}")
-
-            self.logger.info("======= STARTING Advantage Calculation =======")
+            # 4) Compute Advantages
             advantage_output = self.compute_advantages(partial_batch, reward_output)
-            for k, v in advantage_output.items():
-                self.logger.info(f"{k}: {v.shape}")
 
-        print(adsfadsfasf)
-        self.ppo_callback.batch_rollouts = current_rank_rollouts
+            # Construct batch
+            bs = partial_batch['prompt_id'].shape[0]
+            batch = {
+                'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,
+                'ift_kl_scalar': torch.ones(bs) * self.kl_controller.value,
+                **partial_batch,
+                **reference_output,
+                **reward_output,
+                **advantage_output,
+            }
+
+            # Moving minibatches to CPU to not take additional GPU memory
+            for k, v in batch.items():
+                if hasattr(v, 'cpu'):
+                    batch[k] = v.cpu()
+
+        self.ppo_callback.batch_rollouts = batch
 
     def get_log_probs_and_entropy(self, current_rank_rollouts, device):
         prompt_tokens = current_rank_rollouts['prompt']
@@ -503,7 +515,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'old_log_probs': device_train_microbatch_log_probs,
             'old_entropies': device_train_microbatch_entropies,
             'obs': right_padded_obs,
-            'attention_mask': right_padded_attn_mask,
+            'right_padded_attention_mask': right_padded_attn_mask,
             'actions': actions,
             'action_mask': action_mask,
             'generated_len': generated_len,
@@ -528,7 +540,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         """
         This function computes the reference log probs and computes KL estimates between pi and pi_ref.
         """
-        print("INSIDE REFERENCE LOG PROBS")
         kl = []
         ref_model_log_probs = []
 
@@ -540,7 +551,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             curr_batch = split
             curr_ref_output = self.reference_model({
                 "input_ids": curr_batch['obs'],
-                "attention_mask": curr_batch['attention_mask'],
+                "attention_mask": curr_batch['right_padded_attn_mask'],
             })
             curr_ref_log_probs = get_log_probs(
                 logits=curr_ref_output.logits,
@@ -564,7 +575,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         ref_model_log_probs = torch.cat(ref_model_log_probs)
         ref_output = {
             "kl": kl,
-            "reference_log_probs": ref_model_log_probs,
+            # TODO: rename to reference_log_probs
+            #"reference_log_probs": ref_model_log_probs,
+            "ift_log_probs": ref_model_log_probs,
         }
         return ref_output
 
