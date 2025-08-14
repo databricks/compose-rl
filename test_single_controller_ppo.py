@@ -1875,7 +1875,7 @@ def _run_single_controller_ppo(
             # created so that those actors still have megablocks functionality.
             uninstall_megablocks_if_exists()
             streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote(config)
-            reward_actor = ray.remote(num_gpus=0)(RewardActor).remote()
+            reward_actor = ray.remote(num_gpus=0)(RewardActor).remote(config)
             rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, reward_actor, config)
 
             # EvalAgent doesn't need to be a Ray actor since we don't need to
