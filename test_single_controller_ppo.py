@@ -754,6 +754,26 @@ def _run_single_controller_ppo(
 
             # create SPMD training actors of the system
             num_train_actors = world_size // 2
+
+            # Check to see if the number of samples per prompt on each individual train actor
+            # is not 1
+            num_prompts_per_iter = config.variables.generations_per_prompt * \
+                config.global_train_batch_size // config.variables.num_batches_per_update
+            num_samples_per_train_actor = config.global_train_batch_size * \
+                config.variables.num_batches_per_update // num_train_actors
+            if num_prompts_per_iter == num_samples_per_train_actor and config.model.loss_type == "grpo":
+                raise ValueError(
+                    "The calculated number of samples per train actor is equal to the number of " +
+                    "number of prompts per iteration. This is an issue because when we are " +
+                    "calculating the advantages, we are essentially calculating the values " +
+                    "based on the idea that each prompt have only a sample of 1. This will end " +
+                    "up not calculating any advantage or variances in GRPO mode which will cause " +
+                    "the model to not train at all. " +
+                    f"Number of samples per train actor: {num_samples_per_train_actor}, " +
+                    f"Number of prompts per iteration: {num_prompts_per_iter}"
+                )
+
+
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
