@@ -448,7 +448,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         microbatch_splits = _default_split_batch(
             batch=input_model_kwargs,
-            microbatch_size=self.device_train_microbatch_size,
+            microbatch_size=self.config.device_train_microbatch_size,
         )
         # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
         for split in microbatch_splits:
@@ -519,7 +519,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         microbatch_splits = _default_split_batch(
             batch=batch,
-            microbatch_size=self.device_train_microbatch_size,
+            microbatch_size=self.config.device_train_microbatch_size,
         )
         for split in microbatch_splits:
             curr_batch = split
