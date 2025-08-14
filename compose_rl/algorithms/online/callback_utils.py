@@ -58,10 +58,7 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
         # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
         print(f"{key}'s curr values type: {type(curr_values[0])}")
         if isinstance(curr_values[0], torch.Tensor):
-            if len(curr_values[0].shape) == 0:
-                ret_batch[key] = torch.stack(curr_values)
-            else:
-                ret_batch[key] = torch.cat(curr_values)
+            ret_batch[key] = torch.stack(curr_values)
             print(f"Ret batch: {ret_batch[key].shape}")
         else:
             if key in ['verified_answer', 'vstar']:
