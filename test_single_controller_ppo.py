@@ -247,6 +247,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         parallelism_config = {'fsdp': self.config.variables.non_train_fsdp_config}
 
+        load_path = self.config.variables.reference_model.get('load_path', None)
+
         # Create a Trainer object to load from checkpoint and FSDP the model
         _ = Trainer(
             model=self.reference_model,
@@ -254,7 +256,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             precision=self.precision,
             load_weights_only=True,
             load_strict_model_weights=False,
-            load_path=self.config.variables.reference_model.load_path,
+            load_path=load_path,
             python_log_level='debug',
         )
         self.logger.info(f'Initialized {name} reference model')
