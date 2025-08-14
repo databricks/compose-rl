@@ -143,8 +143,8 @@ parameters:
       use_cache: true
       temperature: 1
     epoch_per_iteration: 1
-    generations_per_prompt: 8
-    num_batches_per_update: 4
+    generations_per_prompt: 4
+    num_batches_per_update: 8
     device_generate_batch_size: 1
   algorithms:
     gradient_clipping:
