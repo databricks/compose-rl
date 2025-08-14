@@ -344,6 +344,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             elif not (isinstance(v, list)):
                 raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
         self.ppo_callback.batch_rollouts = current_rank_rollouts
+        self.logger.info(current_rank_rollouts)
+        print(adsfadsfasf)
 
     def get_log_probs_and_entropy(self, current_rank_rollouts, device):
         prompt_tokens = current_rank_rollouts['prompt']
@@ -1634,7 +1636,7 @@ class RolloutAgent:
         # Initialize the required variables from the reward actor
         tokenizer = self.tokenizer
         max_gen_len = self.max_gen_len
-        eos_token_ids = self.eox_token_ids
+        eos_token_ids = self.eos_token_ids
         pad_token_id = self.tokenizer_pad_token_id
 
         # NOTE: Borrowing the right snippets from env_rewards to create inputs for RewardActor

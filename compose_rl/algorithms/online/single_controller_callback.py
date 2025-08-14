@@ -50,12 +50,6 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
     a drastic refactor to PPO Callback code
     """
 
-    def _compute_advantages(self):
-        pass
-
-    def _compute_kl(self):
-        pass
-
     def _get_reward(self, batch: dict[str, torch.Tensor]):
         """Compute rewards for a batch of generated sequences.
 
@@ -63,6 +57,7 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
             batch (dict): The batch containing generated sequences to compute rewards for.
         """
         all_rewards_dict = batch.pop('all_rewards_dict')
+        log.info(all_rewards_dict)
 
         env_outputs, prompts_and_gens, ref_outputs, empty_rewards_dict = env_reward(
             actor_critic=self.actor_critic,  # pyright: ignore
