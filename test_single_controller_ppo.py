@@ -335,16 +335,18 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             assert isinstance(v, torch.Tensor) or isinstance(v, list) or isinstance(v, dict), f"Expected a tensor or list or dict, got {type(v)}"
             if isinstance(v, torch.Tensor):
                 current_rank_rollouts[k] = v.to(torch.device('cuda'))
+                self.logger.info(f"{k}: {v.shape}")
             elif isinstance(v, dict):
                 # This is the case with the rewards dict where it has (key, tensor) pairs
                 rewards_dict_for_rank = {}
                 for reward_key, reward_tensor in v.items():
                     rewards_dict_for_rank[reward_key] = reward_tensor.to(torch.device('cuda'))
+                    self.logger.info(f"{reward_key}: {reward_tensor.shape}")
                 current_rank_rollouts[k] = rewards_dict_for_rank
             elif not (isinstance(v, list)):
                 raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
         self.ppo_callback.batch_rollouts = current_rank_rollouts
-        self.logger.info(current_rank_rollouts)
+        #self.logger.info(current_rank_rollouts)
         print(adsfadsfasf)
 
     def get_log_probs_and_entropy(self, current_rank_rollouts, device):
