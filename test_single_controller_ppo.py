@@ -348,6 +348,7 @@ class TrainActorGroup(SPMDActorGroup):
         return partitioned_rollouts
 
     def _add_latest_rollouts(self, rollouts: dict[str, Any]):
+        print(f"Rollout ids: {rollouts['prompt_id']}")
         partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
         ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
