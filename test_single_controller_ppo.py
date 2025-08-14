@@ -773,7 +773,6 @@ def _run_single_controller_ppo(
                     f"Number of prompts per iteration: {num_prompts_per_iter}"
                 )
 
-
             train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
             # Create vLLM engines (or inference actors)
