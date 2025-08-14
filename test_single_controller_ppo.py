@@ -591,8 +591,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         else:
             rewards: torch.Tensor = torch.zeros_like(ref_kl)
 
-        env_rewards = self.make_zero_reward(rewards)
-
+        env_rewards = torch.zeros_like(rewards)
         rews_dict_out: dict[str, torch.Tensor] = {}
         for name, subreward in resolved_reward_outputs.items():
             if name not in self.reward_coefficients:
