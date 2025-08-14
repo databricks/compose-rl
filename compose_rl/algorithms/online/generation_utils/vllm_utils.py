@@ -129,8 +129,6 @@ class WorkerWrap:
         assert group_name != '', 'group name must not be empty'
 
         rank = torch.distributed.get_rank() + rank_offset
-
-        self._rank = rank
         self._model_update_group = init_process_group( # type: ignore
             backend=backend,
             init_method=f'tcp://{master_address}:{master_port}',
@@ -166,43 +164,14 @@ class WorkerWrap:
             group=self._model_update_group,
         )
 
-        with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
-            f.write(f"Weight {name} at receiving weight, size = {shape}, weight_sum = {torch.sum(weight)}\n")
-
         # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
         # We will need to cast the weight type to the model_config type
         if weight.dtype != self.model_config.dtype:  # type: ignore
             weight = weight.to(self.model_config.dtype)  # type: ignore
 
-        updated_weights = self.model_runner.model.load_weights( # type: ignore
+        self.model_runner.model.load_weights( # type: ignore
             weights=[(name, weight)],
         )  # type: ignore
-
-        if len(updated_weights) == 0:
-            with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
-                f.write(f"Weight {name} not found in model\n")
-        else:
-            write = True
-            if len(updated_weights) > 1:
-                with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
-                    f.write(f"multiple updated_weights = {updated_weights}\n")
-                    f.write(f"type(updated_weights) = {type(updated_weights)}\n")
-                write = False
-
-            if isinstance(updated_weights, list):
-                updated_weights = updated_weights[0][0]
-            elif isinstance(updated_weights, set):
-                updated_weights = updated_weights.pop()
-            else:
-                with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
-                    f.write(f"updated_weights = {updated_weights}\n")
-                    f.write(f"type(updated_weights) = {type(updated_weights)}\n")
-                write = False
-
-            if write:   
-                updated_weight_tensor = [weight_param.data for weight_name, weight_param in self.model_runner.model.named_parameters() if weight_name == updated_weights][0]
-                with open(f"/tmp/compose-rl-worker-{self._rank}.txt", "a") as f:
-                    f.write(f"Weight {updated_weights} at updating weight, size = {updated_weight_tensor.shape}, weight_sum = {torch.sum(updated_weight_tensor)}\n")
 
         del weight
 
@@ -487,7 +456,6 @@ def broadcast_to_vllm(
             # This is needed otherwise FSDP will materialize parameters of size 0.
             # So just for the joint actor critic models we have to actually skip this module.
             if module_name == 'model' and loss_type == OnPolicyEnum.PPO:
-                log.info('Skipping model module')
                 continue
 
             # Only update if we haven't updated this module before
@@ -529,18 +497,15 @@ def broadcast_to_vllm(
 
                                 count += 1
                                 shape = param.shape
-                                refs = []
-                                for engine in vllm_engines:
-                                    ref = engine.update_weight.remote(
+                                refs = [
+                                    engine.update_weight.remote(
                                         parsed_name,
                                         dtype=param.dtype,
                                         shape=shape,
                                         empty_cache=(count == num_params),
-                                    )
-                                    refs.append(ref)
+                                    ) for engine in vllm_engines
+                                ]
                                 refss.extend(refs)
-                                with open(f"/tmp/compose-rl-master.txt", "a") as f:
-                                    f.write(f"Weight {parsed_name} at sending weight, size = {shape}, weight_sum = {torch.sum(param.data)}\n")
                                 torch.distributed.broadcast(
                                     param.data,
                                     0,

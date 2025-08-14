@@ -25,10 +25,9 @@ from composer.loggers import MLFlowLogger
 import ray
 import torch
 import torch.distributed as dist
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP # type: ignore
 from composer import Trainer
 from composer.core import get_precision_context
-from composer.optim import DecoupledSGDW
+from composer.optim import DecoupledAdamW
 from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
 from omegaconf import OmegaConf as om
@@ -171,7 +170,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
         self.logger.info("Model created successfully")
 
-        optimizer = DecoupledSGDW(model.parameters(), lr=1)
+        optimizer = DecoupledAdamW(model.parameters(), lr=1e-6)
 
         # TODO (infra): pull the rest of the training logic from the callback
         # to this class, e.g, how to interact with env, calculate rewards etc
@@ -247,32 +246,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # fit() checks if there is existing checkpoint, make a full forward pass, it will run eval pass and save pass.
         # We potentially want to run this https://github.com/mosaicml/composer/blob/dev/composer/trainer/trainer.py#L2826
         # fit() can also potentially overwrite the mlflow
-        def write_params(model: torch.nn.Module, param2fullname: dict, update_stamp: str):
-            for _, module in model.named_modules():
-                if isinstance(module, FSDP):
-                    with FSDP.summon_full_params(
-                        module,
-                        writeback=False,
-                        rank0_only=False,
-                        recurse=True,
-                    ):
-                        for _, param in module.named_parameters(recurse=True):
-                            full_name = param2fullname[param]
-                            parsed_name = simplify_param_path(full_name)
-                            shape = param.shape
-                            with open(f"/tmp/compose-rl-train-{self.rank}.txt", "a") as f:
-                                f.write(f"Weight {parsed_name} at {update_stamp}, size = {shape}, weight_sum = {torch.sum(param.data)}\n")
-
-        model = self.ppo_trainer.state.model
-
-        param2fullname = build_param_fullnames(model)
-
-        write_params(model, param2fullname, 'before train iter')
-
         self.ppo_trainer.fit(duration='1iter')
         self.logger.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
-
-        write_params(model, param2fullname, 'after train iter')
 
 
 def setup_process_groups(
@@ -348,7 +323,6 @@ class TrainActorGroup(SPMDActorGroup):
         return partitioned_rollouts
 
     def _add_latest_rollouts(self, rollouts: dict[str, Any]):
-        print(f"Rollout ids: {rollouts['prompt_id']}")
         partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
         ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
@@ -365,7 +339,6 @@ class TrainActorGroup(SPMDActorGroup):
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
             latest_rollouts = await experience_buffer.get()
-            print(f"Obtained {len(latest_rollouts['verified_answer'])} examples")
             self._add_latest_rollouts(latest_rollouts)
             await asyncio.to_thread(self.train_1_iter)
             # TODO decide where should we use the lock and the semaphore
@@ -376,12 +349,6 @@ class InferenceServer:
     """Inference server with vLLM engines."""
 
     def __init__(self, num_vllm_engines: int, pretrain_model_name: str, config: Any):
-        import os
-        if os.getenv('NODE_RANK', None) == '0' and os.getenv('LOCAL_RANK', None) == '0':
-            os.environ['NCCL_CUMEM_ENABLE'] = '0'
-            os.environ['RAY_BACKEND_LOG_LEVEL'] = 'DEBUG'
-            os.environ['RAY_DEBUG_LOGS'] = '1'
-
         self.num_vllm_engines = num_vllm_engines
         self.vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
         self.vllm_engines = create_vllm_engines(
@@ -705,8 +672,6 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         """Gets the next iteration's prompts across all ranks and prepares them for the rollout agent."""
         batches = [self._get_single_iter_prompts()]
 
-        print(f"Batches: {batches[0]['prompt_id']}")
-
         return preprocess_batches(batches, self.generations_per_prompt, self.tokenizer.pad_token_id)
 
     def get_dataloader_state_dict(self):
@@ -834,61 +799,6 @@ def _run_single_controller_ppo(
                 config,
             )
             asyncio.run(ppo_controller.train_async(config.max_duration))
-
-
-def simplify_param_path(path: str) -> str:
-    """Simplifies the parameter path by removing unnecessary parts.
-
-    Args:
-        path (str): The original parameter path.
-    """
-    # Parts we want to remove
-    remove_parts = [
-        '_fsdp_wrapped_module',
-        '_checkpoint_wrapped_module',
-        'lm_backbone',
-        'model',
-    ]
-
-    # Split the path into parts
-    parts = path.split('.')
-
-    # Keep only parts that don't contain any of the remove_parts
-    clean_parts = []
-    if 'lm_head' not in path:
-        clean_parts = ['model']
-    for part in parts:
-        if not any(remove in part for remove in remove_parts):
-            clean_parts.append(part)
-
-    return '.'.join(clean_parts)
-
-
-def build_param_fullnames(top_module: torch.nn.Module) -> dict:
-    """Builds a mapping of parameter objects to their fully-qualified names.
-
-    Traverses the entire model from the top level and map each parameter
-    object to its fully-qualified name (e.g.,
-    "lm_backbone.layer1.mlp.down_proj.weight").
-
-    Args:
-        top_module (torch.nn.Module): The top-level module to traverse.
-    """
-    param2fullname = {}
-
-    def _dfs(current_module: torch.nn.Module, prefix: str = ''):
-        # Get local parameters (without recursing into children).
-        for local_name, param in current_module.named_parameters(recurse=False):
-            full_name = f'{prefix}.{local_name}' if prefix else local_name
-            param2fullname[param] = full_name
-
-        # Recurse on child modules.
-        for child_name, child_module in current_module.named_children():
-            child_prefix = f'{prefix}.{child_name}' if prefix else child_name
-            _dfs(child_module, prefix=child_prefix)
-
-    _dfs(top_module)
-    return param2fullname
 
 
 if __name__ == '__main__':
