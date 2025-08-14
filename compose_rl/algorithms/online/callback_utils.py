@@ -6,7 +6,6 @@ from compose_rl.utils import flatten
 
 def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx: int):
     ret_batch = {}
-
     for key in batches[0].keys():
         curr_values = []
 
@@ -15,7 +14,6 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
             max_len = max([batch[key].shape[-1] for batch in batches])
 
         padding_key = None
-
         for batch in batches:
             # inside the batch, it's a dictionary of tensors that have the batch dimension there,
             # so we need to iterate through each element to explode it.
