@@ -62,6 +62,7 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
                 ret_batch[key] = torch.stack(curr_values)
             else:
                 ret_batch[key] = torch.cat(curr_values)
+            print(f"Ret batch: {ret_batch[key].shape}")
         else:
             if key in ['verified_answer', 'vstar']:
                 ret_batch[key] = list(flatten(curr_values))
