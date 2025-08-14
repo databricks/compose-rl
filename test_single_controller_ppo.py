@@ -513,7 +513,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'old_log_probs': device_train_microbatch_log_probs,
             'old_entropies': device_train_microbatch_entropies,
             'obs': right_padded_obs,
-            'right_padded_attention_mask': right_padded_attn_mask,
+            'right_padded_attn_mask': right_padded_attn_mask,
             'actions': actions,
             'action_mask': action_mask,
             'generated_len': generated_len,
