@@ -18,6 +18,9 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
         padding_key = None
         for batch in batches:
 
+            if isinstance(batch[key], torch.Tensor):
+                print(f"shape of {key}: {batch[key].shape}")
+
             for item in batch[key]:
                 # Explode the batch into multiple batches for each generation
                 for _ in range(generations_per_prompt):
