@@ -907,15 +907,6 @@ class OnPolicyCallback(CallbackWithConfig):
                 sums.scatter_add_(0, inverse_indices, flat_rewards)
                 sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
 
-                if dist.get_global_rank() == 0:
-                    print(f"rewards: {rewards}")
-                    print(f"inverse_indices: {inverse_indices}")
-                    print(f"flat_rewards: {flat_rewards}")
-                    print(f"sums: {sums}")
-                    print(f"sum_squares: {sum_squares}")
-                    print(f"counts: {counts}")
-                    print(f"prompt_ids: {prompt_id}")
-
                 # Compute means and standard deviations
                 means = sums / counts
                 variances = (sum_squares / counts) - (means**2)
@@ -942,12 +933,6 @@ class OnPolicyCallback(CallbackWithConfig):
                     expanded_advantages,
                     advantages,
                 )
-
-                reward_sq = rewards * rewards
-                expanded_advantages_sq = expanded_advantages * expanded_advantages
-                print(f"mean_rewards: {mean_rewards.sum()}, std_rewards: {std_rewards.sum()}")
-                print(f"flat_rewards: {flat_rewards.sum()}, expanded_advantages_sq: {expanded_advantages_sq.sum()}, action_masks: {env_outs['action_mask'].sum()}")
-                print(f"reward_sq: {reward_sq.sum()}, advantages: {advantages.sum()}")
                 env_outs['advantages'] = advantages
             else:
                 raise ValueError(
@@ -960,12 +945,10 @@ class OnPolicyCallback(CallbackWithConfig):
                 env_outs['action_mask'],
             )
 
-            print(f"batch_adv_mean: {batch_adv_mean}, batch_adv_var: {batch_adv_var}")
-
             bs = iter_batch['prompt_id'].shape[0]
             iter_batch.update({
-                'adv_masked_mean': torch.ones(bs, device=batch_adv_mean.device) * batch_adv_mean,
-                'adv_masked_var': torch.ones(bs, device=batch_adv_var.device) * batch_adv_var,
+                'adv_masked_mean': torch.ones(bs) * batch_adv_mean.cpu(),
+                'adv_masked_var': torch.ones(bs) * batch_adv_var.cpu(),
             })
 
         mean_ift = masked_mean(
@@ -1142,17 +1125,3 @@ class OnPolicyCallback(CallbackWithConfig):
     def load_state_dict(self, state_dict: dict[str, Any]):
         self.kl_ctl.load_state_dict(state_dict['KL_ctl_state_dict'])
         self.iter_num = state_dict['iter_num']
-
-    # def before_forward(self, state: State, logger: Logger):
-    #     if dist.get_global_rank() == 0:
-    #         skip_keys = ['prompt_id', 'prompt', 'prompt_len', 'verified_answer', 'prompt_attention_mask', 'sequences']
-    #         to_log = {k: v for k, v in state.batch.items() if k not in skip_keys}
-    #         print(f"Before forward, training on {to_log}")
-
-    # def after_forward(self, state: State, logger: Logger):
-    #     if dist.get_global_rank() == 0:
-    #         print(f"After forward, outputs: {state.outputs}")
-
-    # def after_loss(self, state: State, logger: Logger):
-    #     if dist.get_global_rank() == 0:
-    #         print(f"After loss, {state.loss}")

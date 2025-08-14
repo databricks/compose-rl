@@ -6,8 +6,7 @@ from compose_rl.utils import flatten
 
 def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx: int):
     ret_batch = {}
-    print(f"Length of batches: {len(batches)}")
-    print(f"Length of prompts in first batch: {len(batches[0]['prompt_id'])}")
+
     for key in batches[0].keys():
         curr_values = []
 
@@ -16,11 +15,10 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
             max_len = max([batch[key].shape[-1] for batch in batches])
 
         padding_key = None
+
         for batch in batches:
-
-            if isinstance(batch[key], torch.Tensor):
-                print(f"shape of {key}: {batch[key].shape}")
-
+            # inside the batch, it's a dictionary of tensors that have the batch dimension there,
+            # so we need to iterate through each element to explode it.
             for item in batch[key]:
                 # Explode the batch into multiple batches for each generation
                 for _ in range(generations_per_prompt):
@@ -56,16 +54,12 @@ def preprocess_batches(batches: list, generations_per_prompt: int, pad_token_idx
                     curr_values.append(torch.cat([pad, item], dim=-1))
 
         # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
-        print(f"{key}'s curr values type: {type(curr_values[0])}")
         if isinstance(curr_values[0], torch.Tensor):
             ret_batch[key] = torch.stack(curr_values)
-            print(f"Ret batch: {ret_batch[key].shape}")
         else:
             if key in ['verified_answer', 'vstar']:
                 ret_batch[key] = list(flatten(curr_values))
             else:
                 ret_batch[key] = curr_values
-
-    print(f"Ret batch: {ret_batch['prompt_id']}")
 
     return ret_batch

@@ -422,8 +422,6 @@ def dist_compute_masked_mean_and_var(
     # Get the masked tensor sum
     masked_tensor_sum = (tensor * mask).sum()
 
-    print(f"before dist, num_unmasked_elements: {num_unmasked_elements}, masked_tensor_sum: {masked_tensor_sum}, tensor: {tensor.sum()}")
-
     dist.all_reduce(num_unmasked_elements)
     dist.all_reduce(masked_tensor_sum)
 
@@ -434,8 +432,6 @@ def dist_compute_masked_mean_and_var(
     centered_values = centered_values.sum()
 
     dist.all_reduce(centered_values)
-
-    print(f"masked_tensor_sum: {masked_tensor_sum}, centered_values: {centered_values}, num_unmasked_elements: {num_unmasked_elements}")
     global_variance = centered_values / num_unmasked_elements
     if unbiased:
         bessel_correction = num_unmasked_elements / (num_unmasked_elements - 1)

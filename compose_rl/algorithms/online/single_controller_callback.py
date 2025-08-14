@@ -53,7 +53,6 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
             state.auto_microbatching,
             state.train_dataloader,
         )
-        print(f"Training on {len(self.buffer)} examples")
 
         # Update IFT KL
         self._update_ift_kl()

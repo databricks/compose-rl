@@ -7,14 +7,14 @@ scheduling:
   preemptible: false
 compute:
   gpus: 8
-  cluster: r5z2p1
+  cluster: r5z2p3
   instance: oci.bm.gpu.h200.8.oke
 integrations:
 - integration_type: git_repo
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: ethantang-db/fix_multi_node
+  git_branch: single-controller-hackathon
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
