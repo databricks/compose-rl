@@ -155,7 +155,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.model_config['tokenizer'] = self.tokenizer
 
         # Reference Model Initializing
-        self.ref_model_config = om.to_container(self.config.reference_model.model_config, resolve=True)
+        self.ref_model_config = om.to_container(self.config.variables.reference_model.model_config, resolve=True)
 
         self.global_train_batch_size = self.config.global_train_batch_size
         self.device_train_batch_size = self.global_train_batch_size // self.world_size
@@ -166,7 +166,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         # NOTE: if compute kl loss then no reward penalty
         # TODO: we should be more explicit about this toggle / make each kl regularization mechanism explicit
-        self.kl_controller_config = om.to_container(self.config.kl_controller, resolve=True)
+        self.kl_controller_config = om.to_container(self.config.variables.kl_controller, resolve=True)
         self.kl_penalty_in_reward = not self.model_config.get('compute_kl_loss', False)
 
         # Reward Coefficients
@@ -494,6 +494,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         """
         This function computes the reference log probs and computes KL estimates between pi and pi_ref.
         """
+        print("INSIDE REFERENCE LOG PROBS")
         kl = []
         ref_model_log_probs = []
 
@@ -509,7 +510,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 actions=curr_batch['actions'],
                 prompt_len=curr_batch['prompt_len'],
                 max_gen_len=self.max_gen_len,
-                temperature=self.config.generation_kwargs.temperature,
+                temperature=self.config.variables.generation_kwargs.temperature,
             )
 
             kl_dict = approx_kl(
