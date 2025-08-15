@@ -1139,8 +1139,7 @@ class RewardActor(BaseDistributedGPUActor):
 
         self.pool = None
         self.pool = Pool(
-            processes=len(self.inference_rewards) +
-            len(self.all_rewards),
+            processes=len(self.all_rewards),
             context=get_context('spawn'),
         )
 
