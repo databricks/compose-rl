@@ -1111,7 +1111,7 @@ class RewardActor(BaseDistributedGPUActor):
         self.logger.addHandler(handler)
         self.max_seq_len = config.max_seq_len
 
-        self.reward_config = om.to_container(config.rewards, resolve=True)
+        self.reward_config = om.to_container(config.variables.rewards, resolve=True)
         self.all_rewards = {}
 
         tokenizer_config = om.to_container(config.tokenizer.kwargs, resolve=True)
