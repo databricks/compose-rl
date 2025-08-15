@@ -407,7 +407,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             batch['prompt_id'].shape[0] // self.device_train_batch_size,
         ):
             minibatch = self._extract_minibatch(
-                self.batch_rollouts,
+                batch,
                 idx,
                 self.device_train_batch_size,
             )
