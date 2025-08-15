@@ -59,8 +59,8 @@ parameters:
     orl_eval:
       evals:
       - name: gsm8k
-      - name: math_500
-      - name: math_hard
+      #- name: math_500
+      #- name: math_hard
       eval_overrides:
         generation_params:
           max_tokens: 8192
@@ -137,14 +137,26 @@ parameters:
         use_auth_token: true
         use_flash_attention_2: true
         pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+    # The non-train-FSDP config
+    non_train_fsdp_config:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision: DEFAULT
+      activation_checkpointing: true
+      activation_cpu_offload: false
+      verbose: true
+      limit_all_gathers: true
+      state_dict_type: sharded
+      use_orig_params: true
     generation_kwargs:
       top_p: 1
       do_sample: true
       use_cache: true
       temperature: 1
     epoch_per_iteration: 1
-    generations_per_prompt: 8
-    num_batches_per_update: 8
+    #generations_per_prompt: 8
+    #num_batches_per_update: 8
+    generations_per_prompt: 2
+    num_batches_per_update: 2
     device_generate_batch_size: 1
   algorithms:
     gradient_clipping:
@@ -183,7 +195,7 @@ parameters:
       download_timeout: 1800
     drop_last: true
     num_workers: 1
-  eval_interval: 2iter
+  eval_interval: 100iter
   save_interval: 100iter
   log_to_console: true
   save_overwrite: true
@@ -191,7 +203,7 @@ parameters:
   console_log_interval: 1ba
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
-  global_train_batch_size: 64
+  global_train_batch_size: 16
   device_train_microbatch_size: 1
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
