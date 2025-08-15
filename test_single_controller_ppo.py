@@ -1092,7 +1092,7 @@ master_port=None,
 class RewardActor(BaseDistributedGPUActor):
     """Streaming actor for adding rewards on top the experience buffer."""
 
-    def __init__(self, config):
+    def __init__(self, config: Any):
         # Setting up the distributed environment (WORLD_SIZE = 1)
         super().__init__(
             rank=0,
@@ -1103,66 +1103,24 @@ class RewardActor(BaseDistributedGPUActor):
         # Configure Ray actor logging - this will go to Ray logs
         self.logger = logging.getLogger(f"REWARD-ACTOR")
         self.logger.setLevel(logging.INFO)
-        
+
         # Create console handler that will be captured by Ray
         handler = logging.StreamHandler()
         formatter = logging.Formatter(f'[REWARD-ACTOR] %(asctime)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
-        
-        # For fine-grained rewards. Not necessarily used.
-        #
-        # TODO: use config
-        self.config = config
+        self.max_seq_len = config.max_seq_len
 
-        self.max_seq_len = self.config.max_seq_len
-        self.precision = Precision.AMP_BF16
-        self.parser = spacy.load('en_core_web_sm')
-        self.pretrain_model_name = 'meta-llama/Llama-3.1-8B-Instruct'
-        self.tokenizer_config = {
-            'padding': 'longest',
-            'pad_token': '<|finetune_right_pad_id|>',
-            'truncation': True,
-            'padding_side': 'left',
-            'model_max_length': self.max_seq_len,
-            'trust_remote_code': True,
-        }
-        self.tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name, **self.tokenizer_config)
-
+        self.reward_config = om.to_container(config.rewards, resolve=True)
         self.all_rewards = {}
-        self.reward_coefficients: dict[str, float] = {}
-        self.granularities: dict[str, str] = {}
 
-        self.inference_rewards: list[str] = []
-        self.functional_rewards: list[str] = []
-        self.local_reward_models: list[str] = []
-
-        self.reward_config = {
-            'math_verifier': {
-                'reward_type': 'math_verifier',
-                'reward': 4,
-            },
-            'bad_generation_end': {
-                'reward': -1,
-                'eos_penalty': True,
-                'reward_type': 'bad_generation_end'
-            },
-            'math_format_verifier': {
-                'reward': 1,
-                'reward_type': 'math_format_verifier'
-            },
-            'penalize_extra_short_responses': {
-                'reward': -1,
-                'reward_type': 'short_response_reward',
-                'len_threshold': 10
-            },
-        }
-
+        tokenizer_config = om.to_container(config.tokenizer.kwargs, resolve=True)
+        tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.name, **tokenizer_config)
         for reward_name, reward_config in self.reward_config.items():
             assert isinstance(reward_name, str)
             if reward_name in self.all_rewards:
                 raise KeyError(
-                    f'The reward manager already has a model with {reward_name=}',
+                    f'The reward already has a model with {reward_name=}',
                 )
 
             self.logger.info(f'Initializing reward with name {reward_name}')
@@ -1170,120 +1128,21 @@ class RewardActor(BaseDistributedGPUActor):
             # TODO: Validate reward_config
             reward_type = reward_config.pop('reward_type')
             reward_cls = rewards_registry.get(reward_type)
-
-            if issubclass(reward_cls, Reward):
-                # TODO: This assumes that all functional rewards are document level rewards.
-                # This is not necessarily true, but is a reasonable assumption for now.
-                self.granularities[reward_name] = 'document'
-                model = build_reward(
-                    name=reward_type,
-                    tokenizer=self.tokenizer,
-                    kwargs=reward_config,
-                )
-                self.functional_rewards.append(reward_name)
-
-            elif issubclass(reward_cls, RewardModel):
-                self.granularities[reward_name] = reward_config.get(
-                    'granularity',
-                )
-
-                if reward_cls == InferenceRewardModel:
-                    model = build_reward(
-                        name=reward_type,
-                        tokenizer=self.tokenizer,
-                        kwargs=reward_config,
-                    )
-                    self.inference_rewards.append(reward_name)
-
-                else:
-                    # TODO: Local reward models will note be supported in the single controller cpu only RM manager.
-                    reward_model_config = reward_config.get(
-                        'model_config',
-                        None,
-                    )
-                    assert reward_model_config is not None, 'model_config must be provided in reward_config'
-                    model = self.initialize_composer_model(
-                        model_config=reward_config.get('model_config'),
-                        model_name=reward_name,
-                        precision=reward_config.get('precision', self.precision),
-                        load_path=reward_config.get('load_path', None),
-                    )
-                    self.local_reward_models.append(reward_name)
-            else:
-                raise TypeError(
-                    f'Reward class {reward_cls} is not a subclass of either Reward or RewardModel.',
-                )
+            assert issubclass(reward_cls, Reward)
+            model = build_reward(
+                name=reward_type,
+                tokenizer=tokenizer,
+                kwargs=reward_config,
+            )
 
             self.all_rewards[reward_name] = model
-            self.reward_coefficients[reward_name] = reward_config.get(
-                'reward_coefficient',
-                1.0,
-            )
-
-        self.granularity_types = list(set(self.granularities.values()))
 
         self.pool = None
-        if self.inference_rewards or self.functional_rewards:
-            self.pool = Pool(
-                processes=len(self.inference_rewards) +
-                len(self.functional_rewards),
-                context=get_context('spawn'),
-            )
-    
-    @property
-    def fsdp_config(self):
-        # TODO (infra): This should be the non_train_fsdp_config from the callback
-        return {}
-    
-    def initialize_composer_model(
-        self,
-        model_config: dict[str, Any],
-        model_name: str,
-        precision: Precision = Precision.FP32,
-        load_path: Optional[str] = None,
-    ) -> torch.nn.Module:
-        """Create the reference model."""
-        self.logger.info(f'Initializing {model_name} model')
-        name = model_config.pop('name')
-
-        init_context = process_init_device(
-            model_config,
-            self.fsdp_config,
+        self.pool = Pool(
+            processes=len(self.inference_rewards) +
+            len(self.all_rewards),
+            context=get_context('spawn'),
         )
-        model = build_composer_model(
-            name=name,
-            cfg=model_config,
-            tokenizer=self.tokenizer,
-            init_context=init_context,
-            master_weights_dtype=model_config.get('master_weights_dtype', None),
-        )
-
-        parallelism_config = {'fsdp': self.fsdp_config}
-
-        # Create a Trainer object to load from checkpoint and FSDP the model
-        _ = Trainer(
-            model=model,
-            parallelism_config=parallelism_config,
-            precision=precision,
-            load_weights_only=True,
-            load_strict_model_weights=False,
-            load_path=load_path,
-            python_log_level='debug',
-        )
-
-        self.logger.info(f'Initialized {model_name} model')
-        return model
-
-    @staticmethod
-    def make_zero_reward(ref_tensor: torch.Tensor):
-        """Helper to instantiate an empty reward tensor.
-
-        The output will be a zero tensor with the same shape, device, and dtype
-        as ref_tensor
-        """
-        return torch.zeros_like(ref_tensor).to(
-            ref_tensor.device,
-        ).type(ref_tensor.dtype)
 
     @staticmethod
     def _to_cpu(x: Any) -> Any:
@@ -1295,70 +1154,6 @@ class RewardActor(BaseDistributedGPUActor):
             return {k: RewardActor._to_cpu(v) for k, v in x.items()}
         else:
             return x
-
-    @staticmethod
-    def call_reward_model(
-        reward_model: RewardModel,
-        batch: MutableMapping,
-    ):
-        """Calls the reward model and extract rewards.
-
-        This function will call the reward model (local or inference) and extract
-        the rewards from the model output. The extracted rewards will be scattered
-        into a reward tensor.
-
-        Args:
-            reward_model (RewardModel): the reward model to call.
-            batch (MutableMapping): the batch of data to compute the reward.
-
-        Returns:
-            rewards (Tensor): a tensor of rewards. This is the result of scattering
-                the extracted rewards into the zero_rewards tensor.
-        """
-        # We need to do this to handle getting rewards at multiple points in a
-        # single input sequence with a deployed RM.
-        if isinstance(reward_model, InferenceRewardModel):
-            rm_seq_lens = [
-                [idx + prompt_len
-                 for idx in gather_indices]
-                for gather_indices, prompt_len in
-                zip(batch['end_idxs_gather'], batch['reward_prompt_lens'])
-            ]
-        else:
-            rm_seq_lens = batch['reward_seq_lens']
-
-        reward_batch = {
-            'input_ids': batch['tok_formatted_reward_inputs'],
-            'attention_mask': batch['tok_formatted_reward_attn_masks'],
-            'seq_lens': rm_seq_lens,
-            'is_inference': True,
-            'seq_reward': True,
-        }
-
-        # Note this uses separate seq lengths to account for potential
-        # changes made during reward string formatting
-        curr_rewards = reward_model(
-            reward_batch,
-        ).to(
-            dtype=batch['zero_rewards'].dtype,
-        )
-
-        assert isinstance(curr_rewards, torch.Tensor)
-        # Passing in reward_seq_lens to make sure RL formatting in env_generate
-        # and special reward formatting idxs match up before scattering rewards
-        output: torch.Tensor = scatter_gather_rewards(
-            temp_rews=batch['zero_rewards'],
-            curr_rewards=curr_rewards,
-            reward_prompt_lens=batch['reward_prompt_lens'],
-            prompt_lens=batch['prompt_lens'],
-            reward_generated_lens=batch['reward_generated_lens'],
-            generated_lens=batch['generated_lens'],
-            end_idxs_gather=batch['end_idxs_gather'],
-            end_idxs_scatter=batch['end_idxs_scatter'],
-            reward_seq_lens=batch['reward_seq_lens'],
-            seq_lens=batch['seq_lens'],
-        )
-        return output
 
     def calculate_reward(
         self,
@@ -1400,21 +1195,6 @@ class RewardActor(BaseDistributedGPUActor):
                 async, the associated value is an AsyncResult object that will return
                 the reward tensor from its `.get()` method.
         """
-        device = right_padded_obses.device.type
-
-        # Only process text for the existing granularity types of the rewards
-        processed_inputs = batch_process_fine_granularities(
-            raw_untokenized_texts=raw_untokenized_texts,
-            granularity_types=self.granularity_types,
-            generated_lens=generated_lens.cpu().tolist(),
-            prompt_lens=prompt_lens.cpu().tolist(),
-            original_obses=right_padded_obses.cpu().tolist(),
-            parser=self.parser,
-            tokenizer=self.tokenizer,
-            max_seq_len=self.max_seq_len,
-            device=device,
-        )
-
         computed_rewards: RewardOutput = {}
 
         # Base batch that we will adjust per reward mdoel
@@ -1431,51 +1211,18 @@ class RewardActor(BaseDistributedGPUActor):
         if verified_answers is not None:
             batch['verified_answers'] = verified_answers
 
-        for reward_name in chain(
-            self.functional_rewards,
-            self.inference_rewards,
-            self.local_reward_models,
-        ):
+        for reward_name, curr_reward in self.all_rewards.items():
             curr_reward = self.all_rewards[reward_name]
-            curr_batch = self._create_batch(
-                self.all_rewards[reward_name],
-                reward_name,
-                processed_inputs,
-                batch,
-                raw_untokenized_texts,
-            )
-            curr_batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
+            batch['raw_untokenized_texts'] = raw_untokenized_texts
+            batch['zero_rewards'] = torch.zeros_like(action_log_probs)
+
             func = curr_reward
-            args = (self._to_cpu(curr_batch),)
+            args = (self._to_cpu(batch),)
 
-            if isinstance(
-                curr_reward,
-                Reward,
-            ) or isinstance(curr_reward, InferenceRewardModel):
-                if isinstance(curr_reward, InferenceRewardModel):
-                    func = self.call_reward_model
-                    args = (
-                        self.all_rewards[reward_name],
-                        self._to_cpu(curr_batch),
-                    )
-
-                assert self.pool is not None
-                computed_rewards[reward_name] = self.pool.apply_async(
-                    func=func,
-                    args=args,
-                )
-            elif isinstance(curr_reward, RewardModel):
-                computed_rewards[reward_name] = self.call_reward_model(
-                    self.all_rewards[reward_name],
-                    curr_batch,
-                )
-            else:
-                raise TypeError(
-                    f'Unknown reward model type {type(curr_reward)}. Expected `Reward` or `RewardModel`.',
-                )
-
-        # NOTE: is this needed?
-        # batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
+            computed_rewards[reward_name] = self.pool.apply_async(
+                func=func,
+                args=args,
+            )
 
         # convert all AsyncResult objects to tensors because ray cannot return Pool objects
         for reward_name, subreward in computed_rewards.items():
@@ -1485,176 +1232,6 @@ class RewardActor(BaseDistributedGPUActor):
                 computed_rewards[reward_name] = subreward
 
         return computed_rewards
-
-    def _create_batch(
-        self,
-        reward_model: BaseReward,
-        reward_name: str,
-        processed_inputs: dict[str, Any],
-        base_batch: dict[str, Any],
-        raw_untokenized_texts: list[tuple[str, str]],
-    ) -> dict[str, Any]:
-        """Helper to get the callable and the input kwargs for the reward.
-
-        Args:
-            reward_model (BaseReward): the reward model to create the batch for.
-            reward_name (str): the name of the reward to create the batch for.
-            processed_inputs (dict): the processed inputs for the reward, based on granularity.
-            base_batch (dict): the base batch to add the reward inputs to.
-            raw_untokenized_texts (list): the raw untokenized texts.
-        """
-        if isinstance(reward_model, Reward):
-            return {
-                **base_batch,
-                'raw_untokenized_texts': raw_untokenized_texts,
-            }
-        elif isinstance(reward_model, RewardModel):
-            granularity = self.granularities[reward_name]
-            curr_inputs = processed_inputs['end_reward_inputs_dict'][granularity
-                                                                    ]
-            tok_formatted_reward_inputs = torch.tensor(
-                curr_inputs.input_ids,
-            ).type(base_batch['input_ids'].dtype)
-            tok_formatted_reward_attn_masks = torch.tensor(
-                curr_inputs.attention_mask,
-            ).type(base_batch['attention_mask'].dtype)
-
-            return {
-                'tok_formatted_reward_inputs':
-                    tok_formatted_reward_inputs,
-                'tok_formatted_reward_attn_masks':
-                    tok_formatted_reward_attn_masks,
-                'reward_seq_lens':
-                    processed_inputs['reward_seq_lens_dict'][granularity],
-                'reward_prompt_lens':
-                    processed_inputs['reward_prompt_lens_dict'][granularity],
-                'reward_generated_lens':
-                    processed_inputs['reward_generated_lens_dict'][granularity],
-                'end_idxs_gather':
-                    processed_inputs['end_idxs_gather_dict'][granularity],
-                'end_idxs_scatter':
-                    processed_inputs['end_idxs_scatter_dict'][granularity],
-                'prompt_lens':
-                    base_batch['prompt_len'],
-                'generated_lens':
-                    base_batch['generated_lens'],
-                'seq_lens':
-                    base_batch['seq_lens'],
-            }
-        else:
-            raise TypeError(
-                f'Unknown reward model type {type(reward_model)}. Expected `Reward` or `RewardModel`.',
-            )
-
-    def resolve_outputs(
-        self,
-        ref_output: ReferenceOutput,
-        reward_output: RewardOutput,
-        kl_ctl: BaseKLController,
-        action_mask: torch.Tensor,
-        center_reward_mean: Optional[float] = None,
-    ) -> dict[str, torch.Tensor]:
-        """Resolve async results and finalize reward dict.
-
-        Note: This method will wait for any AsyncResults to finish, so the associated async
-        calls become blocking once this method is called. This method is separated from
-        the __call__ method to make it easier to perform this (potentially) blocking step
-        as long after __call__ as possible (ie, to best leverage the async setup).
-
-        Args:
-            ref_output (ReferenceOutput): The first output of the __call__ method.
-                The ReferenceOutput tuple has two elements: the reference KL and
-                the reference log probs, in that order.
-            reward_output (RewardOutput): The second output of the __call__ method.
-            kl_ctl (BaseKLController): KL controller object that provides the
-                coefficient of the KL penalty in the aggregate reward.
-            action_mask (Tensor): A mask tensor indicating which action tokens
-                are padding.
-            center_reward_mean (float, optional): An offset to subtract from the
-                aggregate environment rewards (subtracted before the KL penalty is
-                added). Default: no offset is subtracted.
-
-        Returns:
-            outputs: a dictionary capturing all the reward outputs, including the
-                aggregate reward for RL training, as well as the rewards from each
-                reward model.
-        """
-        device = action_mask.device
-
-        # Resolve any output elements that are being computed async,
-        # waiting for them to finish where necessary.
-        resolved_reward_outputs: dict[str, torch.Tensor] = {}
-        bad_end_generation_mask = None
-        bad_end_generation_name = None
-        for name, subreward in reward_output.items():
-            if isinstance(subreward, AsyncResult):
-                resolved_reward: torch.Tensor = subreward.get()
-            else:
-                resolved_reward: torch.Tensor = subreward
-            resolved_reward_outputs[name] = resolved_reward.to(device=device)
-            if isinstance(self.all_rewards[name], BadGenerationEndReward):
-                bad_end_generation_name = name
-                bad_generation_row_mask = torch.any(resolved_reward != 0, dim=1)
-
-                bad_end_generation_mask = (
-                    ~bad_generation_row_mask
-                ).unsqueeze(1).expand_as(resolved_reward)
-                bad_end_generation_mask = bad_end_generation_mask.to(
-                    device=device,
-                )
-
-        ref_kl = ref_output[0].to(device=device)
-        ref_log_probs = ref_output[1].to(device=device)
-
-        if self.kl_penalty_in_reward:
-            rewards: torch.Tensor = -kl_ctl.value * ref_kl.detach()
-        else:
-            rewards: torch.Tensor = torch.zeros_like(ref_kl)
-
-        env_rewards = self.make_zero_reward(rewards)
-
-        rews_dict_out: dict[str, torch.Tensor] = {}
-        for name, subreward in resolved_reward_outputs.items():
-            if name not in self.reward_coefficients:
-                raise KeyError(
-                    f'Reward with {name=} is not recognized by the reward manager.',
-                )
-            env_rewards += subreward.detach() * self.reward_coefficients[name]
-
-            # In the output, make sure each key has 'reward' in it to engage
-            # proper logging (see .loss of policy class)
-            out_name = name + '_reward' if 'reward' not in name else ''
-            rews_dict_out[out_name] = subreward.detach() * action_mask
-
-        # Masking out all rewards if the generation ends with a bad token
-        # And strictly adding a penalty for bad generation ending.
-        if bad_end_generation_mask is not None and bad_end_generation_name is not None:
-            env_rewards *= bad_end_generation_mask
-            env_rewards += (
-                resolved_reward_outputs[bad_end_generation_name].detach() *
-                self.reward_coefficients[bad_end_generation_name]
-            )
-
-        # Optionally apply an offset to the environment rewards
-        if center_reward_mean is not None:
-            env_rewards -= center_reward_mean
-
-        # Final rewards is total env rewards + KL penalties
-        rewards += env_rewards
-
-        # Zero rewards at padded tokens
-        rewards *= action_mask
-        env_rewards *= action_mask
-
-        outputs = {
-            'rewards': rewards.detach(),
-            'env_rewards': env_rewards.detach(),
-            'ift_log_probs': ref_log_probs.detach(),
-            'ift_kl': ref_kl.detach(),
-        }
-        outputs.update(rews_dict_out)
-
-        return outputs
 
 
 class RolloutAgent:
