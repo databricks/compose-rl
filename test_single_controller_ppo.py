@@ -437,14 +437,13 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def _update_ift_kl(self):
         local_kl = torch.stack(self.kl_ift)
-
-        global_ift_kl = torch.cat(dist.all_gather_object(local_kl))
+        global_ift_kl = torch.cat(composer_dist.all_gather_object(local_kl))
         ift_kl_update = torch.mean(global_ift_kl)
 
         self.kl_controller.update(
             ift_kl_update,
             self.num_batches_per_update * self.device_train_batch_size *  # type: ignore
-            dist.get_world_size(),
+            composer_dist.get_world_size(),
         )
 
         self.kl_ift = []
