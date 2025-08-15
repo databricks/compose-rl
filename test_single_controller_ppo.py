@@ -33,6 +33,8 @@ import torch.distributed as dist
 from composer import Trainer
 from composer.core import get_precision_context, Precision
 from composer.core.data_spec import _default_split_batch
+from composer.trainer.trainer import _get_initial_device_train_microbatch_size
+from compose_rl.data.buffer import MinibatchRolloutBuffer
 from composer.optim import DecoupledAdamW
 from composer.utils import dist as composer_dist
 from llmfoundry.data import build_dataloader
@@ -129,6 +131,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self._tokenizer = None
         self.ppo_callback = None
         self.ppo_trainer: Trainer = None  # type: ignore
+        self.buffer: MinibatchRolloutBuffer = None  # type: ignore
 
         self.pretrain_model_name = None
         self.device_train_batch_size = None
@@ -136,12 +139,14 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.max_seq_len = None
         self.precision = None  # type: ignore
         self.train_config: dict = None  # type: ignore
+        self.variables_config: dict = None  # type: ignore
         self.model_config = None
         self.ref_model_config = None
         self.global_train_batch_size = None
         self.max_gen_len = None
 
         # KL Penalty and Controller
+        self.kl_ift = []
         self.kl_controller = None
         self.kl_controller_config = None
         self.kl_penalty_in_reward = None
@@ -182,6 +187,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             )
 
         variables = om.to_container(self.config.variables, resolve=True)
+        self.variables_config = variables
         algorithm_config = self.config.algorithms
 
         self.train_config = {
@@ -190,7 +196,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'ref_model': self.ref_model_config,
             'fsdp_config': self.config.fsdp_config,
             'kl_controller': self.kl_controller_config,
-            'non_train_fsdp_config': self.config.variables.non_train_fsdp_config,
+            'non_train_fsdp_config': self.variables_config['non_train_fsdp_config'],
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,
@@ -204,6 +210,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'console_log_interval': self.config.console_log_interval,
         }
         self.logger.info("Finished build_train_config")
+
+    def build_buffer(self):
+        self.buffer = MinibatchRolloutBuffer(self.variables_config['buffer'])
+        self.logger.info(f'Initialized minibatch buffer.')
 
     def build_tokenizer(self):
         # TODO (algo): decide if we should use tokens or messages given
@@ -237,7 +247,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         init_context = process_init_device(
             self.ref_model_config,
-            self.config.variables.non_train_fsdp_config,
+            self.variables_config['non_train_fsdp_config'],
         )
 
         self.reference_model = build_composer_model(
@@ -248,9 +258,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             master_weights_dtype=self.ref_model_config.get('master_weights_dtype', None),
         )
 
-        parallelism_config = {'fsdp': self.config.variables.non_train_fsdp_config}
+        parallelism_config = {'fsdp': self.variables_config['non_train_fsdp_config']}
 
-        load_path = self.config.variables.reference_model.get('load_path', None)
+        load_path = self.variables_config['reference_model'].get('load_path', None)
 
         # Create a Trainer object to load from checkpoint and FSDP the model
         _ = Trainer(
@@ -360,7 +370,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 reference_output['kl'],
                 partial_batch['action_mask'],
             )
-            self.ppo_callback.kl_ift.append(mean_ift.cpu())
+            self.kl_ift.append(mean_ift.cpu())
 
             # 3) Scale rewards and apply KL Penalty
             reward_output = self.update_rewards(current_rank_rollouts['all_rewards_dict'], reference_output, partial_batch['action_mask'], device)
@@ -383,13 +393,94 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 if hasattr(v, 'cpu'):
                     batch[k] = v.cpu()
 
-        self.ppo_callback.batch_rollouts = batch
+        # NOTE: Probably should break things up but putting it here for now for clarity
+        # Delete Non-tensor keys for training batch
+        for key in ['verified_answer', 'messages']:
+            if key in batch.batch_rollouts.keys():
+                del batch[key]
 
-    def get_log_probs_and_entropy(self, current_rank_rollouts, device):
+        # We need to split the resolved outputs into minibatches
+        for idx in range(
+            batch['prompt_id'].shape[0] // self.device_train_batch_size,
+        ):
+            minibatch = self._extract_minibatch(
+                self.batch_rollouts,
+                idx,
+                self.device_train_batch_size,
+            )
+            self.buffer.add(minibatch)
+
+        # Making sure we correctly parsed the minibatches
+        assert len(
+            self.buffer,
+        ) == self.num_batches_per_update, f'{len(self.buffer)} != {self.num_batches_per_update}'
+
+        self.ppo_trainer.state.model.train()
+
+        # Reset and initialize state train dataloader
+        self.logger.warning(
+            'trainer._train_data_spec should be updated whenever the dataloader is updated',
+        )
+        # Train Dataloader
+        self.ppo_trainer.state.set_dataloader(self.buffer, 'ep')
+        self.ppo_trainer.state.train_dataloader = self.ppo_trainer.state.dataloader
+        self.ppo_trainer.state.device_train_microbatch_size = _get_initial_device_train_microbatch_size(
+            self.ppo_trainer.state.device_train_microbatch_size,
+            self.ppo_trainer.state.auto_microbatching,
+            self.ppo_trainer.state.train_dataloader,
+        )
+
+        self._update_ift_kl()
+
+    def _update_ift_kl(self):
+        local_kl = torch.stack(self.kl_ift)
+
+        global_ift_kl = torch.cat(dist.all_gather_object(local_kl))
+        ift_kl_update = torch.mean(global_ift_kl)
+
+        self.kl_controller.update(
+            ift_kl_update,
+            self.num_batches_per_update * self.device_train_batch_size *  # type: ignore
+            dist.get_world_size(),
+        )
+
+        self.kl_ift = []
+
+    def _extract_minibatch(
+        self,
+        batch: dict[str, torch.Tensor],
+        idx: int,
+        minibatch_size: int,
+    ) -> dict[str, torch.Tensor]:
+        """Extracts a minibatch from a composite batch.
+
+        This helper is used to extract a particular minibatch of size
+        minibatch_size from `batch`, where `batch` may
+        have a batch size that exceeds the minibatch size.
+
+        Args:
+            batch (dict[str, torch.Tensor]): an arbitrary batch, where
+                each entry has batch size >= minibatch_size,
+                representing the concatenation of >= 1 minibatches.
+            idx (int): The index of the batch (see above description) to extract.
+
+        Returns:
+            curr_gen_batch (dict[str, torch.Tensor]): The gen_batch_idx'th
+                gen_batch extracted from the batch input.
+        """
+        start_idx = idx * minibatch_size
+        end_idx = (idx + 1) * minibatch_size
+        curr_gen_batch = {
+            batch_key: tensor[start_idx:end_idx]
+            for batch_key, tensor in batch.items()
+        }
+        return curr_gen_batch
+
+    def get_log_probs_and_entropy(self, current_rank_rollouts: dict[str, Any], device: torch.device):
         prompt_tokens = current_rank_rollouts['prompt']
         batch_size, _ = prompt_tokens.shape
         pad_token_id = self.tokenizer.pad_token_id
-        eos_token_ids = self.config.variables.eos_token_ids
+        eos_token_ids = self.variables_config['eos_token_ids']
         prompt_len = current_rank_rollouts['prompt_len']
         prompt_id = current_rank_rollouts['prompt_id']
 
@@ -556,7 +647,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 actions=curr_batch['actions'],
                 prompt_len=curr_batch['prompt_len'],
                 max_gen_len=self.max_gen_len,
-                temperature=self.config.variables.generation_kwargs.temperature,
+                temperature=self.variables_config['generation_kwargs']['temperature'],
             )
 
             kl_dict = approx_kl(
@@ -651,7 +742,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         return outputs
 
-    def compute_advantages(self, batch, reward_output):
+    def compute_advantages(self, batch: Any, reward_output: Any):
         # compute GRPO advantages
         bs = batch['prompt_id'].shape[0]
         prompt_id = batch['prompt_id']
@@ -698,7 +789,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # Calculate GRPO advantage
         grpo_advantage = (flat_rewards - mean_rewards)
         # Only normalize the advantage if flag is set
-        if self.model_config['normalize_advantage']:
+        if self.model_config['normalize_advantage']:  # type: ignore
             grpo_advantage /= (std_rewards + 1e-4)
 
         # Create advantages of the same shape as original rewards
@@ -792,6 +883,7 @@ class TrainActorGroup(SPMDActorGroup):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
 
+    # TODO: Maybe rename to build components?
     def build_models(self, config: Any):
         """Build reference models and PPO trainers for all actors."""
         self.collective_methods.build_train_config(config)
@@ -800,6 +892,9 @@ class TrainActorGroup(SPMDActorGroup):
         # Build PPO trainers
         self.collective_methods.build_ppo_trainer()
         print('build ppo trainer done')
+
+        # Build Minibatch Buffer
+        self.collective_methods.build_buffer()
 
         # Build Reference Model
         self.collective_methods.build_reference_model()
@@ -1010,7 +1105,7 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
             rank=0,
             world_size=1,
             master_addr=None,
-master_port=None,
+            master_port=None,
         )
 
         # Setting up all of the configs

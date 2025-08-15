@@ -108,49 +108,11 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
 
     #    self.actor_critic.train()
 
-    def iteration_start(self, state: State, logger: Logger):
-        del logger  # unused
+    #def iteration_start(self, state: State, logger: Logger):
+    #    del logger  # unused
 
-        # self._get_reward(self.batch_rollouts)  # type: ignore
-
-        # Delete Non-tensor keys for training batch
-        for key in ['verified_answer', 'messages']:
-            if key in self.batch_rollouts.keys():
-                del self.batch_rollouts[key]
-
-        # We need to split the resolved outputs into minibatches
-        for idx in range(
-            self.batch_rollouts['prompt_id'].shape[0] // self.device_train_batch_size,
-        ):
-            minibatch = self._extract_minibatch(
-                self.batch_rollouts,
-                idx,
-                self.device_train_batch_size,
-            )
-            self.buffer.add(minibatch)
-
-        # Making sure we correctly parsed the minibatches
-        assert len(
-            self.buffer,
-        ) == self.num_batches_per_update, f'{len(self.buffer)} != {self.num_batches_per_update}'
-
-        self.actor_critic.train()
-
-        # Reset and initialize state train dataloader
-        log.warning(
-            'trainer._train_data_spec should be updated whenever the dataloader is updated',
-        )
-        # Train Dataloader
-        state.set_dataloader(self.buffer, 'ep')
-        state.train_dataloader = state.dataloader
-        state.device_train_microbatch_size = _get_initial_device_train_microbatch_size(
-            state.device_train_microbatch_size,
-            state.auto_microbatching,
-            state.train_dataloader,
-        )
-
-        # Update IFT KL
-        self._update_ift_kl()
+    #    # Update IFT KL
+    #    self._update_ift_kl()
 
     def iteration_end(self, state: State, logger: Logger):
         del logger  # unused
