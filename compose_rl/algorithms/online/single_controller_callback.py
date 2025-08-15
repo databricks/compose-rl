@@ -116,7 +116,7 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
 
     def iteration_end(self, state: State, logger: Logger):
         del logger  # unused
-        # TODO:
-        # self._log_generations_to_logger(state)
-        self._increment_rl_iter()
-        self.buffer.reset()
+    #    # TODO: rethink logging
+    #    # self._log_generations_to_logger(state)
+    #    self._increment_rl_iter()
+    #    self.buffer.reset()

@@ -154,6 +154,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # Reward info
         self.reward_coefficients: dict = None  # type: ignore
 
+        # RL iteration variables
+        self.rl_iter = 0
+
     def build_train_config(self, config: Any):
         self.config = config
         self.logger.info(f"Starting build_train_config with model: {self.config.model.pretrained_model_name_or_path}")
@@ -831,6 +834,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # We potentially want to run this https://github.com/mosaicml/composer/blob/dev/composer/trainer/trainer.py#L2826
         # fit() can also potentially overwrite the mlflow
         self.ppo_trainer.fit(duration='1iter')
+
+        # After Iteration callback
+        self.rl_iter += 1
+        self.buffer.reset()
         self.logger.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
 
 
