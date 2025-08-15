@@ -396,7 +396,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # NOTE: Probably should break things up but putting it here for now for clarity
         # Delete Non-tensor keys for training batch
         for key in ['verified_answer', 'messages']:
-            if key in batch.batch_rollouts.keys():
+            if key in batch.keys():
                 del batch[key]
 
         # We need to split the resolved outputs into minibatches
