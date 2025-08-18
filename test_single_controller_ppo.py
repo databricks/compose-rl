@@ -380,6 +380,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             # 4) Compute Advantages
             advantage_output = self.compute_advantages(partial_batch, reward_output)
 
+            self.logger.info("========== DONE with get reward =============")
+
             # Construct batch
             bs = partial_batch['prompt_id'].shape[0]
             batch = {
@@ -413,6 +415,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             )
             self.buffer.add(minibatch)
 
+        self.logger.info("========== DONE with adding to BUFFER =============")
+
         # Making sure we correctly parsed the minibatches
         assert len(
             self.buffer,
@@ -433,7 +437,11 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             self.ppo_trainer.state.train_dataloader,
         )
 
+        self.logger.info("========== DONE with setting dataloader =============")
+
         self._update_ift_kl()
+
+        self.logger.info("========== DONE with Update KL =============")
 
     def _update_ift_kl(self):
         local_kl = torch.stack(self.kl_ift)
