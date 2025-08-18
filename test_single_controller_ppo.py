@@ -101,6 +101,17 @@ def time_it(name: str):
     print(f"[{name}] took {end_time - start_time:.2f} seconds")
 
 
+def get_and_validate_num_prompts_per_iteration(config: Any):
+    generations_per_prompt = config.variables.generations_per_prompt
+    num_batches_per_update = config.variables.num_batches_per_update
+    total_num_generations = config.global_train_batch_size * num_batches_per_update
+    num_prompts_per_iteration = total_num_generations // generations_per_prompt
+
+    assert total_num_generations % generations_per_prompt == 0, "total_num_generations must be divisible by generations_per_prompt"
+
+    return num_prompts_per_iteration
+
+
 class DistributedGPUActor(BaseDistributedGPUActor):
     """Distributed GPU actor for testing."""
 
@@ -1139,14 +1150,8 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
             self.dataloader_config['dataset']['local'].format(timestamp=timestamp)
 
         # Key variables
-        global_train_batch_size = config.global_train_batch_size
         self.generations_per_prompt = config.variables.generations_per_prompt
-        num_batches_per_update = config.variables.num_batches_per_update
-        total_num_generations = global_train_batch_size * num_batches_per_update
-        self.num_prompts_per_iteration = total_num_generations // self.generations_per_prompt
-
-        # Validate that the total number of generations is divisible by the number of generations per prompt
-        assert total_num_generations % self.generations_per_prompt == 0, "total_num_generations must be divisible by generations_per_prompt"
+        self.num_prompts_per_iteration = get_and_validate_num_prompts_per_iteration(config)
 
         # Creating main entities
         self.tokenizer = self._build_tokenizer()
@@ -1694,6 +1699,9 @@ def _run_single_controller_ppo(
                 config=config,
             )
 
+            num_prompts_per_iteration = get_and_validate_num_prompts_per_iteration(config)
+            assert num_prompts_per_iteration % num_train_actors == 0, "Number of prompts per iteration must be divisible by number of train actors to ensure accurate advantage calculations."
+
             # We are using a CPU worker for the StreamingActor
             # and this involves a super hacky workaround by
             # uninstalling megablocks if it exists. Better solutions
@@ -1711,6 +1719,8 @@ def _run_single_controller_ppo(
             streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote(config)
             reward_actor = ray.remote(num_gpus=0)(RewardActor).remote(config)
             rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, reward_actor, config)
+
+            
 
             # EvalAgent doesn't need to be a Ray actor since we don't need to
             # set a world_size or use GPUs for this process.
