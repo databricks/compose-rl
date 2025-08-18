@@ -14,7 +14,8 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: single-controller-hackathon
+  #git_branch: single-controller-hackathon
+  git_branch: ashu/separate_reward
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
@@ -180,7 +181,7 @@ parameters:
   max_seq_len: 10240
   save_folder: /tmp/checkpoints
   dist_timeout: 1800
-  max_duration: 10iter
+  max_duration: 1000iter
   progress_bar: false
   train_loader:
     name: prompt
