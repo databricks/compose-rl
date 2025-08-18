@@ -23,6 +23,7 @@ from itertools import chain
 from functools import partial
 from typing import Any, Optional, Union, MutableMapping
 from multiprocessing import get_context
+from multiprocessing.context import TimeoutError as MultiprocessingTimeoutError
 from multiprocessing.pool import AsyncResult, Pool
 
 from composer.loggers import MLFlowLogger
@@ -266,6 +267,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         load_path = self.variables_config['reference_model'].get('load_path', None)
 
         # Create a Trainer object to load from checkpoint and FSDP the model
+        # TODO: use FSDP2 utils to FSDP module.
         _ = Trainer(
             model=self.reference_model,
             parallelism_config=parallelism_config,
@@ -1242,8 +1244,9 @@ class RewardActor(BaseDistributedGPUActor):
             self.all_rewards[reward_name] = model
 
         self.pool = None
+        self._num_reward_procs = len(self.all_rewards)
         self.pool = Pool(
-            processes=len(self.all_rewards),
+            processes=self._num_reward_procs,
             context=get_context('spawn'),
         )
 
@@ -1333,9 +1336,34 @@ class RewardActor(BaseDistributedGPUActor):
         # convert all AsyncResult objects to tensors because ray cannot return Pool objects
         for reward_name, subreward in computed_rewards.items():
             if isinstance(subreward, AsyncResult):
-                computed_rewards[reward_name] = subreward.get()
+                # computed_rewards[reward_name] = subreward.get()
+                try:
+                    computed_rewards[reward_name] = subreward.get(
+                        timeout=self.all_rewards[reward_name].BLOCKING_TIMEOUT,
+                    )
+                except (TimeoutError, MultiprocessingTimeoutError):
+                    encountered_timeout = True
+                    self.logger.error(
+                        f'Timeout while waiting for {reward_name} reward to finish. ' +
+                        'This may indicate a problem with the reward. Using a default reward of 0.',
+                    )
+                    computed_rewards[reward_name] = torch.zeros_like(action_log_probs).to(
+                        torch.float32,
+                    )
             else:
                 computed_rewards[reward_name] = subreward
+
+        # Rather than trying to signal to the stuck process, or do anything more careful,
+        # since we know we are fully done with reward computation, we can just recreate the pool
+        # to ensure that all processes are cleaned up and we can continue without resources leaking.
+        if encountered_timeout and self.pool is not None:
+            self.pool.terminate()
+            self.pool.join()
+
+            self.pool = Pool(
+                processes=self._num_reward_procs,
+                context=get_context('spawn'),
+            )
 
         return computed_rewards
 
@@ -1525,18 +1553,20 @@ class RolloutAgent:
             actions,
             dtype=torch.float32,
         )
-        all_rewards = ray.get(self.reward_actor.calculate_reward.remote(
-            raw_untokenized_texts=untokenized_prompt_and_responses,
-            right_padded_obses=right_padded_obs,
-            attention_masks=right_padded_attn_mask,
-            seq_lens=reward_seq_len,
-            generated_lens=generated_len,
-            prompt_lens=prompt_len,
-            max_gen_length=max_gen_len,
-            actions=actions,
-            action_log_probs=dummy_log_probs,
-            verified_answers=verified_answers,
-        ))
+
+        with time_it("Calculating Rewards from Reward Actor"):
+            all_rewards = ray.get(self.reward_actor.calculate_reward.remote(
+                raw_untokenized_texts=untokenized_prompt_and_responses,
+                right_padded_obses=right_padded_obs,
+                attention_masks=right_padded_attn_mask,
+                seq_lens=reward_seq_len,
+                generated_lens=generated_len,
+                prompt_lens=prompt_len,
+                max_gen_length=max_gen_len,
+                actions=actions,
+                action_log_probs=dummy_log_probs,
+                verified_answers=verified_answers,
+            ))
         all_rewards_dict = all_rewards
         prompts_and_gens = untokenized_prompt_and_responses
 
