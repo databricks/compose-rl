@@ -1324,11 +1324,15 @@ class RewardActor(BaseDistributedGPUActor):
 
         for reward_name, curr_reward in self.all_rewards.items():
             curr_reward = self.all_rewards[reward_name]
-            batch['raw_untokenized_texts'] = raw_untokenized_texts
-            batch['zero_rewards'] = torch.zeros_like(action_log_probs)
+            curr_batch = {
+                **batch,
+                'raw_untokenized_texts': raw_untokenized_texts,
+            }
+            #batch['raw_untokenized_texts'] = raw_untokenized_texts
+            curr_batch['zero_rewards'] = torch.zeros_like(action_log_probs)
 
             func = curr_reward
-            args = (self._to_cpu(batch),)
+            args = (self._to_cpu(curr_batch),)
 
             computed_rewards[reward_name] = self.pool.apply_async(
                 func=func,
