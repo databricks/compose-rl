@@ -1219,12 +1219,13 @@ class RewardActor(BaseDistributedGPUActor):
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
         self.max_seq_len = config.max_seq_len
+        self.parser = spacy.load('en_core_web_sm')
 
         self.reward_config = om.to_container(config.variables.rewards, resolve=True)
         self.all_rewards = {}
 
         tokenizer_config = om.to_container(config.tokenizer.kwargs, resolve=True)
-        tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.name, **tokenizer_config)
+        self.tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.name, **tokenizer_config)
         for reward_name, reward_config in self.reward_config.items():
             assert isinstance(reward_name, str)
             if reward_name in self.all_rewards:
@@ -1240,7 +1241,7 @@ class RewardActor(BaseDistributedGPUActor):
             assert issubclass(reward_cls, Reward)
             model = build_reward(
                 name=reward_type,
-                tokenizer=tokenizer,
+                tokenizer=self.tokenizer,
                 kwargs=reward_config,
             )
 
@@ -1280,10 +1281,11 @@ class RewardActor(BaseDistributedGPUActor):
     ) -> RewardOutput:
         device = right_padded_obses.device.type
 
+        granularity_types = ['document']
         # Only process text for the existing granularity types of the rewards
         processed_inputs = batch_process_fine_granularities(
             raw_untokenized_texts=raw_untokenized_texts,
-            granularity_types=self.granularity_types,
+            granularity_types=granularity_types,
             generated_lens=generated_lens.cpu().tolist(),
             prompt_lens=prompt_lens.cpu().tolist(),
             original_obses=right_padded_obses.cpu().tolist(),
