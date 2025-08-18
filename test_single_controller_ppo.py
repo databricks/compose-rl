@@ -346,8 +346,13 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ppo_trainer.close()
 
     # TODO: maybe make the name more informative?
-    def add_rollouts(self, current_rank_rollouts: dict[str, Any]):
-        """Adds the current rank's rollouts to the callback."""
+    # TODO: think about how best to split this function up?
+    def create_online_minibatches(self, current_rank_rollouts: dict[str, Any]):
+        """Processes rollouts and creates minibatches for online learning.
+
+        This function takes the rollouts, computes the log probs, kl, and advantages
+        and splits them into minibatches for the PPO Trainer.
+        """
         for k, v in current_rank_rollouts.items():
             assert isinstance(v, torch.Tensor) or isinstance(v, list) or isinstance(v, dict), f"Expected a tensor or list or dict, got {type(v)}"
             if isinstance(v, torch.Tensor):
@@ -377,10 +382,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
             # 3) Scale rewards and apply KL Penalty
             reward_output = self.update_rewards(current_rank_rollouts['all_rewards_dict'], reference_output, partial_batch['action_mask'], device)
-            # 4) Compute Advantages
-            advantage_output = self.compute_advantages(partial_batch, reward_output)
 
-            self.logger.info("========== DONE with get reward =============")
+            # 4) Compute Advantages
+            # TODO: For full correctness do all gather
+            advantage_output = self.compute_advantages(partial_batch, reward_output)
 
             # Construct batch
             bs = partial_batch['prompt_id'].shape[0]
@@ -415,8 +420,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             )
             self.buffer.add(minibatch)
 
-        self.logger.info("========== DONE with adding to BUFFER =============")
-
         # Making sure we correctly parsed the minibatches
         assert len(
             self.buffer,
@@ -437,11 +440,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             self.ppo_trainer.state.train_dataloader,
         )
 
-        self.logger.info("========== DONE with setting dataloader =============")
-
         self._update_ift_kl()
-
-        self.logger.info("========== DONE with Update KL =============")
 
     def _update_ift_kl(self):
         local_kl = torch.stack(self.kl_ift)
@@ -493,9 +492,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         eos_token_ids = self.variables_config['eos_token_ids']
         prompt_len = current_rank_rollouts['prompt_len']
         prompt_id = current_rank_rollouts['prompt_id']
-
-        #cur_device = prompt_tokens.device
-
         prompt_dtype = prompt_tokens.dtype
 
         assert 'sequences' in current_rank_rollouts, f'sequences is not in batch {current_rank_rollouts.keys()=}'
@@ -532,7 +528,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             )
 
         # Actions are what tokens the current policy would generate.
-        actions = sequences[:, -self.max_gen_len:]
+        actions = sequences[:, -self.max_gen_len:]  # type: ignore
 
         right_padded_obs = switch_left_to_right_padding(
             sequences,
@@ -635,7 +631,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # TODO: old_log_probs, old_entropies, metadata as a clearer output
         return partial_env_output
 
-    def get_reference_log_probs_and_kl(self, batch):
+    def get_reference_log_probs_and_kl(self, batch: dict[str, Any]):
         """
         This function computes the reference log probs and computes KL estimates between pi and pi_ref.
         """
@@ -648,7 +644,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
         for split in microbatch_splits:
             curr_batch = split
-            curr_ref_output = self.reference_model({
+            curr_ref_output = self.reference_model({  # type: ignore
                 "input_ids": curr_batch['obs'],
                 "attention_mask": curr_batch['right_padded_attn_mask'],
             })
@@ -680,7 +676,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         }
         return ref_output
 
-    def update_rewards(self, raw_rewards_dict, ref_output, action_mask, device):
+    def update_rewards(self, raw_rewards_dict: dict[str, Any], ref_output: dict[str, Any], action_mask: torch.Tensor, device: torch.device):
         resolved_reward_outputs: dict[str, torch.Tensor] = {}
         bad_end_generation_name, bad_end_generation_mask = None, None
         for name, subreward in raw_rewards_dict.items():
@@ -752,7 +748,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         return outputs
 
-    def compute_advantages(self, batch: Any, reward_output: Any):
+    # TODO: For different algorithms, have different Advantage functions. This one is specifically GRPO
+    def compute_advantages(self, batch: dict[str, Any], reward_output: dict[str, Any]):
         # compute GRPO advantages
         bs = batch['prompt_id'].shape[0]
         prompt_id = batch['prompt_id']
@@ -826,7 +823,6 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'reward_std': torch.ones(bs) * rewards.std().to('cpu'),
         }
         return advantage_output
-
 
     def train_1_iter(self):
         # TODO (algo): implement the top level PPO algo here instead of the
@@ -905,7 +901,6 @@ class TrainActorGroup(SPMDActorGroup):
 
         # Build PPO trainers
         self.collective_methods.build_ppo_trainer()
-        print('build ppo trainer done')
 
         # Build Minibatch Buffer
         self.collective_methods.build_buffer()
@@ -941,7 +936,7 @@ class TrainActorGroup(SPMDActorGroup):
     def _add_latest_rollouts(self, rollouts: dict[str, Any]):
         partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
         assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
-        ray.get([train_actor.add_rollouts.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
+        ray.get([train_actor.create_online_minibatches.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
 
     def train_1_iter(self):
         # added this method to time the collectivetraining time otherwise we can time each rank but the print/logging becomes messy to read
@@ -1252,8 +1247,6 @@ class RewardActor(BaseDistributedGPUActor):
             context=get_context('spawn'),
         )
 
-        self.logger.info("############## Done initializing RewardActor")
-
     @staticmethod
     def _to_cpu(x: Any) -> Any:
         if isinstance(x, torch.Tensor):
@@ -1305,7 +1298,6 @@ class RewardActor(BaseDistributedGPUActor):
                 async, the associated value is an AsyncResult object that will return
                 the reward tensor from its `.get()` method.
         """
-        self.logger.info("############## Starting Calculate Reward")
         computed_rewards: RewardOutput = {}
 
         # Base batch that we will adjust per reward mdoel
@@ -1338,15 +1330,12 @@ class RewardActor(BaseDistributedGPUActor):
                 args=args,
             )
 
-        self.logger.info("### Async Resolving")
         # convert all AsyncResult objects to tensors because ray cannot return Pool objects
         for reward_name, subreward in computed_rewards.items():
             if isinstance(subreward, AsyncResult):
                 computed_rewards[reward_name] = subreward.get()
             else:
                 computed_rewards[reward_name] = subreward
-
-        self.logger.info("### DONE")
 
         return computed_rewards
 
