@@ -1219,13 +1219,12 @@ class RewardActor(BaseDistributedGPUActor):
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
         self.max_seq_len = config.max_seq_len
-        self.parser = spacy.load('en_core_web_sm')
 
         self.reward_config = om.to_container(config.variables.rewards, resolve=True)
         self.all_rewards = {}
 
         tokenizer_config = om.to_container(config.tokenizer.kwargs, resolve=True)
-        self.tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.name, **tokenizer_config)
+        tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.name, **tokenizer_config)
         for reward_name, reward_config in self.reward_config.items():
             assert isinstance(reward_name, str)
             if reward_name in self.all_rewards:
@@ -1241,7 +1240,7 @@ class RewardActor(BaseDistributedGPUActor):
             assert issubclass(reward_cls, Reward)
             model = build_reward(
                 name=reward_type,
-                tokenizer=self.tokenizer,
+                tokenizer=tokenizer,
                 kwargs=reward_config,
             )
 
@@ -1265,180 +1264,6 @@ class RewardActor(BaseDistributedGPUActor):
             return {k: RewardActor._to_cpu(v) for k, v in x.items()}
         else:
             return x
-
-    #def calculate_reward(
-    #    self,
-    #    raw_untokenized_texts: list[tuple[str, str]],
-    #    right_padded_obses: torch.Tensor,
-    #    attention_masks: torch.Tensor,
-    #    seq_lens: torch.Tensor,
-    #    generated_lens: torch.Tensor,
-    #    prompt_lens: torch.Tensor,
-    #    max_gen_length: int,
-    #    actions: torch.Tensor,
-    #    action_log_probs: torch.Tensor,
-    #    verified_answers: Optional[list[str]] = None,
-    #) -> RewardOutput:
-    #    device = right_padded_obses.device.type
-
-    #    granularity_types = ['document']
-    #    # Only process text for the existing granularity types of the rewards
-    #    processed_inputs = batch_process_fine_granularities(
-    #        raw_untokenized_texts=raw_untokenized_texts,
-    #        granularity_types=granularity_types,
-    #        generated_lens=generated_lens.cpu().tolist(),
-    #        prompt_lens=prompt_lens.cpu().tolist(),
-    #        original_obses=right_padded_obses.cpu().tolist(),
-    #        parser=self.parser,
-    #        tokenizer=self.tokenizer,
-    #        max_seq_len=self.max_seq_len,
-    #        device=device,
-    #    )
-
-    #    computed_rewards: RewardOutput = {}
-
-    #    # Base batch that we will adjust per reward mdoel
-    #    batch = {
-    #        'input_ids': right_padded_obses,
-    #        'attention_mask': attention_masks,
-    #        'actions': actions,
-    #        'prompt_len': prompt_lens,
-    #        'max_gen_len': max_gen_length,
-    #        'generated_lens': generated_lens,
-    #        'seq_lens': seq_lens,
-    #        'action_log_probs': action_log_probs,
-    #    }
-    #    if verified_answers is not None:
-    #        batch['verified_answers'] = verified_answers
-
-    #    #for reward_name in chain(
-    #    #    self.functional_rewards,
-    #    #    self.inference_rewards,
-    #    #    self.local_reward_models,
-    #    #):
-    #    for reward_name in self.all_rewards.keys():
-    #        curr_reward = self.all_rewards[reward_name]
-    #        curr_batch = self._create_batch(
-    #            self.all_rewards[reward_name],
-    #            reward_name,
-    #            processed_inputs,
-    #            batch,
-    #            raw_untokenized_texts,
-    #        )
-    #        curr_batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
-    #        func = curr_reward
-    #        args = (self._to_cpu(curr_batch),)
-
-    #        if isinstance(
-    #            curr_reward,
-    #            Reward,
-    #        ) or isinstance(curr_reward, InferenceRewardModel):
-    #            #if isinstance(curr_reward, InferenceRewardModel):
-    #            #    func = self.call_reward_model
-    #            #    args = (
-    #            #        self.all_rewards[reward_name],
-    #            #        self._to_cpu(curr_batch),
-    #            #    )
-
-    #            assert self.pool is not None
-    #            computed_rewards[reward_name] = self.pool.apply_async(
-    #                func=func,
-    #                args=args,
-    #            )
-    #        elif isinstance(curr_reward, RewardModel):
-    #            computed_rewards[reward_name] = self.call_reward_model(
-    #                self.all_rewards[reward_name],
-    #                curr_batch,
-    #            )
-    #        else:
-    #            raise TypeError(
-    #                f'Unknown reward model type {type(curr_reward)}. Expected `Reward` or `RewardModel`.',
-    #            )
-
-    #    # NOTE: is this needed?
-    #    # batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
-    #    #
-    #    self.logger.info("########## RIGHT BEFORE ASYNC RESOLVE")
-
-    #    # convert all AsyncResult objects to tensors because ray cannot return Pool objects
-    #    for reward_name, subreward in computed_rewards.items():
-    #        if isinstance(subreward, AsyncResult):
-    #            computed_rewards[reward_name] = subreward.get()
-    #        else:
-    #            computed_rewards[reward_name] = subreward
-
-    #    return computed_rewards
-
-    #@staticmethod
-    #def make_zero_reward(ref_tensor: torch.Tensor):
-    #    """Helper to instantiate an empty reward tensor.
-
-    #    The output will be a zero tensor with the same shape, device, and dtype
-    #    as ref_tensor
-    #    """
-    #    return torch.zeros_like(ref_tensor).to(
-    #        ref_tensor.device,
-    #    ).type(ref_tensor.dtype)
-
-    #def _create_batch(
-    #    self,
-    #    reward_model: BaseReward,
-    #    reward_name: str,
-    #    processed_inputs: dict[str, Any],
-    #    base_batch: dict[str, Any],
-    #    raw_untokenized_texts: list[tuple[str, str]],
-    #) -> dict[str, Any]:
-    #    """Helper to get the callable and the input kwargs for the reward.
-
-    #    Args:
-    #        reward_model (BaseReward): the reward model to create the batch for.
-    #        reward_name (str): the name of the reward to create the batch for.
-    #        processed_inputs (dict): the processed inputs for the reward, based on granularity.
-    #        base_batch (dict): the base batch to add the reward inputs to.
-    #        raw_untokenized_texts (list): the raw untokenized texts.
-    #    """
-    #    if isinstance(reward_model, Reward):
-    #        return {
-    #            **base_batch,
-    #            'raw_untokenized_texts': raw_untokenized_texts,
-    #        }
-    #    elif isinstance(reward_model, RewardModel):
-    #        granularity = self.granularities[reward_name]
-    #        curr_inputs = processed_inputs['end_reward_inputs_dict'][granularity
-    #                                                                ]
-    #        tok_formatted_reward_inputs = torch.tensor(
-    #            curr_inputs.input_ids,
-    #        ).type(base_batch['input_ids'].dtype)
-    #        tok_formatted_reward_attn_masks = torch.tensor(
-    #            curr_inputs.attention_mask,
-    #        ).type(base_batch['attention_mask'].dtype)
-
-    #        return {
-    #            'tok_formatted_reward_inputs':
-    #                tok_formatted_reward_inputs,
-    #            'tok_formatted_reward_attn_masks':
-    #                tok_formatted_reward_attn_masks,
-    #            'reward_seq_lens':
-    #                processed_inputs['reward_seq_lens_dict'][granularity],
-    #            'reward_prompt_lens':
-    #                processed_inputs['reward_prompt_lens_dict'][granularity],
-    #            'reward_generated_lens':
-    #                processed_inputs['reward_generated_lens_dict'][granularity],
-    #            'end_idxs_gather':
-    #                processed_inputs['end_idxs_gather_dict'][granularity],
-    #            'end_idxs_scatter':
-    #                processed_inputs['end_idxs_scatter_dict'][granularity],
-    #            'prompt_lens':
-    #                base_batch['prompt_len'],
-    #            'generated_lens':
-    #                base_batch['generated_lens'],
-    #            'seq_lens':
-    #                base_batch['seq_lens'],
-    #        }
-    #    else:
-    #        raise TypeError(
-    #            f'Unknown reward model type {type(reward_model)}. Expected `Reward` or `RewardModel`.',
-    #        )
 
     def calculate_reward(
         self,
@@ -1503,7 +1328,6 @@ class RewardActor(BaseDistributedGPUActor):
                 **batch,
                 'raw_untokenized_texts': raw_untokenized_texts,
             }
-            #batch['raw_untokenized_texts'] = raw_untokenized_texts
             curr_batch['zero_rewards'] = torch.zeros_like(action_log_probs)
 
             func = curr_reward
