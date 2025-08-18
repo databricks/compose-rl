@@ -1358,7 +1358,7 @@ class RewardActor(BaseDistributedGPUActor):
         # NOTE: is this needed?
         # batch['zero_rewards'] = self.make_zero_reward(action_log_probs)
         #
-        self.logger("########## RIGHT BEFORE ASYNC RESOLVE")
+        self.logger.info("########## RIGHT BEFORE ASYNC RESOLVE")
 
         # convert all AsyncResult objects to tensors because ray cannot return Pool objects
         for reward_name, subreward in computed_rewards.items():
