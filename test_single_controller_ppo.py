@@ -1334,6 +1334,7 @@ class RewardActor(BaseDistributedGPUActor):
             )
 
         # convert all AsyncResult objects to tensors because ray cannot return Pool objects
+        encountered_timeout = False
         for reward_name, subreward in computed_rewards.items():
             if isinstance(subreward, AsyncResult):
                 # computed_rewards[reward_name] = subreward.get()
