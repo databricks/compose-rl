@@ -1252,6 +1252,8 @@ class RewardActor(BaseDistributedGPUActor):
             context=get_context('spawn'),
         )
 
+        self.logger.info("############## Done initializing RewardActor")
+
     @staticmethod
     def _to_cpu(x: Any) -> Any:
         if isinstance(x, torch.Tensor):
@@ -1303,6 +1305,7 @@ class RewardActor(BaseDistributedGPUActor):
                 async, the associated value is an AsyncResult object that will return
                 the reward tensor from its `.get()` method.
         """
+        self.logger.info("############## Starting Calculate Reward")
         computed_rewards: RewardOutput = {}
 
         # Base batch that we will adjust per reward mdoel
@@ -1332,12 +1335,15 @@ class RewardActor(BaseDistributedGPUActor):
                 args=args,
             )
 
+        self.logger.info("### Async Resolving")
         # convert all AsyncResult objects to tensors because ray cannot return Pool objects
         for reward_name, subreward in computed_rewards.items():
             if isinstance(subreward, AsyncResult):
                 computed_rewards[reward_name] = subreward.get()
             else:
                 computed_rewards[reward_name] = subreward
+
+        self.logger.info("### DONE")
 
         return computed_rewards
 
