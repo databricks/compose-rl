@@ -55,5 +55,6 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
 
     def iteration_end(self, state: State, logger: Logger):
         del logger  # unused
+
         # TODO: rethink logging
         # self._log_generations_to_logger(state)

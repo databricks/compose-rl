@@ -211,7 +211,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'ref_model': self.ref_model_config,
             'fsdp_config': self.config.fsdp_config,
             'kl_controller': self.kl_controller_config,
-            'non_train_fsdp_config': self.variables_config['non_train_fsdp_config'],
+            'non_train_fsdp_config': self.variables_config.get('non_train_fsdp_config', self.config.fsdp_config),
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,
@@ -259,10 +259,11 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def build_reference_model(self):
         name = self.ref_model_config.pop('name')
+        fsdp_config = self.variables_config.get('non_train_fsdp_config', self.config.fsdp_config)
 
         init_context = process_init_device(
             self.ref_model_config,
-            self.variables_config['non_train_fsdp_config'],
+            fsdp_config,
         )
 
         self.reference_model = build_composer_model(
@@ -273,7 +274,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             master_weights_dtype=self.ref_model_config.get('master_weights_dtype', None),
         )
 
-        parallelism_config = {'fsdp': self.variables_config['non_train_fsdp_config']}
+        parallelism_config = {'fsdp': fsdp_config}
 
         load_path = self.variables_config['reference_model'].get('load_path', None)
 
@@ -305,9 +306,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # TODO: Add weight decay
         optimizer = DecoupledAdamW(model.parameters(), lr=1e-6)
 
-        # TODO (infra): pull the rest of the training logic from the callback
-        # to this class, e.g, how to interact with env, calculate rewards etc
-        # NOTE: SingleControllerOnPolicyCallback is currently over-writing the iteration_start method
+        # NOTE: there is no reliance on the callback anymore
         self.ppo_callback = SingleControllerOnPolicyCallback(
             train_config=self.train_config,
         )
@@ -1236,7 +1235,6 @@ class RewardActor(BaseDistributedGPUActor):
 
             self.logger.info(f'Initializing reward with name {reward_name}')
 
-            # TODO: Validate reward_config
             reward_type = reward_config.pop('reward_type')
             reward_cls = rewards_registry.get(reward_type)
             assert issubclass(reward_cls, Reward)
@@ -1250,6 +1248,7 @@ class RewardActor(BaseDistributedGPUActor):
 
         self.pool = None
         self._num_reward_procs = len(self.all_rewards)
+        # TODO: evaluate whether multiprocessing or Raylet group is better for the reward actor
         self.pool = Pool(
             processes=self._num_reward_procs,
             context=get_context('spawn'),
@@ -1560,6 +1559,7 @@ class RolloutAgent:
             dtype=torch.float32,
         )
 
+        # TODO: we should parallelize reward_actor and vllm_generate
         with time_it("Calculating Rewards from Reward Actor"):
             all_rewards = ray.get(self.reward_actor.calculate_reward.remote(
                 raw_untokenized_texts=untokenized_prompt_and_responses,

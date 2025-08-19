@@ -14,8 +14,7 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  #git_branch: single-controller-hackathon
-  git_branch: ashu/separate_reward
+  git_branch: single-controller-hackathon
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
@@ -138,16 +137,6 @@ parameters:
         use_auth_token: true
         use_flash_attention_2: true
         pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
-    # The non-train-FSDP config
-    non_train_fsdp_config:
-      sharding_strategy: SHARD_GRAD_OP
-      mixed_precision: DEFAULT
-      activation_checkpointing: true
-      activation_cpu_offload: false
-      verbose: true
-      limit_all_gathers: true
-      state_dict_type: sharded
-      use_orig_params: true
     generation_kwargs:
       top_p: 1
       do_sample: true
@@ -156,8 +145,6 @@ parameters:
     epoch_per_iteration: 1
     generations_per_prompt: 8
     num_batches_per_update: 8
-    #generations_per_prompt: 2
-    #num_batches_per_update: 2
     device_generate_batch_size: 1
   algorithms:
     gradient_clipping:
@@ -181,7 +168,7 @@ parameters:
   max_seq_len: 10240
   save_folder: /tmp/checkpoints
   dist_timeout: 1800
-  max_duration: 1000iter
+  max_duration: 10iter
   progress_bar: false
   train_loader:
     name: prompt
