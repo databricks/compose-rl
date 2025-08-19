@@ -7,17 +7,31 @@ from __future__ import annotations
 
 import logging
 from typing import Union
+import torch
 
-from composer.core import State
+from composer.core import State, get_precision_context
+from composer.core.data_spec import _default_split_batch
 from composer.loggers import Logger
 from composer.trainer.trainer import _get_initial_device_train_microbatch_size
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 # Import the base class
-from compose_rl.algorithms.online.callback import OnPolicyCallback
+from compose_rl.algorithms.online.callback import OnPolicyCallback, env_reward
 from compose_rl.algorithms.online.model import (
     ComposerHFPolicyLM,
     ComposerMPTPolicyLM,
+)
+from compose_rl.utils import (
+    add_right_padding,
+    compute_advantages,
+    dist_compute_masked_mean_and_var,
+    get_decoded_sequence,
+    get_entropies,
+    get_log_probs,
+    mask_eos,
+    masked_mean,
+    masked_sum,
+    switch_left_to_right_padding,
 )
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
@@ -39,26 +53,8 @@ class SingleControllerOnPolicyCallback(OnPolicyCallback):
     def iteration_start(self, state: State, logger: Logger):
         del logger  # unused
 
-        self._get_reward(self.batch_rollouts)  # type: ignore
-
-        # Reset and initialize state train dataloader
-        log.warning(
-            'trainer._train_data_spec should be updated whenever the dataloader is updated',
-        )
-        # Train Dataloader
-        state.set_dataloader(self.buffer, 'ep')
-        state.train_dataloader = state.dataloader
-        state.device_train_microbatch_size = _get_initial_device_train_microbatch_size(
-            state.device_train_microbatch_size,
-            state.auto_microbatching,
-            state.train_dataloader,
-        )
-
-        # Update IFT KL
-        self._update_ift_kl()
-
     def iteration_end(self, state: State, logger: Logger):
         del logger  # unused
-        self._log_generations_to_logger(state)
-        self._increment_rl_iter()
-        self.buffer.reset()
+
+        # TODO: rethink logging
+        # self._log_generations_to_logger(state)
