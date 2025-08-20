@@ -282,7 +282,7 @@ def offline_dataset_collate_fn_test(
             else: # truncated
                 mask_i = mask_i[0:len(batch_input_ids[i])]
             masks.append(mask_i)
-    masks = torch.stack(masks)
+        masks = torch.stack(masks)
 
     return_dict = {
         'sequence_len': sequence_lens,
