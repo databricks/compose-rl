@@ -1,5 +1,5 @@
 # install numactl
-apt install numactl
+apt-get update && apt-get install -y numactl
 
 # install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
