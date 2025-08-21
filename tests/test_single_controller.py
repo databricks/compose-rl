@@ -2,24 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import os
-import pathlib
+import asyncio
 
-import pytest
 import ray
 import torch
 import torch.distributed as dist
-from transformers import (
-    AutoModelForCausalLM,
-    PreTrainedModel,
-    PreTrainedTokenizerBase,
-)
+from transformers import AutoModelForCausalLM
 
-from compose_rl.algorithms.online.generation_utils import (
-    create_vllm_engines,
+from inference_server_test.sglang_remote import (
+    RemoteSGLangEngine,
+    InferenceEngineConfig,
+    ModelRequest,
+    GenerationHyperparameters,
+    WeightUpdateMeta,
+    ParamSpec,
 )
 from compose_rl.utils.ray_utils import start_ray_server
-from tests.common import BaseDistributedGPUActor, world_size
+from tests.common import BaseDistributedGPUActor
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -36,23 +35,37 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
         self.model.to('cuda')
 
-    def sync_weights(self, vllm_engines: list):
-        """Sync the weights of the model to the vLLM engines."""
-        # need to call vllm_engine.remote in Trainer instead of top level controller
-        # to ensure name mapping is correct
+    def sync_weights(self, sglang_engine: RemoteSGLangEngine):
+        """Sync the weights of the model to the SGLang engines."""
+        # Create parameter specifications for all model parameters
+        param_specs = []
         for name, p in self.model.named_parameters():
-            refs = [
-                engine.update_weight.remote(  # type: ignore
-                    name,
-                    p.dtype,
-                    p.shape,
-                    empty_cache=False,
-                ) for engine in vllm_engines
-            ]
-            # broadcast by default is blocking, we have to kick it off
-            # after the remote calls are initialized above
+            param_spec = ParamSpec(
+                name=name,
+                shape=p.shape,
+                dtype=str(p.dtype).split('.')[-1]  # Convert torch.float32 to 'float32'
+            )
+            param_specs.append(param_spec)
+            
+            # Broadcast the parameter tensor to all GPUs in the distributed group
             dist.broadcast(p, src=0, group=self.model_update_group)
-            ray.get(refs)
+        
+        # Create weight update metadata
+        weight_update_meta = WeightUpdateMeta(
+            nccl_master_address=self.master_addr,
+            nccl_master_port=29500,  # Default NCCL port
+            nccl_param_specs=[param_specs],  # List of param specs for each rank
+            nccl_group_name="sglang_weight_update",
+            gen_tp_size=1,  # Tensor parallel size for generation (assuming 1 for now)
+            gen_world_size=len(sglang_engine.addresses)  # Number of SGLang servers
+        )
+        
+        # Update weights on SGLang servers
+        sglang_engine.update_weights(weight_update_meta)
+
+        for name, p in self.model.named_parameters():
+            # Broadcast the parameter tensor to all GPUs in the distributed group
+            dist.broadcast(p, src=0, group=self.model_update_group)
 
     def test_tensor_all_reduce(self) -> float:
         """Perform a simple tensor all_reduce operation."""
@@ -64,27 +77,17 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         return x.item()
 
 
-@pytest.mark.gpu
-@world_size(4)
 def test_distributed_ray_actors(
-    world_size: int,
-    tiny_gpt2_model: PreTrainedModel,
-    tiny_gpt2_tokenizer: PreTrainedTokenizerBase,
-    tmp_path: pathlib.Path,
+    model_name: str,
 ):
     """Test basic single contrller with Ray."""
-    # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend takes too long to jit compile
-    os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
 
     prompts = [
         'what is RAY?',
         'what is vLLM?',
     ]
 
-    # Save the model and tokenizer to a temporary directory
-    local_save_path = str(tmp_path / 'tiny_gpt2_model')
-    tiny_gpt2_model.save_pretrained(local_save_path)
-    tiny_gpt2_tokenizer.save_pretrained(local_save_path)
+    world_size = dist.get_world_size()
 
     with start_ray_server() as address:
         if dist.get_rank() == 0:
@@ -94,7 +97,7 @@ def test_distributed_ray_actors(
             logger.info(
                 f'\n=== STARTING DISTRIBUTED TRAINING WITH RAY ACTORS ===',
             )
-            num_train_actors = world_size // 2
+            num_train_actors = world_size
             # Create actors - rank 0 will allocate master address/port
             train_actors = []
             # master actor will allocate master_addr and master_port
@@ -135,78 +138,106 @@ def test_distributed_ray_actors(
             results = ray.get(reduce_tasks)
             assert results == [num_train_actors] * num_train_actors
 
-            vllm_tensor_parallel_size = world_size - num_train_actors
-            num_vllm_engines = (
-                world_size - num_train_actors
-            ) // vllm_tensor_parallel_size
-            logger.info(f'num_vllm_engines: {num_vllm_engines}')
-            vllm_engines = create_vllm_engines(
-                num_engines=num_vllm_engines,
-                tensor_parallel_size=vllm_tensor_parallel_size,
-                enforce_eager=True,
-                pretrain=local_save_path,
-                revision=None,
-                seed=1,
-                enable_prefix_caching=False,
-                max_model_len=512,
-                device_bundle={
-                    'GPU': 1,
-                    'CPU': 1,
-                    'worker_node': 0,
-                },
+            # Setup SGLang engine configuration
+            # Assume SGLang servers are already running and accessible
+            # For this test, we'll use localhost addresses with different ports
+            num_sglang_servers = 1
+            sglang_addresses = []
+            for i in range(num_sglang_servers):
+                # Assuming SGLang servers are running on consecutive ports starting from 30000
+                sglang_addresses.append(f"localhost:{30000 + i}")
+            
+            logger.info(f'SGLang server addresses: {sglang_addresses}')
+            
+            # Create SGLang engine configuration
+            inference_config = InferenceEngineConfig(
+                setup_timeout=60.0,
+                request_timeout=300.0,
+                request_retries=3
             )
+            
+            # Create RemoteSGLangEngine
+            sglang_engine = RemoteSGLangEngine(
+                config=inference_config,
+                addresses=sglang_addresses
+            )
+            
+            # Initialize SGLang engine (wait for servers to be ready)
+            sglang_engine.initialize()
 
             new_port = ray.get(
                 master_actor.get_free_port.remote(),  # type: ignore
             )
-            logger.info(f'new_port to init vllm process group: {new_port}')
-            # init_process_group of the engine calls vLLM's collective_rpc
-            # which calls the init_process_group on every tp rank of the engine
-            # so the world_size is the total number of gpus used by all the engines + 1 trainer rank
-            # and the rank is head rank of each engine in the world_size and collective_rpc adds proper rank offset
-            # to its tp ranks
-            refs = [
-                engine.init_process_group.remote(  # type: ignore
-                    master_addr,
-                    new_port,
-                    i * vllm_tensor_parallel_size + 1,
-                    world_size - num_train_actors + 1,
-                    'weight-update',
-                    backend='nccl',
-                ) for i, engine in enumerate(vllm_engines)
-            ]
-            refs.append(
+            logger.info(f'new_port to init SGLang distributed group: {new_port}')
+            
+            # Setup distributed group for weight updates with SGLang
+            # Create weight update metadata for distributed group initialization
+            weight_update_meta = WeightUpdateMeta(
+                nccl_master_address=master_addr,
+                nccl_master_port=new_port,
+                nccl_group_name="sglang_weight_update",
+                gen_tp_size=1,  # Tensor parallel size per server
+                gen_world_size=num_sglang_servers
+            )
+            
+            # Initialize distributed group on SGLang servers
+            sglang_engine.init_weights_update_group(weight_update_meta)
+            
+            # Initialize process group on the training side
+            ray.get(
                 master_actor.add_process_group.remote(  # type: ignore
                     backend='nccl',
                     master_addr=master_addr,
                     master_port=new_port,
-                    world_size=world_size - num_train_actors + 1,
+                    world_size=num_sglang_servers + 1,  # SGLang servers + trainer
                     rank=0,
-                    group_name='weight-update',
+                    group_name='sglang_weight_update',
                 ),
             )
-            # get refs must be called after all the remote calls are initialized
-            # otherwise it hangs
-            ray.get(refs)
-            logger.info('init vllm process group done')
+            logger.info('SGLang distributed group initialization done')
 
             refs = [
-                actor.init_model.remote(local_save_path)  # type: ignore
+                actor.init_model.remote(model_name)  # type: ignore
                 for actor in train_actors
             ]
             ray.get(refs)
             logger.info('Trainer init model done')
 
             ray.get(
-                master_actor.sync_weights.remote(vllm_engines),  # type: ignore
+                master_actor.sync_weights.remote(sglang_engine),  # type: ignore
             )
             logger.info('sync weights done')
 
-            ref = vllm_engines[0].generate.remote(prompts)  # type: ignore
-            gen_results = ray.get(ref)
-            for output in gen_results:
-                prompt = output.prompt
-                generated_text = output.outputs[0].text
+            # Test generation with SGLang
+            async def test_generation():
+                results = []
+                for prompt in prompts:
+                    # Convert prompt string to token IDs (simplified for testing)
+                    # In practice, you'd use a tokenizer here
+                    input_ids = [1, 2, 3, 4, 5]  # Dummy token IDs for testing
+                    
+                    # Create generation request
+                    gen_config = GenerationHyperparameters(
+                        max_new_tokens=50,
+                        temperature=1.0,
+                        top_p=1.0,
+                        n_samples=1
+                    )
+                    
+                    request = ModelRequest(
+                        input_ids=input_ids,
+                        gconfig=gen_config
+                    )
+                    
+                    # Generate response
+                    response = await sglang_engine.agenerate(request)
+                    results.append((prompt, response.output_tokens))
+                
+                return results
+            
+            # Run async generation
+            gen_results = asyncio.run(test_generation())
+            for prompt, output_tokens in gen_results:
                 logger.info(
-                    f'Prompt: {prompt!r}, Generated text: {generated_text!r}',
+                    f'Prompt: {prompt!r}, Generated tokens: {output_tokens}',
                 )
