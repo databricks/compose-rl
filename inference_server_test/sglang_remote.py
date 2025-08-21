@@ -5,7 +5,6 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Literal
 import uuid
-import uvloop
 import torch
 import numpy as np
 
@@ -208,7 +207,6 @@ class ParamSpec:
 class WeightUpdateMeta:
     nccl_master_address: str = "127.0.0.1"
     nccl_master_port: int = 29500
-    nccl_param_specs: list[list[ParamSpec]] = field(default_factory=list)
     nccl_group_name: str = "update_weight_group"
     gen_tp_size: int = 1
     gen_world_size: int = 1
@@ -382,70 +380,68 @@ class RemoteSGLangEngine:
         )
         return response
 
-    def update_weights(self, meta: WeightUpdateMeta):
+    async def aupdate_weights(self, param_specs: list[ParamSpec], group_name: str):
         # for addr in self.addresses:
         #     res = requests.post(f"http://{addr}/pause_generation")
         #     res.raise_for_status()
-        nccl_param_specs = [
-            spec for param_specs in meta.nccl_param_specs for spec in param_specs
-        ]
 
-        async def _fn():
-            tik = time.perf_counter()
-            await asyncio.gather(
-                *[
-                    arequest_with_retry(
-                        addr=addr,
-                        endpoint="/update_weights_from_distributed",
-                        payload={
-                            "names": [pspec.name for pspec in nccl_param_specs],
-                            "dtypes": [pspec.dtype for pspec in nccl_param_specs],
-                            "shapes": [pspec.shape for pspec in nccl_param_specs],
-                            "group_name": meta.nccl_group_name,
-                        },
-                        method="POST",
-                        max_retries=1,
-                        timeout=self.config.request_timeout,
-                    )
-                    for addr in self.addresses
-                ]
-            )
+        tik = time.perf_counter()
+        await asyncio.gather(
+            *[
+                arequest_with_retry(
+                    addr=addr,
+                    endpoint="/update_weights_from_distributed",
+                    payload={
+                        "names": [pspec.name for pspec in param_specs],
+                        "dtypes": [pspec.dtype for pspec in param_specs],
+                        "shapes": [pspec.shape for pspec in param_specs],
+                        "group_name": group_name,
+                    },
+                    method="POST",
+                    max_retries=1,
+                    timeout=self.config.request_timeout,
+                )
+                for addr in self.addresses
+            ]
+        )
 
-            logger.info(f"Distributed update weights done in {time.perf_counter() - tik}s")
+        logger.info(f"Distributed update weights done in {time.perf_counter() - tik}s")
 
-        return uvloop.run(_fn())
+        return
 
-    def init_weights_update_group(self, meta: WeightUpdateMeta):
-        async def _fn():
-            await asyncio.gather(
-                *[
-                    ainit_weights_update_group(addr, i, meta, self.config.request_timeout)
-                    for i, addr in enumerate(self.addresses)
-                ]
-            )
-        return uvloop.run(_fn())
+    @staticmethod
+    async def _ainit_weights_update_group(
+        addr: str,
+        server_idx: int,
+        meta: WeightUpdateMeta,
+        request_timeout: float,
+    ):
+        rank_offset = 1 + server_idx * meta.gen_tp_size
+        payload = {
+            "master_address": meta.nccl_master_address,
+            "master_port": str(meta.nccl_master_port),
+            "rank_offset": rank_offset,
+            "world_size": meta.gen_world_size + 1,
+            "backend": "nccl",
+            "group_name": meta.nccl_group_name,
+        }
+        res = await arequest_with_retry(
+            addr=addr,
+            endpoint="/init_weights_update_group",
+            payload=payload,
+            method="POST",
+            max_retries=1,
+            timeout=request_timeout,
+        )
+        assert res["success"]
 
-async def ainit_weights_update_group(
-    addr: str,
-    server_idx: int,
-    meta: WeightUpdateMeta,
-    request_timeout: float,
-):
-    rank_offset = 1 + server_idx * meta.gen_tp_size
-    payload = {
-        "master_address": meta.nccl_master_address,
-        "master_port": str(meta.nccl_master_port),
-        "rank_offset": rank_offset,
-        "world_size": meta.gen_world_size + 1,
-        "backend": "nccl",
-        "group_name": meta.nccl_group_name,
-    }
-    res = await arequest_with_retry(
-        addr=addr,
-        endpoint="/init_weights_update_group",
-        payload=payload,
-        method="POST",
-        max_retries=1,
-        timeout=request_timeout,
-    )
-    assert res["success"]
+    async def ainit_weights_update_group(self, meta: WeightUpdateMeta):
+        await asyncio.gather(
+            *[
+                self._ainit_weights_update_group(addr, i, meta, self.config.request_timeout)
+                for i, addr in enumerate(self.addresses)
+            ]
+        )
+        return 
+
+

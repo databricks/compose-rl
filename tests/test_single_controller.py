@@ -35,9 +35,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         )
         self.model.to('cuda')
 
-    def sync_weights(self, sglang_engine: RemoteSGLangEngine):
-        """Sync the weights of the model to the SGLang engines."""
-        # Create parameter specifications for all model parameters
+    def get_param_specs(self):
+        """Get the parameter specifications for the model."""
         param_specs = []
         for name, p in self.model.named_parameters():
             param_spec = ParamSpec(
@@ -46,24 +45,11 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 dtype=str(p.dtype).split('.')[-1]  # Convert torch.float32 to 'float32'
             )
             param_specs.append(param_spec)
-            
-            # Broadcast the parameter tensor to all GPUs in the distributed group
-            dist.broadcast(p, src=0, group=self.model_update_group)
-        
-        # Create weight update metadata
-        weight_update_meta = WeightUpdateMeta(
-            nccl_master_address=self.master_addr,
-            nccl_master_port=29500,  # Default NCCL port
-            nccl_param_specs=[param_specs],  # List of param specs for each rank
-            nccl_group_name="sglang_weight_update",
-            gen_tp_size=1,  # Tensor parallel size for generation (assuming 1 for now)
-            gen_world_size=len(sglang_engine.addresses)  # Number of SGLang servers
-        )
-        
-        # Update weights on SGLang servers
-        sglang_engine.update_weights(weight_update_meta)
+        return param_specs
 
-        for name, p in self.model.named_parameters():
+    def sync_weights(self):
+        """Sync the weights of the model to the SGLang engines."""
+        for _, p in self.model.named_parameters():
             # Broadcast the parameter tensor to all GPUs in the distributed group
             dist.broadcast(p, src=0, group=self.model_update_group)
 
@@ -77,8 +63,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         return x.item()
 
 
-def test_distributed_ray_actors(
+async def test_distributed_ray_actors(
     model_name: str,
+    gen_tp_size: int = 1,
+    num_sglang_servers: int = 1,
 ):
     """Test basic single contrller with Ray."""
 
@@ -141,7 +129,6 @@ def test_distributed_ray_actors(
             # Setup SGLang engine configuration
             # Assume SGLang servers are already running and accessible
             # For this test, we'll use localhost addresses with different ports
-            num_sglang_servers = 1
             sglang_addresses = []
             for i in range(num_sglang_servers):
                 # Assuming SGLang servers are running on consecutive ports starting from 30000
@@ -176,15 +163,14 @@ def test_distributed_ray_actors(
                 nccl_master_address=master_addr,
                 nccl_master_port=new_port,
                 nccl_group_name="sglang_weight_update",
-                gen_tp_size=1,  # Tensor parallel size per server
-                gen_world_size=num_sglang_servers
+                gen_tp_size=gen_tp_size,  # Tensor parallel size per server
+                gen_world_size=num_sglang_servers * gen_tp_size
             )
             
             # Initialize distributed group on SGLang servers
-            sglang_engine.init_weights_update_group(weight_update_meta)
-            
-            # Initialize process group on the training side
-            ray.get(
+            asyncio.gather(
+                sglang_engine.ainit_weights_update_group(weight_update_meta),
+                # Initialize process group on the training side
                 master_actor.add_process_group.remote(  # type: ignore
                     backend='nccl',
                     master_addr=master_addr,
@@ -203,41 +189,42 @@ def test_distributed_ray_actors(
             ray.get(refs)
             logger.info('Trainer init model done')
 
-            ray.get(
-                master_actor.sync_weights.remote(sglang_engine),  # type: ignore
+            param_specs = ray.get(master_actor.get_param_specs.remote())
+
+            asyncio.gather(
+                sglang_engine.ainit_weights_update_group(param_specs),
+                master_actor.sync_weights.remote(),
             )
             logger.info('sync weights done')
 
             # Test generation with SGLang
-            async def test_generation():
-                results = []
-                for prompt in prompts:
-                    # Convert prompt string to token IDs (simplified for testing)
-                    # In practice, you'd use a tokenizer here
-                    input_ids = [1, 2, 3, 4, 5]  # Dummy token IDs for testing
-                    
-                    # Create generation request
-                    gen_config = GenerationHyperparameters(
-                        max_new_tokens=50,
-                        temperature=1.0,
-                        top_p=1.0,
-                        n_samples=1
-                    )
-                    
-                    request = ModelRequest(
-                        input_ids=input_ids,
-                        gconfig=gen_config
-                    )
-                    
-                    # Generate response
-                    response = await sglang_engine.agenerate(request)
-                    results.append((prompt, response.output_tokens))
+            results = []
+            for prompt in prompts:
+                # Convert prompt string to token IDs (simplified for testing)
+                # In practice, you'd use a tokenizer here
+                input_ids = [1, 2, 3, 4, 5]  # Dummy token IDs for testing
                 
-                return results
-            
-            # Run async generation
-            gen_results = asyncio.run(test_generation())
-            for prompt, output_tokens in gen_results:
+                # Create generation request
+                gen_config = GenerationHyperparameters(
+                    max_new_tokens=50,
+                    temperature=1.0,
+                    top_p=1.0,
+                    n_samples=1
+                )
+                
+                request = ModelRequest(
+                    input_ids=input_ids,
+                    gconfig=gen_config
+                )
+                
+                # Generate response
+                response = await sglang_engine.agenerate(request)
+                results.append((prompt, response.output_tokens))            
+            for prompt, output_tokens in results:
                 logger.info(
                     f'Prompt: {prompt!r}, Generated tokens: {output_tokens}',
                 )
+
+
+if __name__ == "__main__":
+    asyncio.run(test_distributed_ray_actors("qwen/Qwen2.5-0.5B-Instruct"))
