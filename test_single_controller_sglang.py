@@ -77,7 +77,7 @@ async def test_distributed_ray_actors(
     with start_ray_server() as address:
         if dist.get_rank() == 0:
             sglang_server_process = subprocess.Popen(
-                "CUDA_VISIBLE_DEVICES=2 python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct",
+                f"CUDA_VISIBLE_DEVICES={dist.get_world_size()} python3 -m sglang.launch_server --model-path {model_name}",
                 shell=True
             )
             sglang_addresses = [f"localhost:{30000}"]
