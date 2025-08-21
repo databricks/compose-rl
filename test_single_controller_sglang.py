@@ -14,11 +14,10 @@ from sglang.utils import wait_for_server, terminate_process
 from inference_server_test.sglang_remote import (
     RemoteSGLangEngine,
     InferenceEngineConfig,
-    ModelRequest,
-    GenerationHyperparameters,
     WeightUpdateMeta,
     ParamSpec,
 )
+from inference_server_test.client import ArealOpenAI
 from compose_rl.utils.ray_utils import start_ray_server
 from tests.common import BaseDistributedGPUActor
 
@@ -29,13 +28,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def init_model(self, model_name: str):
         """Initialize the model."""
-        print(f'rank {self.rank} initializing model')
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
         )
-        print(f'rank {self.rank} HF model loaded')
         self.model.to('cuda')
-        print(f'rank {self.rank} model moved to cuda')
 
     def get_param_specs(self):
         """Get the parameter specifications for the model."""
@@ -73,8 +69,8 @@ async def test_distributed_ray_actors(
     """Test basic single contrller with Ray."""
 
     prompts = [
-        'what is the capital of France?',
-        'what is the population of the capital of France?',
+        'Where is the capital of France?',
+        'what is the population of it?',
     ]
 
 
@@ -204,37 +200,96 @@ async def test_distributed_ray_actors(
             tokenizer = AutoTokenizer.from_pretrained(model_name)
             print(f'Tokenizer loaded. Vocab size: {tokenizer.vocab_size}')
 
-            # Test generation with SGLang
+            # Create ArealOpenAI client 
+            print(f'Creating ArealOpenAI client...')
+            client = ArealOpenAI(
+                engine=sglang_engine,
+                tokenizer=tokenizer,
+                api_key="none",  # Not used but required
+                base_url="none"  # Not used but required
+            )
+            print(f'ArealOpenAI client created successfully')
+
+            # Test generation with ArealOpenAI chat interface - multi-turn conversation
             results = []
-            for prompt in prompts:
-                # Convert prompt string to token IDs using the actual tokenizer
-                input_ids = tokenizer.encode(prompt, add_special_tokens=True)
-                
-                # Create generation request
-                gen_config = GenerationHyperparameters(
-                    max_new_tokens=50,
-                    temperature=1.0,
-                    top_p=1.0,
-                    n_samples=1
-                )
-                
-                request = ModelRequest(
-                    input_ids=input_ids,
-                    gconfig=gen_config
-                )
-                
-                # Generate response
-                response = await sglang_engine.agenerate(request)
-                results.append((prompt, response.output_tokens))            
+            conversation_messages = []  # Accumulate conversation history
             
-            # Display results with both tokens and decoded text
-            for prompt, output_tokens in results:
-                # Detokenize the output tokens to get the generated text
-                generated_text = tokenizer.decode(output_tokens, skip_special_tokens=True)
-                print(f'Prompt: {prompt!r}')
-                print(f'Generated token IDs ({len(output_tokens)}): {output_tokens}')
-                print(f'Generated text: {generated_text!r}')
+            for i, prompt in enumerate(prompts):
+                print(f'\n💬 Turn {i+1}: Processing prompt')
+                print(f'📝 User: {prompt}')
+                
+                # Add user message to conversation history
+                conversation_messages.append({"role": "user", "content": prompt})
+                
+                print(f'📋 Current conversation context ({len(conversation_messages)} messages):')
+                for j, msg in enumerate(conversation_messages):
+                    print(f'   [{j+1}] {msg["role"]}: {msg["content"]}')
+                
+                try:
+                    # Generate response using ArealOpenAI chat interface with full conversation history
+                    response = await client.chat.completions.create(
+                        messages=conversation_messages,
+                        max_tokens=1024,
+                        temperature=1.0,
+                        top_p=1.0
+                    )
+                    
+                    assistant_reply = response.choices[0].message.content
+                    print(f'🤖 Assistant: {assistant_reply}')
+                    
+                    # Add assistant response to conversation history for next turn
+                    conversation_messages.append({"role": "assistant", "content": assistant_reply})
+                    
+                    # Extract completion with token info
+                    completion = client.get_completions(response.id)
+                    if completion:
+                        results.append((prompt, completion, len(conversation_messages)))
+                    else:
+                        print(f"⚠️  Warning: Could not retrieve completion for response {response.id}")
+                        
+                except Exception as e:
+                    print(f"❌ Generation failed for prompt '{prompt}': {e}")
+                    continue
+            
+            # Display detailed results with tokens, logprobs and decoded text
+            print(f"\n📊 Detailed Generation Results:")
+            print("=" * 80)
+            for i, (prompt, completion, context_length) in enumerate(results):
+                print(f'\n🔄 Turn {i+1}:')
+                print(f'   👤 User: {prompt!r}')
+                print(f'   📋 Context length at time of generation: {context_length-1} messages (before assistant response)')
+                
+                # Get assistant response text
+                assistant_text = tokenizer.decode(completion.response.output_tokens, skip_special_tokens=True)
+                print(f'   🤖 Assistant: {assistant_text!r}')
+                
+                # Token analysis
+                print(f'\n   📊 Token Analysis:')
+                print(f'      Completion ID: {completion.completion.id}')
+                print(f'      Input tokens: {completion.response.input_len}')
+                print(f'      Output tokens: {completion.response.output_len}')
+                print(f'      Input token IDs: {completion.response.input_tokens[:10]}...' if len(completion.response.input_tokens) > 10 else f'      Input token IDs: {completion.response.input_tokens}')
+                print(f'      Output token IDs: {completion.response.output_tokens}')
+                print(f'      Output logprobs: {[f"{lp:.3f}" for lp in completion.response.output_logprobs[:5]]}...' if len(completion.response.output_logprobs) > 5 else f'      Output logprobs: {[f"{lp:.3f}" for lp in completion.response.output_logprobs]}')
+                
+                # Decode individual output tokens
+                print(f'      Output tokens decoded:')
+                for j, token_id in enumerate(completion.response.output_tokens[:10]):  # Show first 10 tokens
+                    token_text = tokenizer.decode([token_id], skip_special_tokens=False)
+                    logprob = completion.response.output_logprobs[j] if j < len(completion.response.output_logprobs) else 0.0
+                    print(f'        [{j:2d}] ID:{token_id:5d} → {token_text!r} (logprob: {logprob:.3f})')
+                if len(completion.response.output_tokens) > 10:
+                    print(f'        ... and {len(completion.response.output_tokens) - 10} more tokens')
+                
                 print('-' * 60)
+            
+            # Final conversation summary
+            print(f"\n🗨️  Final Conversation Summary:")
+            print("=" * 50)
+            for i, msg in enumerate(conversation_messages):
+                role_emoji = "👤" if msg["role"] == "user" else "🤖"
+                print(f'[{i+1:2d}] {role_emoji} {msg["role"].capitalize()}: {msg["content"]}')
+            print(f"\n✅ Multi-turn conversation completed with {len(conversation_messages)} total messages!")
             terminate_process(sglang_server_process)
 
 
