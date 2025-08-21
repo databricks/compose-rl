@@ -9,6 +9,8 @@ uv venv sglang --system-site-packages
 source sglang/bin/activate
 uv pip install "sglang[all]"
 
+git checkout boweny/areal-sglang-client
+
 # manually run sglang server and test
 # python -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct
 # python minimal_areal_chat_test.py
