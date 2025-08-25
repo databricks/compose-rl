@@ -53,15 +53,45 @@ class CompletionWithTokenLogp:
         
         # Get token IDs and logprobs from vLLM output
         output_tokens = output.token_ids
-        output_logprobs = [logprob_dict.logprob if logprob_dict else 0.0 
-                          for logprob_dict in (output.logprobs or [])]
         
-        # Create input tokens from prompt (we'll need to reconstruct this)
-        # For now, create a placeholder - this would need to be stored separately
+        # Extract logprobs: vLLM returns list[dict[token_id, Logprob]]
+        output_logprobs = []
+        if output.logprobs:
+            for i, logprob_dict in enumerate(output.logprobs):
+                if logprob_dict and i < len(output_tokens):
+                    token_id = output_tokens[i]
+                    logprob_obj = logprob_dict.get(token_id)
+                    if logprob_obj:
+                        output_logprobs.append(logprob_obj.logprob)
+                    else:
+                        output_logprobs.append(0.0)
+                else:
+                    output_logprobs.append(0.0)
+        else:
+            output_logprobs = [0.0] * len(output_tokens)
+        
+        # Get input tokens from stored prompt_token_ids
         input_tokens = getattr(self.request_output, 'prompt_token_ids', [])
         
-        seq = input_tokens + output_tokens
-        logprobs = [0.0] * len(input_tokens) + output_logprobs
+        # Get prompt logprobs if available (with prompt_logprobs=True)
+        prompt_logprobs = []
+        if hasattr(self.request_output, 'prompt_logprobs') and self.request_output.prompt_logprobs:
+            for i, logprob_dict in enumerate(self.request_output.prompt_logprobs):
+                if logprob_dict and i < len(input_tokens):
+                    token_id = input_tokens[i]
+                    logprob_obj = logprob_dict.get(token_id)
+                    if logprob_obj:
+                        prompt_logprobs.append(logprob_obj.logprob)
+                    else:
+                        prompt_logprobs.append(0.0)
+                else:
+                    prompt_logprobs.append(0.0)
+        else:
+            # Fallback to zeros if prompt logprobs not available
+            prompt_logprobs = [0.0] * len(input_tokens)
+        
+        seq = list(input_tokens) + list(output_tokens)
+        logprobs = prompt_logprobs + output_logprobs
         loss_mask = [0] * len(input_tokens) + [1] * len(output_tokens)
         versions = [-1] * len(input_tokens) + [-1] * len(output_tokens)  # vLLM doesn't have versions
         
@@ -163,6 +193,9 @@ class AsyncCompletionsWithReward(BaseAsyncCompletions):
             stop=stop_tokens,
             frequency_penalty=frequency_penalty if frequency_penalty is not NOT_GIVEN else 0.0,
             stop_token_ids=[self.tokenizer.eos_token_id, self.tokenizer.pad_token_id],
+            # Enable logprobs for detailed token analysis and training
+            logprobs=1,  # Return top 1 logprob per output token (required for token analysis)
+            prompt_logprobs=1,  # Also return logprobs for prompt tokens (for complete sequences)
         )
 
         # Call vLLM AsyncLLM generate method (expects batch of prompts)

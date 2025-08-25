@@ -42,6 +42,10 @@ def display_tokens_and_logprobs(cached_completion: CompletionWithTokenLogp, toke
             return
             
         print(f"\n🔍 OUTPUT TOKENS AND LOGPROBS (showing first {max_tokens}):")
+        if output_logprobs and len(output_logprobs) > 0:
+            print("✅ LogProbs available - model confidence scores included")
+        else:
+            print("⚠️  LogProbs not available - check SamplingParams.logprobs setting")
         print("-" * 60)
         
         # Show up to max_tokens
@@ -51,11 +55,16 @@ def display_tokens_and_logprobs(cached_completion: CompletionWithTokenLogp, toke
             token_id = output_token_ids[i]
             token_text = tokenizer.decode([token_id])
             
-            # Get logprob if available
+            # Get logprob if available - vLLM structure: list[dict[token_id, Logprob]]
             if output_logprobs and i < len(output_logprobs) and output_logprobs[i]:
-                logprob = output_logprobs[i].logprob
-                prob = round(100 * (2.71828 ** logprob), 1)  # Convert log prob to percentage
-                print(f"  Token {i+1:2d}: ID={token_id:5d} | '{token_text}' | logprob={logprob:7.3f} | prob={prob:5.1f}%")
+                logprob_dict = output_logprobs[i]  # dict[token_id, Logprob]
+                logprob_obj = logprob_dict.get(token_id)  # Logprob object
+                if logprob_obj:
+                    logprob = logprob_obj.logprob  # float
+                    prob = round(100 * (2.71828 ** logprob), 1)  # Convert log prob to percentage
+                    print(f"  Token {i+1:2d}: ID={token_id:5d} | '{token_text}' | logprob={logprob:7.3f} | prob={prob:5.1f}%")
+                else:
+                    print(f"  Token {i+1:2d}: ID={token_id:5d} | '{token_text}' | logprob=N/A (token not in dict)")
             else:
                 print(f"  Token {i+1:2d}: ID={token_id:5d} | '{token_text}' | logprob=N/A")
         
@@ -281,6 +290,7 @@ async def test_vllm_openai_multi_round(client: VllmOpenAI, tokenizer: AutoTokeni
             print(f"\n{'='*60}")
             print("🔍 DETAILED TOKEN ANALYSIS")
             print(f"{'='*60}")
+            print("Note: LogProbs enabled via SamplingParams(logprobs=1, prompt_logprobs=True)")
             
             print("\n📝 ROUND 1 OUTPUT TOKENS:")
             display_tokens_and_logprobs(cached_completion1, tokenizer, max_tokens=15)
