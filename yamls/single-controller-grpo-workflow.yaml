@@ -14,7 +14,7 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: single-controller-hackathon
+  git_branch: wensun/single-controller-hackathon-smd #single-controller-hackathon
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
@@ -32,8 +32,9 @@ parameters:
   seed: 17
   model:
     name: hf_critic_free_lm
-    loss_type: grpo
+    loss_type: grpo #smd #grpo
     target_kl: 0.1
+    beta: 1e-3  # Beta parameter for SMD regression loss
     pretrained: true
     init_device: mixed
     kl_estimator: k3
@@ -183,8 +184,9 @@ parameters:
       download_timeout: 1800
     drop_last: true
     num_workers: 1
-  eval_interval: 2iter
+  eval_interval: 10iter
   save_interval: 100iter
+  eval_first: false
   log_to_console: true
   save_overwrite: true
   python_log_level: debug
