@@ -2,7 +2,7 @@ import os
 import time
 import uuid
 from copy import deepcopy
-from typing import Dict, Iterable, List, Optional, Set, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Union
 from dataclasses import dataclass, field
 
 import torch
@@ -27,6 +27,7 @@ from openai.types.shared_params.metadata import Metadata
 from transformers import PreTrainedTokenizerFast
 from vllm import SamplingParams
 from vllm.outputs import RequestOutput
+from vllm.sequence import Logprob
 
 from .vllm_actor import AsyncLLM
 from .tool_call_parser import process_tool_calls
@@ -45,52 +46,41 @@ class CompletionWithTokenLogp:
     request_output: RequestOutput
     messages: list[dict] = field(default_factory=list)
 
+    def _extract_logprobs(self, logprob_list: List[Dict[int, Logprob]], token_ids: List[int]) -> List[float]:
+        """Extract logprob values from vLLM's list[dict[token_id, Logprob]] structure.
+        
+        Args:
+            logprob_list: vLLM's logprobs structure (list[dict[token_id, Logprob]])
+            token_ids: List of token IDs corresponding to the logprobs
+            
+        Returns:
+            List of float logprob values, with 0.0 for missing entries
+        """
+        assert len(logprob_list) == len(token_ids), f"length mismatch: logprob_list: {len(logprob_list)}, token_ids: {len(token_ids)}"
+        
+        logprobs = []
+        for token_id, logprob_dict in zip(token_ids, logprob_list):
+            logprobs.append(logprob_dict[token_id].logprob)
+        return logprobs
+
     def to_tensor_dict(self) -> dict[str, torch.Tensor]:
         """Convert to tensor format for training."""
         output = self.request_output.outputs[0] if self.request_output.outputs else None
         if output is None:
             raise ValueError("No output available in request_output")
         
-        # Get token IDs and logprobs from vLLM output
-        output_tokens = output.token_ids
-        
-        # Extract logprobs: vLLM returns list[dict[token_id, Logprob]]
-        output_logprobs = []
-        if output.logprobs:
-            for i, logprob_dict in enumerate(output.logprobs):
-                if logprob_dict and i < len(output_tokens):
-                    token_id = output_tokens[i]
-                    logprob_obj = logprob_dict.get(token_id)
-                    if logprob_obj:
-                        output_logprobs.append(logprob_obj.logprob)
-                    else:
-                        output_logprobs.append(0.0)
-                else:
-                    output_logprobs.append(0.0)
-        else:
-            output_logprobs = [0.0] * len(output_tokens)
-        
-        # Get input tokens from stored prompt_token_ids
+        # Get token IDs from vLLM output
+        output_tokens = list(output.token_ids)
         input_tokens = getattr(self.request_output, 'prompt_token_ids', [])
         
-        # Get prompt logprobs if available (with prompt_logprobs=True)
-        prompt_logprobs = []
-        if hasattr(self.request_output, 'prompt_logprobs') and self.request_output.prompt_logprobs:
-            for i, logprob_dict in enumerate(self.request_output.prompt_logprobs):
-                if logprob_dict and i < len(input_tokens):
-                    token_id = input_tokens[i]
-                    logprob_obj = logprob_dict.get(token_id)
-                    if logprob_obj:
-                        prompt_logprobs.append(logprob_obj.logprob)
-                    else:
-                        prompt_logprobs.append(0.0)
-                else:
-                    prompt_logprobs.append(0.0)
-        else:
-            # Fallback to zeros if prompt logprobs not available
-            prompt_logprobs = [0.0] * len(input_tokens)
+        # Extract logprobs using helper function
+        output_logprobs = self._extract_logprobs(output.logprobs, output_tokens)
+        prompt_logprobs = self._extract_logprobs(self.request_output.prompt_logprobs, 
+            input_tokens
+        )
         
-        seq = list(input_tokens) + list(output_tokens)
+        # Combine sequences and create tensors
+        seq = input_tokens + output_tokens
         logprobs = prompt_logprobs + output_logprobs
         loss_mask = [0] * len(input_tokens) + [1] * len(output_tokens)
         versions = [-1] * len(input_tokens) + [-1] * len(output_tokens)  # vLLM doesn't have versions
