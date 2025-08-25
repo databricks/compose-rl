@@ -7,7 +7,7 @@ for the OpenAI client, but using vLLM's AsyncLLM engine for local inference.
 
 Test Suite:
 1. Multiple single-round conversations - Tests basic OpenAI compatibility
-2. One multi-round conversation - Tests prefix caching functionality
+2. One multi-round conversation - Tests prefix caching and token analysis
 
 Features tested:
 - OpenAI-compatible chat completions interface
@@ -15,13 +15,57 @@ Features tested:
 - Multi-round conversations with shared context  
 - Prefix caching for improved multi-turn performance
 - Completion caching and tensor conversion
+- Detailed token-level analysis with logprobs
 """
 
 import asyncio
 from transformers import AutoTokenizer
 
 from compose_rl.algorithms.online.generation_utils.vllm_actor import AsyncLLM
-from compose_rl.algorithms.online.generation_utils.vllm_client import VllmOpenAI
+from compose_rl.algorithms.online.generation_utils.vllm_client import VllmOpenAI, CompletionWithTokenLogp
+
+
+def display_tokens_and_logprobs(cached_completion: CompletionWithTokenLogp, tokenizer: AutoTokenizer, max_tokens: int = 10):
+    """Display output tokens and their logprobs from a cached completion."""
+    try:
+        request_output = cached_completion.request_output
+        if not request_output.outputs:
+            print("❌ No outputs found in request_output")
+            return
+            
+        completion_output = request_output.outputs[0]
+        output_token_ids = completion_output.token_ids
+        output_logprobs = completion_output.logprobs
+        
+        if not output_token_ids:
+            print("❌ No output tokens found")
+            return
+            
+        print(f"\n🔍 OUTPUT TOKENS AND LOGPROBS (showing first {max_tokens}):")
+        print("-" * 60)
+        
+        # Show up to max_tokens
+        tokens_to_show = min(len(output_token_ids), max_tokens)
+        
+        for i in range(tokens_to_show):
+            token_id = output_token_ids[i]
+            token_text = tokenizer.decode([token_id])
+            
+            # Get logprob if available
+            if output_logprobs and i < len(output_logprobs) and output_logprobs[i]:
+                logprob = output_logprobs[i].logprob
+                prob = round(100 * (2.71828 ** logprob), 1)  # Convert log prob to percentage
+                print(f"  Token {i+1:2d}: ID={token_id:5d} | '{token_text}' | logprob={logprob:7.3f} | prob={prob:5.1f}%")
+            else:
+                print(f"  Token {i+1:2d}: ID={token_id:5d} | '{token_text}' | logprob=N/A")
+        
+        if len(output_token_ids) > max_tokens:
+            print(f"  ... ({len(output_token_ids) - max_tokens} more tokens)")
+            
+        print("-" * 60)
+        
+    except Exception as e:
+        print(f"❌ Error displaying tokens and logprobs: {e}")
 
 
 def get_async_llm_and_client():
@@ -144,14 +188,17 @@ async def test_vllm_openai_single_rounds(client: VllmOpenAI):
     print(f"{'='*60}")
 
 
-async def test_vllm_openai_multi_round(client: VllmOpenAI):
-    """Test the VllmOpenAI client with one multi-round conversation using prefix caching."""
+async def test_vllm_openai_multi_round(client: VllmOpenAI, tokenizer: AutoTokenizer):
+    """Test the VllmOpenAI client with one multi-round conversation using prefix caching.
+    
+    Also demonstrates detailed token analysis by displaying output tokens and their logprobs.
+    """
     
     # Test one multi-round conversation with prefix caching
     print(f"\n{'='*60}")
     print("TEST 2: ONE MULTI-ROUND CONVERSATION")
     print(f"{'='*60}")
-    print("Testing multi-round conversation with prefix caching enabled...")
+    print("Testing multi-round conversation with prefix caching and token analysis...")
     
     # System message that will be part of the cached prefix
     system_message = {"role": "system", "content": "You are a knowledgeable AI assistant specializing in artificial intelligence. Provide detailed, informative responses."}
@@ -214,7 +261,7 @@ async def test_vllm_openai_multi_round(client: VllmOpenAI):
         print(f"ASSISTANT: {assistant_msg2}")
         print(f"📊 Usage: {response2.usage.prompt_tokens} prompt + {response2.usage.completion_tokens} completion = {response2.usage.total_tokens} total tokens")
         
-        # Show cache hits
+        # Show cache hits and detailed token analysis
         cached_completion1 = client.get_completions(response1.id)
         cached_completion2 = client.get_completions(response2.id)
         if cached_completion1 and cached_completion2:
@@ -229,6 +276,17 @@ async def test_vllm_openai_multi_round(client: VllmOpenAI):
                 print(f"  Round 2 tensor shape: {tensor_dict2['input_ids'].shape}")
             except Exception as e:
                 print(f"⚠ Tensor conversion failed: {e}")
+                
+            # Display tokens and logprobs for both rounds
+            print(f"\n{'='*60}")
+            print("🔍 DETAILED TOKEN ANALYSIS")
+            print(f"{'='*60}")
+            
+            print("\n📝 ROUND 1 OUTPUT TOKENS:")
+            display_tokens_and_logprobs(cached_completion1, tokenizer, max_tokens=15)
+            
+            print("\n📝 ROUND 2 OUTPUT TOKENS:")
+            display_tokens_and_logprobs(cached_completion2, tokenizer, max_tokens=15)
             
     except Exception as e:
         print(f"❌ Error in round 2: {str(e)}")
@@ -237,7 +295,7 @@ async def test_vllm_openai_multi_round(client: VllmOpenAI):
     
     print(f"\n{'='*60}")
     print("MULTI-ROUND CONVERSATION TEST COMPLETED!")
-    print(f"✨ Demonstrated: Multi-turn conversations with prefix caching enabled")
+    print(f"✨ Demonstrated: Multi-turn conversations with prefix caching and detailed token analysis")
     print(f"{'='*60}")
 
 
@@ -253,20 +311,25 @@ async def run_all_tests():
         _, client = get_async_llm_and_client()
         print("✅ Engine and client initialization complete!")
         
+        # Get tokenizer for token analysis (same as used in client)
+        from transformers import AutoTokenizer
+        model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        
         # Test 1: Multiple single-round conversations
         await test_vllm_openai_single_rounds(client)
         
         # Small delay between tests
         await asyncio.sleep(1)
         
-        # Test 2: One multi-round conversation
-        await test_vllm_openai_multi_round(client)
+        # Test 2: One multi-round conversation with token analysis
+        await test_vllm_openai_multi_round(client, tokenizer)
         
         print(f"\n{'='*70}")
         print("🎉 ALL TESTS COMPLETED SUCCESSFULLY!")
         print(f"{'='*70}")
         print("✅ Single-round conversations: OpenAI compatibility, caching, tensor conversion")
-        print("✅ Multi-round conversation: Prefix caching enabled and functional")
+        print("✅ Multi-round conversation: Prefix caching enabled and detailed token analysis")
         print("🚀 VllmOpenAI client is ready for production use!")
         print(f"{'='*70}")
         
