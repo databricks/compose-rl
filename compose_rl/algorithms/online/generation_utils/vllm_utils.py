@@ -22,7 +22,7 @@ import logging
 import os
 import time
 from datetime import timedelta
-from typing import Optional, Union
+from typing import Optional, Union, Any
 
 import ray
 import torch
@@ -191,6 +191,7 @@ def create_vllm_engines(
     vllm_gpu_memory_utilization: float = 0.9,
     load_format: str = 'dummy',
     device_bundle: Optional[dict[str, int]] = None,
+    actor_class: Any = LLMRayActor
 ):
     """Creates vllm engines.
 
@@ -245,7 +246,7 @@ def create_vllm_engines(
         log.info(f'vllm: {num_gpus=}, {num_engines=}')
 
         vllm_engines.append(
-            LLMRayActor.options(  # type: ignore
+            actor_class.options(  # type: ignore
                 num_cpus=num_gpus,
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,

@@ -67,42 +67,6 @@ class BaseLLM:
         self.args = args
         self.kwargs = kwargs
 
-    def init_process_group(
-        self,
-        master_address: str,
-        master_port: str,
-        rank_offset: int,
-        world_size: int,
-        group_name: str,
-        backend: str,
-    ):
-        return self.llm.collective_rpc(
-            'init_process_group',
-            args=(
-                master_address,
-                master_port,
-                rank_offset,
-                world_size,
-                group_name,
-                backend,
-            ),
-        )
-
-    def update_weight(
-        self,
-        name: str,
-        dtype: torch.dtype,
-        shape: Union[tuple[int, ...], list[int]],
-        empty_cache: bool = False,
-    ):
-        return self.llm.collective_rpc(
-            'update_weight',
-            args=(name, dtype, shape, empty_cache),
-        )
-
-    def reset_prefix_cache(self):
-        self.llm.llm_engine.reset_prefix_cache()
-
 class LLM(BaseLLM):
 
     def __init__(
@@ -144,6 +108,41 @@ class LLM(BaseLLM):
             sampling_params=sampling_params,
         )
 
+    def init_process_group(
+        self,
+        master_address: str,
+        master_port: str,
+        rank_offset: int,
+        world_size: int,
+        group_name: str,
+        backend: str,
+    ):
+        return self.llm.collective_rpc(
+            'init_process_group',
+            args=(
+                master_address,
+                master_port,
+                rank_offset,
+                world_size,
+                group_name,
+                backend,
+            ),
+        )
+
+    def update_weight(
+        self,
+        name: str,
+        dtype: torch.dtype,
+        shape: Union[tuple[int, ...], list[int]],
+        empty_cache: bool = False,
+    ):
+        return self.llm.collective_rpc(
+            'update_weight',
+            args=(name, dtype, shape, empty_cache),
+        )
+
+    def reset_prefix_cache(self):
+        self.llm.llm_engine.reset_prefix_cache()
 
 class AsyncLLM(BaseLLM):
 
@@ -154,10 +153,11 @@ class AsyncLLM(BaseLLM):
     ) -> None:
         # Initialize base class first
         super().__init__(*args, **kwargs)
-        
+        os.environ["VLLM_USE_V1"] = "1"
         # Create AsyncLLMEngine instead of regular LLM
         engine_args = vllm.AsyncEngineArgs(*self.args, **self.kwargs)
         self.llm = vllm.AsyncLLMEngine.from_engine_args(engine_args)
+        print(f'created: {type(self.llm)}')
 
     async def _collect_outputs(self, prompt_token_ids: list[int], request_id: str, sampling_params: SamplingParams):
         """Collect outputs for a single prompt."""
@@ -184,6 +184,21 @@ class AsyncLLM(BaseLLM):
         outputs = await asyncio.gather(*tasks)
 
         return outputs
+
+    async def init_process_group(
+        self, master_address: str, master_port: str, rank_offset: int, world_size: int, group_name: str, backend: str
+    ):
+        return await self.llm.collective_rpc(
+            "init_process_group",
+            args=(master_address, master_port, rank_offset, world_size, group_name, backend),
+        )
+
+    async def update_weight(self, name: str, dtype: torch.dtype, shape: Union[tuple[int, ...], list[int]], empty_cache: bool = False):
+        print(f'update_weight: {name}, {dtype}, {shape}, {empty_cache}')
+        return await self.llm.collective_rpc("update_weight", args=(name, dtype, shape, empty_cache))
+
+    async def reset_prefix_cache(self):
+        await self.llm.reset_prefix_cache()
 
 
 LLMRayActor = ray.remote(LLM)
