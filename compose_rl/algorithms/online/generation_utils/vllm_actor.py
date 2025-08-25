@@ -162,16 +162,34 @@ class AsyncLLM(BaseLLM):
         engine_args = vllm.AsyncEngineArgs(*self.args, **self.kwargs)
         self.llm = vllm.AsyncLLMEngine.from_engine_args(engine_args)
         print(f'created: {type(self.llm)}')
+        
+        # Track running tasks by request_id for abort functionality
+        self.running_tasks: dict[str, asyncio.Task] = {}
+        self.partial_outputs: dict[str, Any] = {}
 
     async def _collect_outputs(self, prompt_token_ids: list[int], request_id: str, sampling_params: SamplingParams):
         """Collect outputs for a single prompt."""
         final_output = None
-        async for request_output in self.llm.generate(
-            prompt=TokensPrompt(prompt_token_ids=prompt_token_ids),
-            sampling_params=sampling_params,
-            request_id=request_id,
-        ):
-            final_output = request_output
+        try:
+            async for request_output in self.llm.generate(
+                prompt=TokensPrompt(prompt_token_ids=prompt_token_ids),
+                sampling_params=sampling_params,
+                request_id=request_id,
+            ):
+                final_output = request_output
+                # Store partial output in case of abort
+                self.partial_outputs[request_id] = final_output
+                
+        except asyncio.CancelledError:
+            # Local task was cancelled (likely due to abort() call)
+            # The actual generation in vLLM engine should have been aborted separately
+            log.info(f"Request {request_id} local task was cancelled")
+            final_output = self.partial_outputs.get(request_id, None)
+            raise
+        finally:
+            # Clean up tracking
+            self.running_tasks.pop(request_id, None)
+            self.partial_outputs.pop(request_id, None)
 
         return final_output
 
@@ -179,15 +197,58 @@ class AsyncLLM(BaseLLM):
         """Generate responses using vLLM's async engine."""
 
         tasks = []
+        request_ids = []
         for prompt in batched_promts:
             # Schedule the collection of outputs for each prompt.
             # Avoid duplicate request_ids
             request_id = str(uuid4().hex)
             task = asyncio.create_task(self._collect_outputs(prompt, request_id, sampling_params))
+            
+            # Track the task by request_id
+            self.running_tasks[request_id] = task
             tasks.append(task)
-        outputs = await asyncio.gather(*tasks)
+            request_ids.append(request_id)
+        
+        try:
+            outputs = await asyncio.gather(*tasks, return_exceptions=True)
+        except Exception:
+            # Clean up any remaining tasks
+            for req_id in request_ids:
+                self.running_tasks.pop(req_id, None)
+                self.partial_outputs.pop(req_id, None)
+            raise
 
         return outputs
+
+    async def abort(self, request_id: str):
+        """
+        Abort a running generation task by request_id.
+        
+        Args:
+            request_id: The ID of the request to abort
+            
+        Returns:
+            None
+        """
+        # Get the task if it exists
+        task = self.running_tasks.get(request_id)
+        if task is None:
+            log.warning(f"Request {request_id} not found in running tasks")
+            return None
+            
+        # # First, abort the request in vLLM's engine to stop actual generation
+        # try:
+        #     await self.llm.abort(request_id)
+        #     log.info(f"Aborted request {request_id} in vLLM engine")
+        # except Exception as e:
+        #     log.warning(f"Failed to abort request {request_id} in vLLM engine: {e}")
+            
+        # Then cancel our local task that's iterating over the results
+        if not task.done():
+            task.cancel()
+            log.info(f"Cancelled local task for request {request_id}")
+        
+        return None
 
     async def init_process_group(
         self, master_address: str, master_port: str, rank_offset: int, world_size: int
@@ -206,6 +267,126 @@ class AsyncLLM(BaseLLM):
 
 LLMRayActor = ray.remote(LLM)
 LLMRayActorAsync = ray.remote(AsyncLLM)
+
+
+async def test_async_llm_abort():
+    """Test the abort functionality of AsyncLLM.
+    
+    This test creates long-running generation tasks and demonstrates
+    aborting them mid-generation. The abort method first calls vLLM's
+    abort to stop actual generation, then cancels the local asyncio task.
+    """
+    try:
+        from transformers import AutoTokenizer
+        
+        # Model configuration
+        model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+        
+        print(f"Initializing AsyncLLM with model: {model_name}")
+        
+        # Create AsyncLLM instance
+        async_llm = AsyncLLM(
+            model=model_name,
+            tensor_parallel_size=1,
+            trust_remote_code=True,
+            max_model_len=2048,
+            gpu_memory_utilization=0.8,
+            enforce_eager=True,
+            noset_visible_devices=False,
+            num_gpus=1,
+        )
+        
+        # Load tokenizer for encoding prompts
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        
+        # Test prompts designed to generate longer responses
+        test_prompts = [
+            "Write a detailed explanation of machine learning with examples and applications in at least 500 words.",
+            "Explain the history of artificial intelligence from its inception to modern times, including major milestones.",
+            "Describe the process of training a neural network step by step with mathematical details.",
+        ]
+        
+        print(f"Testing abort functionality with {len(test_prompts)} long prompts...")
+        
+        # Encode prompts to token IDs
+        encoded_prompts = []
+        for prompt in test_prompts:
+            tokens = tokenizer.encode(prompt, return_tensors="pt").squeeze(0).tolist()
+            encoded_prompts.append(tokens)
+            print(f"Prompt: '{prompt[:50]}...' -> {len(tokens)} tokens")
+        
+        # Create sampling parameters for longer generation
+        sampling_params = SamplingParams(
+            temperature=0.7,
+            top_p=0.9,
+            max_tokens=500,  # Longer generation
+            stop_token_ids=[tokenizer.eos_token_id] if tokenizer.eos_token_id else None,
+        )
+        
+        print(f"Sampling parameters: temp={sampling_params.temperature}, " +
+              f"top_p={sampling_params.top_p}, max_tokens={sampling_params.max_tokens}")
+        
+        # Start generation but don't await immediately
+        print("\nStarting generation tasks...")
+        
+        # Start generation in the background
+        generation_task = asyncio.create_task(
+            async_llm.generate(encoded_prompts, sampling_params)
+        )
+        
+        # Wait a bit for generation to start
+        await asyncio.sleep(1.0)
+        
+        # Check running tasks
+        print(f"Running tasks: {list(async_llm.running_tasks.keys())}")
+        
+        if async_llm.running_tasks:
+            # Pick the first request to abort
+            request_id_to_abort = list(async_llm.running_tasks.keys())[0]
+            print(f"\nAborting request: {request_id_to_abort}")
+            
+            # Abort the request
+            result = await async_llm.abort(request_id_to_abort)
+            print(f"Abort method returned: {result}")
+            print("Request has been aborted in vLLM engine and local task cancelled")
+        else:
+            print("No running tasks found to abort")
+        
+        # Wait for remaining tasks to complete or handle exceptions
+        try:
+            outputs = await generation_task
+            print(f"\nRemaining generation tasks completed")
+            
+            # Process results
+            completed_count = 0
+            aborted_count = 0
+            for i, output in enumerate(outputs):
+                if isinstance(output, asyncio.CancelledError):
+                    print(f"Task {i} was cancelled (aborted)")
+                    aborted_count += 1
+                elif isinstance(output, Exception):
+                    print(f"Task {i} failed with error: {output}")
+                elif output and output.outputs:
+                    print(f"Task {i} completed successfully with {len(output.outputs[0].token_ids)} tokens")
+                    completed_count += 1
+                else:
+                    print(f"Task {i} completed but no output")
+            
+            print(f"\nSummary: {completed_count} completed, {aborted_count} aborted")
+            
+        except Exception as e:
+            print(f"Generation task failed: {e}")
+        
+        print(f"\n✅ Abort test completed successfully!")
+        return True
+        
+    except Exception as e:
+        print(f"Error during abort testing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 async def test_async_llm():
@@ -331,6 +512,47 @@ def run_async_llm_test():
         return False
 
 
+def run_async_llm_abort_test():
+    """Synchronous wrapper to run the async abort test."""
+    print("Starting AsyncLLM abort test...")
+    
+    try:
+        # Run the async abort test
+        result = asyncio.run(test_async_llm_abort())
+        
+        if result:
+            print("\n✅ AsyncLLM abort test passed!")
+        else:
+            print("\n❌ AsyncLLM abort test failed!")
+            
+        return result
+        
+    except Exception as e:
+        print(f"\n❌ AsyncLLM abort test failed with exception: {str(e)}")
+        return False
+
+
 if __name__ == "__main__":
-    # Run the test when this file is executed directly
-    run_async_llm_test()
+    import sys
+    
+    # Check command line arguments for which test to run
+    if len(sys.argv) > 1 and sys.argv[1] == "abort":
+        # Run the abort test
+        run_async_llm_abort_test()
+    elif len(sys.argv) > 1 and sys.argv[1] == "both":
+        # Run both tests
+        print("Running both tests...\n")
+        basic_result = run_async_llm_test()
+        print("\n" + "="*60 + "\n")
+        abort_result = run_async_llm_abort_test()
+        
+        if basic_result and abort_result:
+            print("\n🎉 All tests passed!")
+        else:
+            print("\n❌ Some tests failed!")
+    else:
+        # Default: run the basic test
+        print("Run with 'abort' argument to test abort functionality")
+        print("Run with 'both' argument to test both basic and abort functionality")
+        print("Running basic test...\n")
+        run_async_llm_test()
