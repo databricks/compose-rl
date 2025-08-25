@@ -165,7 +165,6 @@ class AsyncLLM(BaseLLM):
         
         # Track running tasks by request_id for abort functionality
         self.running_tasks: dict[str, asyncio.Task] = {}
-        self.partial_outputs: dict[str, Any] = {}
 
     async def _collect_outputs(self, prompt_token_ids: list[int], request_id: str, sampling_params: SamplingParams):
         """Collect outputs for a single prompt."""
@@ -178,20 +177,16 @@ class AsyncLLM(BaseLLM):
             ):
                 final_output = request_output
                 # Store partial output in case of abort
-                self.partial_outputs[request_id] = final_output
-                
+                # self.partial_outputs[request_id] = final_output
         except asyncio.CancelledError:
             # Local task was cancelled (likely due to abort() call)
             # The actual generation in vLLM engine should have been aborted separately
-            log.info(f"Request {request_id} local task was cancelled")
-            final_output = self.partial_outputs.get(request_id, None)
-            raise
+            log.info(f"Request {request_id} task was cancelled")
+            return final_output, 'aborted'
         finally:
             # Clean up tracking
             self.running_tasks.pop(request_id, None)
-            self.partial_outputs.pop(request_id, None)
-
-        return final_output
+        return final_output, 'completed'
 
     async def generate(self, batched_promts: list[list[int]], sampling_params: SamplingParams):
         """Generate responses using vLLM's async engine."""
@@ -209,14 +204,7 @@ class AsyncLLM(BaseLLM):
             tasks.append(task)
             request_ids.append(request_id)
         
-        try:
-            outputs = await asyncio.gather(*tasks, return_exceptions=True)
-        except Exception:
-            # Clean up any remaining tasks
-            for req_id in request_ids:
-                self.running_tasks.pop(req_id, None)
-                self.partial_outputs.pop(req_id, None)
-            raise
+        outputs = await asyncio.gather(*tasks)
 
         return outputs
 
@@ -234,21 +222,12 @@ class AsyncLLM(BaseLLM):
         task = self.running_tasks.get(request_id)
         if task is None:
             log.warning(f"Request {request_id} not found in running tasks")
-            return None
-            
-        # # First, abort the request in vLLM's engine to stop actual generation
-        # try:
-        #     await self.llm.abort(request_id)
-        #     log.info(f"Aborted request {request_id} in vLLM engine")
-        # except Exception as e:
-        #     log.warning(f"Failed to abort request {request_id} in vLLM engine: {e}")
-            
-        # Then cancel our local task that's iterating over the results
+            return
         if not task.done():
             task.cancel()
             log.info(f"Cancelled local task for request {request_id}")
         
-        return None
+        return
 
     async def init_process_group(
         self, master_address: str, master_port: str, rank_offset: int, world_size: int
@@ -363,16 +342,12 @@ async def test_async_llm_abort():
             completed_count = 0
             aborted_count = 0
             for i, output in enumerate(outputs):
-                if isinstance(output, asyncio.CancelledError):
-                    print(f"Task {i} was cancelled (aborted)")
-                    aborted_count += 1
-                elif isinstance(output, Exception):
-                    print(f"Task {i} failed with error: {output}")
-                elif output and output.outputs:
-                    print(f"Task {i} completed successfully with {len(output.outputs[0].token_ids)} tokens")
+                result, status = output
+                if status == 'completed':
                     completed_count += 1
-                else:
-                    print(f"Task {i} completed but no output")
+                    print(f"Task {i} completed with {len(result.outputs[0].token_ids)} tokens")
+                elif status == 'aborted':
+                    aborted_count += 1
             
             print(f"\nSummary: {completed_count} completed, {aborted_count} aborted")
             
