@@ -15,14 +15,16 @@ class OnPolicyEnum(Enum):
     PPO = 'ppo'
     GRPO = 'grpo'
     APO = 'apo'  #add A-star PO
+    SMD = 'smd'  # squared mirror descent from kimi1.5 and kimi 2. 
 
 
 class ALGORITHM_TYPE(set, Enum):
-    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.APO}
+    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.APO, OnPolicyEnum.SMD}
     ACTOR_CRITIC = {OnPolicyEnum.PPO}
     CLIPPED_PG = {OnPolicyEnum.PPO, OnPolicyEnum.GRPO}
     REGRESSION = {
         OnPolicyEnum.APO,
+        OnPolicyEnum.SMD,
     }
 
 
@@ -393,9 +395,14 @@ def policy_loss(
 
     elif loss_type in ALGORITHM_TYPE.REGRESSION:
         #assume batch contains (1) V-star values (key 'vstar), (2) rewards (key 'rewards'), (3) ref_log_probs
+        # APO: ( ln (pi / pi_ref) - adv)^2 where adv is r - V*, 
+        # SMD: (ln (pi/pi_old) - adv)^2 where adv is r - V^\pi_old
+
         online_log_probs = outputs['online_log_probs']
+        old_log_probs = batch['old_log_probs']
         ref_log_probs = batch['ift_log_probs']
         log_probs_diff = online_log_probs - ref_log_probs
+        log_probs_diff_to_old = online_log_probs - old_log_probs
         old_entropies = batch['old_entropies']
 
         #compute KL to pi_ref to keep track the divergence to \pi_ref
@@ -404,40 +411,58 @@ def policy_loss(
             log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
         )
+        policy_kl_dict_to_old = utils.approx_kl(
+            log_p=old_log_probs,
+            log_q=online_log_probs, #log_q - log_p = log pi - log pi_old
+            kl_clip_range=kl_clip_range,
+        )
         with torch.no_grad():
             policy_kl = utils.masked_mean(
                 policy_kl_dict[kl_estimator],  # pyright: ignore
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
+            policy_kl_to_old = utils.masked_mean(
+                policy_kl_dict_to_old[kl_estimator],  # pyright: ignore
+                batch['action_mask'],
+            )  #plain average over all tokens (KL to pi_old)
 
         #compute the policy loss
-        masked_log_probs_diff = utils.masked_sum(
-            log_probs_diff,
-            batch['action_mask'],
-            dim=-1,
-        )  #size: (batch_size,)
-        vstars = batch['vstar']
+        if loss_type == OnPolicyEnum.APO:
+            masked_log_probs_diff = utils.masked_sum(
+                log_probs_diff,
+                batch['action_mask'],
+                dim=-1,
+            )
+        elif loss_type == OnPolicyEnum.SMD:
+            masked_log_probs_diff = utils.masked_sum(
+                log_probs_diff_to_old,
+                batch['action_mask'],
+                dim=-1,
+            )
+        assert advantages is not None
+        assert advantages.shape == masked_log_probs_diff.shape
+        
+        policy_loss = ((beta * masked_log_probs_diff -
+                        (advantages))**2).mean()
+
         rewards = utils.masked_sum(
             batch['rewards'],
             batch['action_mask'],
             dim=-1,
         )
-        assert vstars.size() == rewards.size() == masked_log_probs_diff.size(
-        )  # should have the same shape which is (batch_size, )
 
-        policy_loss = ((beta * masked_log_probs_diff -
-                        (rewards - vstars))**2).mean()
         policy_dict = {
             'loss/policy_loss': policy_loss,
             'kl/policy_kl': policy_kl,
+            'kl/policy_kl_to_old': policy_kl_to_old,
             'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
             'gen/entropy': old_entropies,
             'rewards/mean': torch.mean(
                 rewards,
             ),  #compute the average reward of the current batch
-            'vstars/mean': torch.mean(
-                vstars,
-            ),  #compute the average of the vstar of the current batch
+            'advantage/mean': torch.mean(
+                advantages,
+            ),  #compute the average of the advantage of the current batch
         }
         return policy_dict
 
@@ -488,9 +513,9 @@ def online_rl_loss(
     # tensors in `outputs` are recomputed at the start of each step in the epoch.
 
     return_dict = {}
-    advantages = None
-    if loss_type not in ALGORITHM_TYPE.REGRESSION:
-        advantages = batch['advantages']
+    #if loss_type not in ALGORITHM_TYPE.REGRESSION:
+    #    advantages = batch['advantages']
+    advantages = batch.get('advantages', None)
 
     # 1. Critic Loss
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:

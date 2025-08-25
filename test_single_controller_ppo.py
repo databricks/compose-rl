@@ -25,6 +25,7 @@ from typing import Any, Optional, Union, MutableMapping
 from multiprocessing import get_context
 from multiprocessing.context import TimeoutError as MultiprocessingTimeoutError
 from multiprocessing.pool import AsyncResult, Pool
+from enum import Enum
 
 from composer.loggers import MLFlowLogger
 import ray
@@ -87,6 +88,8 @@ from compose_rl.algorithms.online.reward_manager import (
     ReferenceOutput,
     RewardOutput,
 )
+
+from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 
 
 @contextmanager
@@ -156,6 +159,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ref_model_config = None
         self.global_train_batch_size = None
         self.max_gen_len = None
+        self.loss_type = None
 
         # KL Penalty and Controller
         self.kl_ift = []
@@ -175,8 +179,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.pretrain_model_name = self.config.model.pretrained_model_name_or_path
 
         self.model_config = om.to_container(self.config.model, resolve=True)
-        self.model_config['tokenizer'] = self.tokenizer
-
+        self.model_config['tokenizer'] = self.tokenizer  # type: ignore
+        self.loss_type = self.model_config.get('loss_type', OnPolicyEnum.GRPO)  # type: ignore
+        
         # Reference Model Initializing
         self.ref_model_config = om.to_container(self.config.variables.reference_model.model_config, resolve=True)
 
@@ -402,7 +407,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             # Construct batch
             bs = partial_batch['prompt_id'].shape[0]
             batch = {
-                'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,
+                'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,  # type: ignore
                 'ift_kl_scalar': torch.ones(bs) * self.kl_controller.value,
                 **partial_batch,
                 **reference_output,
@@ -513,7 +518,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             batch_size,
             device=device,
             dtype=prompt_dtype,
-        ) * self.max_gen_len
+        ) * self.max_gen_len  # type: ignore
 
         # If all the processes early exit generate, then we need to manually pad everything
         # we can pad this with pad tokens, since we switch the padding between left and right
@@ -714,7 +719,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         if self.kl_penalty_in_reward:
             rewards: torch.Tensor = -self.kl_controller.value * ref_kl.detach()
         else:
-            rewards: torch.Tensor = torch.zeros_like(ref_kl)
+            rewards = torch.zeros_like(ref_kl)
 
         env_rewards = torch.zeros_like(rewards)
         rews_dict_out: dict[str, torch.Tensor] = {}
@@ -760,8 +765,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         return outputs
 
-    # TODO: For different algorithms, have different Advantage functions. This one is specifically GRPO
-    def compute_advantages(self, batch: dict[str, Any], reward_output: dict[str, Any]):
+    # TODO: For different algorithms, have different Advantage functions. This one is for GRPO and SMD for now
+    def compute_advantages(self, batch: dict[str, Any], reward_output: dict[str, Any]): 
         # compute GRPO advantages
         bs = batch['prompt_id'].shape[0]
         prompt_id = batch['prompt_id']
@@ -808,25 +813,30 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # Calculate GRPO advantage
         grpo_advantage = (flat_rewards - mean_rewards)
         # Only normalize the advantage if flag is set
-        if self.model_config['normalize_advantage']:  # type: ignore
+        if self.model_config['normalize_advantage'] and self.loss_type == OnPolicyEnum.GRPO:  # type: ignore
             grpo_advantage /= (std_rewards + 1e-4)
 
-        # Create advantages of the same shape as original rewards
-        advantages = torch.zeros_like(rewards)
-        # Copy the flat grpo_advantage according to action_mask
-        expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
-            batch['action_mask'],
-        )
-        advantages = torch.where(
-            batch['action_mask'].bool(),
-            expanded_advantages,
-            advantages,
-        )
+        if self.loss_type == OnPolicyEnum.GRPO:
+            # Create advantages of the same shape as original rewards
+            advantages = torch.zeros_like(rewards)
+            # Copy the flat grpo_advantage according to action_mask
+            expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
+                batch['action_mask'],
+            )
+            advantages = torch.where(
+                batch['action_mask'].bool(),
+                expanded_advantages,
+                advantages,
+            )
 
-        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            advantages,
-            batch['action_mask'],
-        )
+            batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
+                advantages,
+                batch['action_mask'],
+            )
+        elif self.loss_type == OnPolicyEnum.SMD:
+            advantages = grpo_advantage # simply use plain average. TODO: maybe add a beta parameter to compute V* style advantage
+            batch_adv_mean = torch.mean(advantages)
+            batch_adv_var = torch.var(advantages)
 
         advantage_output = {
             'advantages': advantages,
