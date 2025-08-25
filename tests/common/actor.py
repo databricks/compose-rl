@@ -6,9 +6,10 @@ from datetime import timedelta
 from typing import Optional
 
 import ray
+import torch
 import torch.distributed as dist
 
-from compose_rl.algorithms.online.generation_utils import init_process_group
+from compose_rl.algorithms.online.generation_utils.vllm_utils import stateless_init_process_group
 from compose_rl.utils.ray_utils import (
     get_free_port,
     get_node_ip,
@@ -55,7 +56,7 @@ class BaseDistributedGPUActor:
         os.environ['MASTER_PORT'] = str(self.master_port)  # type: ignore
 
         self.model = None
-        self.model_update_group = None
+        self._model_update_group = None
 
     def _allocate_master_address(self):
         """Allocate master address and port for rank 0."""
@@ -81,21 +82,12 @@ class BaseDistributedGPUActor:
 
     def add_process_group(
         self,
-        backend: str,
         master_addr: str,
         master_port: int,
         world_size: int,
         rank: int,
-        group_name: str,
     ):
         """Initialize the process group on trainer rank 0 and vllm engines."""
-        # NOTE vLLM seems to have a safer implementation of init_process_group:
-        # https://github.com/vllm-project/vllm/blob/v0.9.1/examples/offline_inference/rlhf.py#L105
-        # we should look into using that instead
-        self.model_update_group = init_process_group(
-            backend=backend,
-            init_method=f'tcp://{master_addr}:{master_port}',
-            world_size=world_size,
-            rank=rank,
-            group_name=group_name,
+        self._model_update_group = stateless_init_process_group(
+            master_addr, master_port, rank, world_size, torch.cuda.current_device()
         )

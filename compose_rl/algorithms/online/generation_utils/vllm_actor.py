@@ -25,6 +25,7 @@ from uuid import uuid4
 
 import ray
 import torch
+from packaging import version
 
 import vllm
 from vllm import SamplingParams
@@ -66,6 +67,9 @@ class BaseLLM:
         # Store args and kwargs for child classes to use
         self.args = args
         self.kwargs = kwargs
+
+        if version.parse(vllm.__version__) >= version.parse("0.9.0"):
+            os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
 
 class LLM(BaseLLM):
 
@@ -186,15 +190,14 @@ class AsyncLLM(BaseLLM):
         return outputs
 
     async def init_process_group(
-        self, master_address: str, master_port: str, rank_offset: int, world_size: int, group_name: str, backend: str
+        self, master_address: str, master_port: str, rank_offset: int, world_size: int
     ):
         return await self.llm.collective_rpc(
             "init_process_group",
-            args=(master_address, master_port, rank_offset, world_size, group_name, backend),
+            args=(master_address, master_port, rank_offset, world_size),
         )
 
     async def update_weight(self, name: str, dtype: torch.dtype, shape: Union[tuple[int, ...], list[int]], empty_cache: bool = False):
-        print(f'update_weight: {name}, {dtype}, {shape}, {empty_cache}')
         return await self.llm.collective_rpc("update_weight", args=(name, dtype, shape, empty_cache))
 
     async def reset_prefix_cache(self):
