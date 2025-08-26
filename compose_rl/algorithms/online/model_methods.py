@@ -517,6 +517,7 @@ def policy_loss(
         print("DEBUG: Creating return dictionary...")
         policy_dict = {
             'loss/policy_loss': policy_loss,
+            'kl/policy_kl': policy_kl,  # Required by calling code in model.py
             'kl/ref_policy_kl': policy_kl,
             'kl/old_policy_kl': old_policy_kl,
             'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
@@ -761,4 +762,16 @@ def online_rl_loss(
         raise
 
     print("DEBUG: About to return return_dict")
-    return return_dict
+    print(f"DEBUG: return_dict type: {type(return_dict)}")
+    print(f"DEBUG: return_dict keys: {list(return_dict.keys())}")
+    print(f"DEBUG: return_dict size: {len(return_dict)}")
+    
+    try:
+        result = return_dict
+        print("DEBUG: Return assignment successful")
+        return result
+    except Exception as e:
+        print(f"DEBUG: Error during return: {e}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        raise
