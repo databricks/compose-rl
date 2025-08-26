@@ -37,7 +37,7 @@ parameters:
     pretrained: true
     init_device: mixed
     kl_estimator: k3
-    beta: 1e-3
+    beta: 0.001
     kl_clip_range: 40
     use_auth_token: true
     compute_kl_loss: false
@@ -194,7 +194,7 @@ parameters:
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
   global_train_batch_size: 64
-  device_train_microbatch_size: 4  # Increased for better SMD batch statistics
+  device_train_microbatch_size: 1  # Increased for better SMD batch statistics
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
   save_num_checkpoints_to_keep: 1

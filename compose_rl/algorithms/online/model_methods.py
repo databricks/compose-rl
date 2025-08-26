@@ -675,11 +675,8 @@ def online_rl_loss(
                 )
                 print(f"DEBUG: ift_kl processed successfully")
             else:
-                print(f"DEBUG: Processing non-reward key: {key}")
-                # If this value is not [batch, actions] shaped, just do a
-                # vanilla mean.
-                return_dict['env/' + str(key)] = value.mean(dim=0)
-                print(f"DEBUG: Non-reward key {key} processed successfully")
+                print(f"DEBUG: Skipping non-essential key: {key}")
+                # Skip all other keys - we only need rewards and ift_kl
                 
         print("DEBUG: Batch items processing completed successfully")
         
