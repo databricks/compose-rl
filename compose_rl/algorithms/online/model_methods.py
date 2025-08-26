@@ -721,8 +721,11 @@ def online_rl_loss(
     else:
         print("DEBUG: Skipping direct KL loss")
 
+    print("DEBUG: Checking entropy loss...")
     # Entropy Loss. Meant to promote diversity.
     if entropy_loss_weight is not None:
+        print(f"DEBUG: Processing entropy loss with weight: {entropy_loss_weight}")
+        print(f"DEBUG: Looking for 'gen/cur_seq_entropy' in return_dict keys: {list(return_dict.keys())}")
         # We want to maximize entropy so we deduct it from the loss.
         entropy_loss = -1.0 * (
             entropy_loss_weight * return_dict['gen/cur_seq_entropy']
@@ -730,14 +733,32 @@ def online_rl_loss(
         # breakpoint()
         return_dict['loss/entropy'] = entropy_loss
         return_dict['total'] += entropy_loss
+        print("DEBUG: Entropy loss processed successfully")
+    else:
+        print("DEBUG: Skipping entropy loss (weight is None)")
 
+    print("DEBUG: Checking label loss...")
     if 'lbl' in outputs and outputs['lbl'] is not None:
+        print("DEBUG: Processing label loss")
         return_dict['loss/lbl'] = outputs['lbl']
         return_dict['total'] += outputs['lbl']
+        print("DEBUG: Label loss processed successfully")
+    else:
+        print("DEBUG: Skipping label loss")
 
-    # Detaching all return_dict values
-    for key, value in return_dict.items():
-        if key not in 'total':
-            return_dict[key] = value.detach().cpu()
+    print("DEBUG: Starting detachment of return_dict values...")
+    try:
+        # Detaching all return_dict values
+        for key, value in return_dict.items():
+            print(f"DEBUG: Detaching key: {key}")
+            if key not in 'total':
+                return_dict[key] = value.detach().cpu()
+        print("DEBUG: All values detached successfully")
+    except Exception as e:
+        print(f"DEBUG: Error during detachment: {e}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        raise
 
+    print("DEBUG: About to return return_dict")
     return return_dict
