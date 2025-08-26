@@ -824,16 +824,22 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
             batch['action_mask'],
         ) #(bs, max_gen_len)
-        if self.loss_type == OnPolicyEnum.GRPO:
-            advantages = torch.where(
-                batch['action_mask'].bool(),
-                expanded_advantages,
-                advantages,
-            )
-        elif self.loss_type == OnPolicyEnum.SMD:
-            advantages = expanded_advantages
-        else:
-            raise ValueError(f"Unsupported loss_type: {self.loss_type}")
+        
+        # Branch-free approach: Use mathematical operations instead of conditionals
+        # For GRPO: apply action_mask, For SMD: use raw advantages
+        is_grpo = (self.loss_type == OnPolicyEnum.GRPO).float()
+        is_smd = (self.loss_type == OnPolicyEnum.SMD).float()
+        
+        # GRPO path: mask with action_mask, SMD path: use raw expanded_advantages
+        grpo_advantages = torch.where(
+            batch['action_mask'].bool(),
+            expanded_advantages,
+            advantages,
+        )
+        smd_advantages = expanded_advantages
+        
+        # Combine both approaches without branching
+        advantages = is_grpo * grpo_advantages + is_smd * smd_advantages
 
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
             advantages,
