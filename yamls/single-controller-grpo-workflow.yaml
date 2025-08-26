@@ -32,7 +32,7 @@ parameters:
   seed: 17
   model:
     name: hf_critic_free_lm
-    loss_type: smd #grpo
+    loss_type: smd #grpo #grpo
     target_kl: 0.1
     pretrained: true
     init_device: mixed

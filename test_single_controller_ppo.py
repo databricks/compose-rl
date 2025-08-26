@@ -12,27 +12,24 @@
 
 import argparse
 import asyncio
-import copy
 from contextlib import contextmanager
 import logging
 import os
 import pickle
 import time
 import datetime
-from itertools import chain
 from functools import partial
-from typing import Any, Optional, Union, MutableMapping
+from typing import Any, Optional
 from multiprocessing import get_context
 from multiprocessing.context import TimeoutError as MultiprocessingTimeoutError
 from multiprocessing.pool import AsyncResult, Pool
 
 from composer.loggers import MLFlowLogger
 import ray
-import spacy
 import torch
 import torch.distributed as dist
 from composer import Trainer
-from composer.core import get_precision_context, Precision
+from composer.core import get_precision_context
 from composer.core.data_spec import _default_split_batch
 from composer.trainer.trainer import _get_initial_device_train_microbatch_size
 from compose_rl.data.buffer import MinibatchRolloutBuffer
@@ -62,21 +59,14 @@ from compose_rl.controllers.buffer import Buffer
 from compose_rl.algorithms.online.callback_utils import preprocess_batches
 from compose_rl.registry_builders import build_reward
 from compose_rl.registry import rewards as rewards_registry
-from compose_rl.interfaces.base_kl_controller import BaseKLController
 from compose_rl.algorithms.reward_modeling import (
-    BadGenerationEndReward,
-    BaseReward,
-    InferenceRewardModel,
     Reward,
-    RewardModel,
 )
 from compose_rl.utils import (
     approx_kl,
-    batch_process_fine_granularities,
     dist_compute_masked_mean_and_var,
     get_log_probs,
     get_entropies,
-    scatter_gather_rewards,
     switch_left_to_right_padding,
     mask_eos,
     masked_sum,
@@ -84,7 +74,6 @@ from compose_rl.utils import (
     get_decoded_sequence,
 )
 from compose_rl.algorithms.online.reward_manager import (
-    ReferenceOutput,
     RewardOutput,
 )
 
@@ -178,8 +167,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.pretrain_model_name = self.config.model.pretrained_model_name_or_path
 
         self.model_config = om.to_container(self.config.model, resolve=True)
-        self.model_config['tokenizer'] = self.tokenizer
-        self.loss_type = self.model_config.get('loss_type', OnPolicyEnum.GRPO)
+        self.model_config['tokenizer'] = self.tokenizer  # type: ignore
+        self.loss_type = self.model_config.get('loss_type', OnPolicyEnum.GRPO)  # type: ignore
         print("--------------------------------")
         print(f'loss_type: {self.loss_type}')
         print("--------------------------------")
@@ -409,7 +398,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             # Construct batch
             bs = partial_batch['prompt_id'].shape[0]
             batch = {
-                'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,
+                'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,  # type: ignore
                 'ift_kl_scalar': torch.ones(bs) * self.kl_controller.value,
                 **partial_batch,
                 **reference_output,
@@ -520,7 +509,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             batch_size,
             device=device,
             dtype=prompt_dtype,
-        ) * self.max_gen_len
+        ) * self.max_gen_len  # type: ignore
 
         # If all the processes early exit generate, then we need to manually pad everything
         # we can pad this with pad tokens, since we switch the padding between left and right
@@ -721,7 +710,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         if self.kl_penalty_in_reward:
             rewards: torch.Tensor = -self.kl_controller.value * ref_kl.detach()
         else:
-            rewards: torch.Tensor = torch.zeros_like(ref_kl)
+            rewards = torch.zeros_like(ref_kl)
 
         env_rewards = torch.zeros_like(rewards)
         rews_dict_out: dict[str, torch.Tensor] = {}
@@ -1401,7 +1390,7 @@ class RolloutAgent:
 
         self.tokenizer = ray.get(self.streaming_dataset_actor.get_tokenizer.remote())
         self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
-        if self.tokenizer_pad_token_id is None:
+        if self.tokenizer_pad_token_id is None:  # type: ignore
             raise ValueError(
                 'Tokenizer does not have a pad token id. Please use a different tokenizer or add a pad token id.',
             )

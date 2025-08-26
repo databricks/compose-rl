@@ -458,7 +458,7 @@ def policy_loss(
                 rewards,
             ),  #compute the average reward of the current batch
             'advantages/mean': torch.mean(
-                advantages,
+                prompt_advantages,
             ),  #compute the average of the vstar of the current batch
         }
         return policy_dict
