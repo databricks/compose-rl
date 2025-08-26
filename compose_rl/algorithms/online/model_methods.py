@@ -399,7 +399,7 @@ def policy_loss(
     elif loss_type in ALGORITHM_TYPE.REGRESSION:
         # current it only supports SMD
         # TODO: add APO support
-        prompt_advantages = batch['prompt_advantages']
+        prompt_advantages = batch['prompt_advantages'].detach()
         assert prompt_advantages is not None
         assert prompt_advantages.dim() == 1 # (bs,)
 
@@ -454,6 +454,9 @@ def policy_loss(
         )  #size: (batch_size,)
         print(f"DEBUG: masked_log_probs_diff shape: {masked_log_probs_diff.shape}")
         print(f"DEBUG: beta: {beta}")
+        print(f"DEBUG: About to compute policy loss with shapes:")
+        print(f"  - masked_log_probs_diff: {masked_log_probs_diff.shape}")  
+        print(f"  - prompt_advantages: {prompt_advantages.shape}")
 
         policy_loss = ((beta * masked_log_probs_diff - prompt_advantages)**2).mean()
         print(f"DEBUG: policy_loss computed: {policy_loss}")
