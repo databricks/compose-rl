@@ -819,27 +819,16 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             grpo_advantage /= (std_rewards + 1e-4)
 
         # Create advantages of the same shape as original rewards
-        advantages = torch.zeros_like(rewards) #(bs, max_gen_len)
+        advantages = torch.zeros_like(rewards)
         # Copy the flat grpo_advantage according to action_mask
         expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
             batch['action_mask'],
-        ) #(bs, max_gen_len)
-        
-        # Branch-free approach: Use mathematical operations instead of conditionals
-        # For GRPO: apply action_mask, For SMD: use raw advantages
-        is_grpo = (self.loss_type == OnPolicyEnum.GRPO).float()
-        is_smd = (self.loss_type == OnPolicyEnum.SMD).float()
-        
-        # GRPO path: mask with action_mask, SMD path: use raw expanded_advantages
-        grpo_advantages = torch.where(
+        )
+        advantages = torch.where(
             batch['action_mask'].bool(),
             expanded_advantages,
             advantages,
         )
-        smd_advantages = expanded_advantages
-        
-        # Combine both approaches without branching
-        advantages = is_grpo * grpo_advantages + is_smd * smd_advantages
 
         batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
             advantages,
