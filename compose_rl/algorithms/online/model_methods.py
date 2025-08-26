@@ -446,12 +446,16 @@ def policy_loss(
         print("DEBUG: KL means computed")
 
         print("DEBUG: Computing policy loss...")
+        print(f"DEBUG: Before masked_sum - online_to_old_diff shape: {online_to_old_diff.shape}")
+        print(f"DEBUG: Before masked_sum - action_mask shape: {batch['action_mask'].shape}")
+        
         #compute the policy loss for SMD; 
         masked_log_probs_diff = utils.masked_sum(
             online_to_old_diff,  # Correct: ln(π/π_old)
             batch['action_mask'],
             dim=-1,
         )  #size: (batch_size,)
+        print(f"DEBUG: After masked_sum - masked_log_probs_diff created successfully")
         print(f"DEBUG: masked_log_probs_diff shape: {masked_log_probs_diff.shape}")
         print(f"DEBUG: beta: {beta}")
         print(f"DEBUG: About to compute policy loss with shapes:")
@@ -467,11 +471,26 @@ def policy_loss(
         print(f"DEBUG: About to compute: beta * masked_log_probs_diff - prompt_advantages")
         
         try:
-            temp_result = beta * masked_log_probs_diff - prompt_advantages
-            print(f"DEBUG: Subtraction successful, result: {temp_result}")
-            policy_loss = (temp_result**2).mean()
+            print("DEBUG: Step 1 - Computing beta * masked_log_probs_diff...")
+            step1 = beta * masked_log_probs_diff
+            print(f"DEBUG: Step 1 result: {step1}")
+            
+            print("DEBUG: Step 2 - Subtracting prompt_advantages...")
+            step2 = step1 - prompt_advantages
+            print(f"DEBUG: Step 2 result: {step2}")
+            
+            print("DEBUG: Step 3 - Squaring...")
+            step3 = step2 ** 2
+            print(f"DEBUG: Step 3 result: {step3}")
+            
+            print("DEBUG: Step 4 - Taking mean...")
+            policy_loss = step3.mean()
+            print(f"DEBUG: Final policy_loss: {policy_loss}")
+            
         except Exception as e:
             print(f"DEBUG: Error during computation: {e}")
+            import traceback
+            print(f"DEBUG: Full traceback: {traceback.format_exc()}")
             raise
         
         
