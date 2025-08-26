@@ -88,6 +88,8 @@ from compose_rl.algorithms.online.reward_manager import (
     RewardOutput,
 )
 
+from compose_rl.algorithms.online.model_methods import OnPolicyEnum
+
 
 @contextmanager
 def time_it(name: str):
