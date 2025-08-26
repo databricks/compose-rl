@@ -815,25 +815,42 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # Calculate GRPO advantage
         grpo_advantage = (flat_rewards - mean_rewards)
         # Only normalize the advantage if flag is set
-        if self.model_config['normalize_advantage']:  # type: ignore
-            grpo_advantage /= (std_rewards + 1e-4)
+        if self.loss_type == OnPolicyEnum.GRPO:
+            if self.model_config['normalize_advantage']:  # type: ignore
+                grpo_advantage /= (std_rewards + 1e-4)
 
-        # Create advantages of the same shape as original rewards
-        advantages = torch.zeros_like(rewards)
-        # Copy the flat grpo_advantage according to action_mask
-        expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
-            batch['action_mask'],
-        )
-        advantages = torch.where(
-            batch['action_mask'].bool(),
-            expanded_advantages,
-            advantages,
-        )
+            # Create advantages of the same shape as original rewards
+            advantages = torch.zeros_like(rewards)
+            # Copy the flat grpo_advantage according to action_mask
+            expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
+                batch['action_mask'],
+            )
+            advantages = torch.where(
+                batch['action_mask'].bool(),
+                expanded_advantages,
+                advantages,
+            )
 
-        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            advantages,
-            batch['action_mask'],
-        )
+            batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
+                advantages,
+                batch['action_mask'],
+            )
+            print("-----------------------------------------------")
+            print(grpo_advantage.shape)
+            print(batch_adv_mean)
+            print(batch_adv_var)
+            print("-----------------------------------------------")
+ 
+        elif self.loss_type == OnPolicyEnum.SMD:
+            advantages = grpo_advantage
+            batch_adv_mean = torch.mean(advantages)
+            batch_adv_var = torch.std(advantages)**2
+            print("-----------------------------------------------")
+            print(grpo_advantage.shape)
+            print(batch_adv_mean)
+            print(batch_adv_var)
+            print("-----------------------------------------------")
+            
 
         advantage_output = {
             'advantages': advantages,
