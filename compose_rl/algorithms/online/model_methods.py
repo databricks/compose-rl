@@ -458,7 +458,23 @@ def policy_loss(
         print(f"  - masked_log_probs_diff: {masked_log_probs_diff.shape}")  
         print(f"  - prompt_advantages: {prompt_advantages.shape}")
 
-        policy_loss = ((beta * masked_log_probs_diff - prompt_advantages)**2).mean()
+        #policy_loss = ((beta * masked_log_probs_diff - prompt_advantages)**2).mean()
+        print(f"DEBUG: Tensor details:")
+        print(f"  - masked_log_probs_diff device: {masked_log_probs_diff.device}, dtype: {masked_log_probs_diff.dtype}")
+        print(f"  - prompt_advantages device: {prompt_advantages.device}, dtype: {prompt_advantages.dtype}")
+        print(f"  - masked_log_probs_diff value: {masked_log_probs_diff}")
+        print(f"  - prompt_advantages value: {prompt_advantages}")
+        print(f"DEBUG: About to compute: beta * masked_log_probs_diff - prompt_advantages")
+        
+        try:
+            temp_result = beta * masked_log_probs_diff - prompt_advantages
+            print(f"DEBUG: Subtraction successful, result: {temp_result}")
+            policy_loss = (temp_result**2).mean()
+        except Exception as e:
+            print(f"DEBUG: Error during computation: {e}")
+            raise
+        
+        
         print(f"DEBUG: policy_loss computed: {policy_loss}")
 
         print("DEBUG: Computing rewards...")
