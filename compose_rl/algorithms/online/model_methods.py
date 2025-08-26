@@ -235,6 +235,8 @@ def policy_loss(
     kl_clip_range: Optional[float] = 40.0,
 ) -> MutableMapping:
 
+    print(f"DEBUG: policy_loss called with loss_type: {loss_type}")
+
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
         assert advantages is not None
         assert advantages.dim() == 2 #(bs, max_gen_len)
@@ -406,24 +408,32 @@ def policy_loss(
         print(f'prompt_advantages shape: {prompt_advantages.shape}')
         print("########################")
 
+        print("DEBUG: Getting log probs...")
         online_log_probs = outputs['online_log_probs']
         ref_log_probs = batch['ift_log_probs']
         old_entropies = batch['old_entropies']
-
         old_log_probs = batch['old_log_probs']
-        online_to_old_diff = online_log_probs - old_log_probs  # ln(π/π_old) for SMD
+        print(f"DEBUG: online_log_probs shape: {online_log_probs.shape}")
+        print(f"DEBUG: old_log_probs shape: {old_log_probs.shape}")
 
+        print("DEBUG: Computing log prob diff...")
+        online_to_old_diff = online_log_probs - old_log_probs  # ln(π/π_old) for SMD
+        print(f"DEBUG: online_to_old_diff shape: {online_to_old_diff.shape}")
+
+        print("DEBUG: Computing KL estimates...")
         #compute KL to pi_ref to keep track the divergence to \pi_ref
         policy_kl_dict = utils.approx_kl(
             log_p=ref_log_probs,
             log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
         )
+        print("DEBUG: First KL computed")
         old_policy_kl_dict = utils.approx_kl(
             log_p=old_log_probs,
             log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
         )
+        print("DEBUG: Second KL computed")
         with torch.no_grad():
             policy_kl = utils.masked_mean(
                 policy_kl_dict[kl_estimator],  # pyright: ignore
@@ -433,22 +443,30 @@ def policy_loss(
                 old_policy_kl_dict[kl_estimator],  # pyright: ignore
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
+        print("DEBUG: KL means computed")
 
+        print("DEBUG: Computing policy loss...")
         #compute the policy loss for SMD; 
         masked_log_probs_diff = utils.masked_sum(
             online_to_old_diff,  # Correct: ln(π/π_old)
             batch['action_mask'],
             dim=-1,
         )  #size: (batch_size,)
+        print(f"DEBUG: masked_log_probs_diff shape: {masked_log_probs_diff.shape}")
+        print(f"DEBUG: beta: {beta}")
 
-        policy_loss = ((beta * masked_log_probs_diff -prompt_advantages)**2).mean()
+        policy_loss = ((beta * masked_log_probs_diff - prompt_advantages)**2).mean()
+        print(f"DEBUG: policy_loss computed: {policy_loss}")
 
+        print("DEBUG: Computing rewards...")
         rewards = utils.masked_sum(
             batch['rewards'],
             batch['action_mask'],
             dim=-1,
         )
+        print(f"DEBUG: rewards shape: {rewards.shape}")
 
+        print("DEBUG: Creating return dictionary...")
         policy_dict = {
             'loss/policy_loss': policy_loss,
             'kl/ref_policy_kl': policy_kl,
@@ -462,6 +480,7 @@ def policy_loss(
                 prompt_advantages,  # SMD uses prompt_advantages, not advantages
             ),  #compute the average of the prompt advantages for SMD
         }
+        print("DEBUG: Policy dict created successfully")
         return policy_dict
 
     else:
