@@ -687,19 +687,39 @@ def online_rl_loss(
         raise
 
     # 3. Compute the total loss
-    return_dict['total'] = return_dict['loss/policy_loss']
+    print("DEBUG: About to compute total loss")
+    print(f"DEBUG: return_dict keys: {list(return_dict.keys())}")
+    print(f"DEBUG: Checking for 'loss/policy_loss' key...")
+    
+    try:
+        return_dict['total'] = return_dict['loss/policy_loss']
+        print("DEBUG: Total loss assigned successfully")
+    except KeyError as e:
+        print(f"DEBUG: KeyError accessing policy_loss: {e}")
+        print(f"DEBUG: Available keys: {list(return_dict.keys())}")
+        raise
+        
+    print("DEBUG: Checking ACTOR_CRITIC condition...")
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
+        print("DEBUG: Adding value loss to total (ACTOR_CRITIC)")
         # Add value loss to total loss
         return_dict['total'] += value_loss_weight * return_dict[
             'loss/value_loss']  # pyright: ignore
+    else:
+        print("DEBUG: Skipping value loss (not ACTOR_CRITIC)")
+        
+    print("DEBUG: Checking add_direct_kl_loss condition...")
     # If we want to directly minimize the KL Divergence, we can do so here
     # and it will not include the KL in the reward.
     if add_direct_kl_loss:
+        print("DEBUG: Adding direct KL loss")
         return_dict['total'] += batch['ift_kl_scalar'][0] * return_dict[
             'kl/online_ift_kl']
         return_dict['loss/online_ift_kl'] = (
             batch['ift_kl_scalar'][0] * return_dict['kl/online_ift_kl']
         )
+    else:
+        print("DEBUG: Skipping direct KL loss")
 
     # Entropy Loss. Meant to promote diversity.
     if entropy_loss_weight is not None:
