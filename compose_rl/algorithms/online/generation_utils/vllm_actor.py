@@ -148,20 +148,21 @@ class LLM(BaseLLM):
     def reset_prefix_cache(self):
         self.llm.llm_engine.reset_prefix_cache()
 
-class AsyncLLM(BaseLLM):
+class AsyncLLM:
 
     def __init__(
         self,
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        # Initialize base class first
-        super().__init__(*args, **kwargs)
+        # this env is necessary otherwise vLLM will not create V1 engine even if vllm.envs.VLLM_USE_V1 is True
         os.environ["VLLM_USE_V1"] = "1"
+        if version.parse(vllm.__version__) >= version.parse("0.9.0"):
+            # otherwise it can not serialize torch dtype
+            os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         # Create AsyncLLMEngine instead of regular LLM
-        engine_args = vllm.AsyncEngineArgs(*self.args, **self.kwargs)
-        self.llm = vllm.AsyncLLMEngine.from_engine_args(engine_args)
-        print(f'created: {type(self.llm)}')
+        engine_args = vllm.AsyncEngineArgs(*args, **kwargs)
+        self.engine = vllm.AsyncLLMEngine.from_engine_args(engine_args)
         
         # Track running tasks by request_id for abort functionality
         self.running_tasks: dict[str, asyncio.Task] = {}
@@ -170,12 +171,11 @@ class AsyncLLM(BaseLLM):
         self._generation_enabled = asyncio.Event()
         self._generation_enabled.set()  # Initially allow generation
 
-
     async def _collect_outputs(self, prompt_token_ids: list[int], request_id: str, sampling_params: SamplingParams):
         """Collect outputs for a single prompt."""
         final_output = None
         try:
-            async for request_output in self.llm.generate(
+            async for request_output in self.engine.generate(
                 prompt=TokensPrompt(prompt_token_ids=prompt_token_ids),
                 sampling_params=sampling_params,
                 request_id=request_id,
@@ -288,16 +288,16 @@ class AsyncLLM(BaseLLM):
     async def init_process_group(
         self, master_address: str, master_port: str, rank_offset: int, world_size: int
     ):
-        return await self.llm.collective_rpc(
+        return await self.engine.collective_rpc(
             "init_process_group",
             args=(master_address, master_port, rank_offset, world_size),
         )
 
     async def update_weight(self, name: str, dtype: torch.dtype, shape: Union[tuple[int, ...], list[int]], empty_cache: bool = False):
-        return await self.llm.collective_rpc("update_weight", args=(name, dtype, shape, empty_cache))
+        return await self.engine.collective_rpc("update_weight", args=(name, dtype, shape, empty_cache))
 
     async def reset_prefix_cache(self):
-        await self.llm.reset_prefix_cache()
+        await self.engine.reset_prefix_cache()
 
 
 LLMRayActor = ray.remote(LLM)
@@ -319,10 +319,6 @@ def get_shared_async_llm_and_tokenizer():
         tensor_parallel_size=1,
         trust_remote_code=True,
         max_model_len=2048,
-        gpu_memory_utilization=0.8,
-        enforce_eager=True,
-        noset_visible_devices=False,
-        num_gpus=1,
     )
     
     # Load tokenizer for encoding prompts

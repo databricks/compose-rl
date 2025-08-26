@@ -90,11 +90,6 @@ def get_async_llm_and_client():
         tensor_parallel_size=1,
         trust_remote_code=True,
         max_model_len=2048,
-        gpu_memory_utilization=0.8,
-        enforce_eager=True,
-        enable_prefix_caching=True,  # Enable prefix caching for faster multi-round conversations
-        noset_visible_devices=False,
-        num_gpus=1,
     )
     
     # Load tokenizer
