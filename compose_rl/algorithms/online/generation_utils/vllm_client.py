@@ -192,7 +192,7 @@ class AsyncCompletionsWithReward(BaseAsyncCompletions):
         )
 
         # Call vLLM AsyncLLM generate method (expects batch of prompts)
-        request_outputs = [re[0] for re in await self.async_engine.generate([prompt_token_ids], sampling_params)]
+        request_outputs = await self.async_engine.generate([prompt_token_ids], sampling_params)
         
         if not request_outputs or not request_outputs[0].outputs:
             raise RuntimeError("No output generated from vLLM")

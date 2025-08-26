@@ -184,8 +184,10 @@ class AsyncLLM(BaseLLM):
         except asyncio.CancelledError:
             # Local task was cancelled (likely due to abort() call)
             # The actual generation in vLLM engine should have been aborted separately
-            return final_output, 'aborted'
-        return final_output, 'completed'
+            log.info(f'local task for request {request_id} was aborted')
+            # TODO consider overwriting the "finish_reason" and "stop_reason" of the final_output
+        finally:
+            return final_output
     
     async def _generate(self, prompt_token_ids: list[int], sampling_params: SamplingParams):
         # Wait for generation to be enabled before proceeding
@@ -202,17 +204,25 @@ class AsyncLLM(BaseLLM):
     async def _generate_with_retries(self, prompt_token_ids: list[int], sampling_params: SamplingParams, max_retries: int = 0):
         retry = 0
         sampling_params_with_retries = sampling_params.clone()
+        ans = None
         while max_retries == 0 or retry < max_retries:
-            res, status = await self._generate(prompt_token_ids, sampling_params_with_retries)
-            if status == 'completed':
-                return res, status
-            elif status == 'aborted':
+            res = await self._generate(prompt_token_ids, sampling_params_with_retries)
+            if ans is None:
+                ans = res
+            else:
+                ans.add(res, aggregate=True)
+            if res.finished:
+                log.info(f'request {res.request_id} is finished, finishreason: {res.outputs[0].finish_reason}, stopreason: {res.outputs[0].stop_reason}')
+                return ans
+            else:
+                log.info(f'request {res.request_id} is not finished, finishreason: {res.outputs[0].finish_reason}, stopreason: {res.outputs[0].stop_reason}, retrying...')
+                # TODO (handle n > 1)
+                assert sampling_params.n == 1, f'generate with retries does not work with sampling_params.n > 1, but got {sampling_params.n}'
                 retry += 1
-                prompt_token_ids = prompt_token_ids + list(res.outputs[0].token_ids)
+                prompt_token_ids += list(res.outputs[0].token_ids)
                 if sampling_params_with_retries.max_tokens is not None:
                     sampling_params_with_retries.max_tokens = sampling_params_with_retries.max_tokens - len(res.outputs[0].token_ids)
-                # TODO: need to masssage the res status
-        return res, status
+        return ans
     
     async def generate(self, batched_promts: list[list[int]], sampling_params: SamplingParams):
         """Generate responses using vLLM's async engine."""
@@ -517,11 +527,10 @@ async def test_async_llm_abort(async_llm: AsyncLLM, tokenizer: Any):
         completed_count = 0
         aborted_count = 0
         for i, output in enumerate(outputs):
-            result, status = output
-            if status == 'completed':
+            if output.finished:
                 completed_count += 1
-                print(f"Task {i} completed with {len(result.outputs[0].token_ids)} tokens.\n prompt: {test_prompts[i]}\n response: {tokenizer.decode(result.outputs[0].token_ids, skip_special_tokens=True)}")
-            elif status == 'aborted':
+                print(f"Task {i} completed with {len(output.outputs[0].token_ids)} tokens.\n prompt: {test_prompts[i]}\n response: {tokenizer.decode(output.outputs[0].token_ids, skip_special_tokens=True)}")
+            else:
                 aborted_count += 1
                 print(f"Task {i} aborted with {len(result.outputs[0].token_ids)} tokens.\n prompt: {test_prompts[i]}\n response: {tokenizer.decode(result.outputs[0].token_ids, skip_special_tokens=True)}")
         
@@ -589,13 +598,12 @@ async def test_async_llm(async_llm: AsyncLLM, tokenizer: Any):
         print("GENERATION RESULTS")
         print("="*50)
         
-        for i, (prompt, (output, status)) in enumerate(zip(test_prompts, outputs)):
+        for i, (prompt, output) in enumerate(zip(test_prompts, outputs)):
             if output and output.outputs:
                 generated_text = tokenizer.decode(
                     output.outputs[0].token_ids, 
                     skip_special_tokens=True
                 )
-                print(f"Status: {status}")
                 print(f"\nPrompt {i+1}: {prompt}")
                 print(f"Generated: {generated_text}")
                 print(f"Tokens generated: {len(output.outputs[0].token_ids)}")
