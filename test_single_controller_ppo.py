@@ -837,7 +837,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         advantage_output = {
             'advantages': advantages,
-            'flat_advantages': grpo_advantage,
+            'prompt_advantages': grpo_advantage,
             'adv_masked_mean': torch.ones(bs) * batch_adv_mean.cpu(),
             'adv_masked_var': torch.ones(bs) * batch_adv_var.cpu(),
             'reward_std': torch.ones(bs) * rewards.std().to('cpu'),

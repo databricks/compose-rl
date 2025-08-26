@@ -15,14 +15,16 @@ class OnPolicyEnum(Enum):
     PPO = 'ppo'
     GRPO = 'grpo'
     APO = 'apo'  #add A-star PO
+    SMD = 'smd' # SMD
 
 
 class ALGORITHM_TYPE(set, Enum):
-    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.APO}
+    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.APO, OnPolicyEnum.SMD}
     ACTOR_CRITIC = {OnPolicyEnum.PPO}
     CLIPPED_PG = {OnPolicyEnum.PPO, OnPolicyEnum.GRPO}
     REGRESSION = {
         OnPolicyEnum.APO,
+        OnPolicyEnum.SMD,
     }
 
 
@@ -489,8 +491,12 @@ def online_rl_loss(
 
     return_dict = {}
     advantages = None
-    if loss_type not in ALGORITHM_TYPE.REGRESSION:
+    if loss_type not in ALGORITHM_TYPE.REGRESSION: #GRPO and PPO:
         advantages = batch['advantages']
+        assert advantages.dim() == 2 #(bs, max_gen_len)
+    elif loss_type == OnPolicyEnum.SMD:
+        advantages = batch['prompt_advantages']
+        assert advantages.dim() == 1 #(bs,)
 
     # 1. Critic Loss
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
