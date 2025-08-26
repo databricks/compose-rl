@@ -432,15 +432,12 @@ def policy_loss(
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
 
-        #compute the policy loss
-        if loss_type == OnPolicyEnum.SMD:
-            masked_log_probs_diff = utils.masked_sum(
-                online_to_old_diff,  # Correct: ln(π/π_old)
-                batch['action_mask'],
-                dim=-1,
-            )  #size: (batch_size,)
-        else:
-            raise ValueError(f'RegressionPolicy loss not implemented for {loss_type}')            
+        #compute the policy loss for SMD; 
+        masked_log_probs_diff = utils.masked_sum(
+            online_to_old_diff,  # Correct: ln(π/π_old)
+            batch['action_mask'],
+            dim=-1,
+        )  #size: (batch_size,)
 
         policy_loss = ((beta * masked_log_probs_diff -advantages)**2).mean()
 
