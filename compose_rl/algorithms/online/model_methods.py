@@ -224,6 +224,7 @@ def critic_loss(
 
 def policy_loss(
     advantages: torch.Tensor | None,
+    prompt_advantages: torch.Tensor | None,
     outputs: MutableMapping,
     batch: MutableMapping,
     loss_type: OnPolicyEnum,
@@ -397,8 +398,8 @@ def policy_loss(
     elif loss_type in ALGORITHM_TYPE.REGRESSION:
         # current it only supports SMD
         # TODO: add APO support
-        assert advantages is not None
-        assert advantages.dim() == 1 # (bs,)
+        assert prompt_advantages is not None
+        assert prompt_advantages.dim() == 1 # (bs,)
 
         print("########################")
         print(f'loss_type: {loss_type}')
@@ -439,7 +440,7 @@ def policy_loss(
             dim=-1,
         )  #size: (batch_size,)
 
-        policy_loss = ((beta * masked_log_probs_diff -advantages)**2).mean()
+        policy_loss = ((beta * masked_log_probs_diff -prompt_advantages)**2).mean()
 
         rewards = utils.masked_sum(
             batch['rewards'],
@@ -509,13 +510,18 @@ def online_rl_loss(
     # tensors in `outputs` are recomputed at the start of each step in the epoch.
 
     return_dict = {}
-    advantages = None
-    if loss_type not in ALGORITHM_TYPE.REGRESSION: #GRPO and PPO:
-        advantages = batch['advantages']
-        assert advantages.dim() == 2 #(bs, max_gen_len)
-    elif loss_type == OnPolicyEnum.SMD:
-        advantages = batch['prompt_advantages']
-        assert advantages.dim() == 1 #(bs,)
+    #advantages = None
+    advantages = batch['advantages']
+    assert advantages.dim() == 2 #(bs, max_gen_len) 
+    prompt_advantages = batch['prompt_advantages']
+    assert prompt_advantages.dim() == 1 #(bs,)
+
+    #if loss_type not in ALGORITHM_TYPE.REGRESSION: #GRPO and PPO:
+    #    advantages = batch['advantages']
+    #    assert advantages.dim() == 2 #(bs, max_gen_len)
+    #elif loss_type == OnPolicyEnum.SMD:
+    #    advantages = batch['prompt_advantages']
+    #    assert advantages.dim() == 1 #(bs,)
 
     # 1. Critic Loss
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
@@ -551,6 +557,7 @@ def online_rl_loss(
     # 2. Policy Loss
     policy_dict = policy_loss(
         advantages=advantages,
+        prompt_advantages=prompt_advantages,
         outputs=outputs,
         batch=batch,
         loss_type=loss_type,
