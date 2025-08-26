@@ -156,6 +156,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ref_model_config = None
         self.global_train_batch_size = None
         self.max_gen_len = None
+        self.loss_type = None
 
         # KL Penalty and Controller
         self.kl_ift = []
@@ -176,6 +177,10 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         self.model_config = om.to_container(self.config.model, resolve=True)
         self.model_config['tokenizer'] = self.tokenizer
+        self.loss_type = self.model_config.get('loss_type', OnPolicyEnum.GRPO)
+        print("--------------------------------")
+        print(f'loss_type: {self.loss_type}')
+        print("--------------------------------")
 
         # Reference Model Initializing
         self.ref_model_config = om.to_container(self.config.variables.reference_model.model_config, resolve=True)
