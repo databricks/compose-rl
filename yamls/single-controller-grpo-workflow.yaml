@@ -32,7 +32,7 @@ parameters:
   seed: 17
   model:
     name: hf_critic_free_lm
-    loss_type: grpo
+    loss_type: smd #grpo
     target_kl: 0.1
     pretrained: true
     init_device: mixed
@@ -184,7 +184,8 @@ parameters:
       download_timeout: 1800
     drop_last: true
     num_workers: 1
-  eval_interval: 2iter
+  eval_interval: 10iter
+  eval_first: false
   save_interval: 100iter
   log_to_console: true
   save_overwrite: true

@@ -405,7 +405,7 @@ def policy_loss(
         old_entropies = batch['old_entropies']
 
         old_log_probs = batch['old_log_probs']
-        old_log_probs_diff = old_log_probs - ref_log_probs
+        online_to_old_diff = online_log_probs - old_log_probs  # ln(π/π_old) for SMD
 
         #compute KL to pi_ref to keep track the divergence to \pi_ref
         policy_kl_dict = utils.approx_kl(
@@ -431,7 +431,7 @@ def policy_loss(
         #compute the policy loss
         if loss_type == OnPolicyEnum.SMD:
             masked_log_probs_diff = utils.masked_sum(
-                old_log_probs_diff,
+                online_to_old_diff,  # Correct: ln(π/π_old)
                 batch['action_mask'],
                 dim=-1,
             )  #size: (batch_size,)
