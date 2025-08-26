@@ -626,9 +626,13 @@ def online_rl_loss(
         kl_estimator=kl_estimator,
         kl_clip_range=kl_clip_range,
     )
+    print("DEBUG: Policy loss function completed successfully")
 
+    print("DEBUG: About to update return_dict with policy_dict")
     return_dict.update(**policy_dict)
+    print("DEBUG: return_dict updated successfully")
 
+    print("DEBUG: Starting batch items processing...")
     for key, value in batch.items():
         # This logic handles reward logging a little differently than other quantities.
         # For rewards shaped as [batch, actions] we log (1) the per-sequence masked average
