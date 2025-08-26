@@ -472,7 +472,17 @@ def policy_loss(
         
         try:
             print("DEBUG: Step 1 - Computing beta * masked_log_probs_diff...")
-            step1 = beta * masked_log_probs_diff
+            print(f"DEBUG: beta type: {type(beta)}")
+            print(f"DEBUG: beta value: {beta}")
+            if hasattr(beta, 'shape'):
+                print(f"DEBUG: beta shape: {beta.shape}")
+            if hasattr(beta, 'device'):
+                print(f"DEBUG: beta device: {beta.device}")
+            
+            # Convert beta to a simple float to avoid tensor indexing issues
+            beta_float = float(beta)
+            print(f"DEBUG: beta_float: {beta_float}")
+            step1 = beta_float * masked_log_probs_diff
             print(f"DEBUG: Step 1 result: {step1}")
             
             print("DEBUG: Step 2 - Subtracting prompt_advantages...")
