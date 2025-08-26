@@ -194,7 +194,9 @@ class AsyncCompletionsWithReward(BaseAsyncCompletions):
         if not request_outputs or not request_outputs[0].outputs:
             raise RuntimeError("No output generated from vLLM")
             
-        request_output = request_outputs[0]
+        request_output, status = request_outputs[0]
+        if status == 'aborted':
+            raise RuntimeError("Generation aborted")
         completion_output = request_output.outputs[0]
         
         # Convert response to OpenAI format

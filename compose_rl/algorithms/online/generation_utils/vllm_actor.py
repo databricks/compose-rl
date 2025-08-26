@@ -176,12 +176,9 @@ class AsyncLLM(BaseLLM):
                 request_id=request_id,
             ):
                 final_output = request_output
-                # Store partial output in case of abort
-                # self.partial_outputs[request_id] = final_output
         except asyncio.CancelledError:
             # Local task was cancelled (likely due to abort() call)
             # The actual generation in vLLM engine should have been aborted separately
-            log.info(f"Request {request_id} task was cancelled")
             return final_output, 'aborted'
         finally:
             # Clean up tracking
@@ -192,7 +189,6 @@ class AsyncLLM(BaseLLM):
         """Generate responses using vLLM's async engine."""
 
         tasks = []
-        request_ids = []
         for prompt in batched_promts:
             # Schedule the collection of outputs for each prompt.
             # Avoid duplicate request_ids
@@ -202,7 +198,6 @@ class AsyncLLM(BaseLLM):
             # Track the task by request_id
             self.running_tasks[request_id] = task
             tasks.append(task)
-            request_ids.append(request_id)
         
         outputs = await asyncio.gather(*tasks)
 
@@ -219,14 +214,10 @@ class AsyncLLM(BaseLLM):
             None
         """
         # Get the task if it exists
-        task = self.running_tasks.get(request_id)
-        if task is None:
-            log.warning(f"Request {request_id} not found in running tasks")
-            return
+        task = self.running_tasks[request_id]
         if not task.done():
             task.cancel()
             log.info(f"Cancelled local task for request {request_id}")
-        
         return
 
     async def init_process_group(
@@ -248,7 +239,36 @@ LLMRayActor = ray.remote(LLM)
 LLMRayActorAsync = ray.remote(AsyncLLM)
 
 
-async def test_async_llm_abort():
+def get_shared_async_llm_and_tokenizer():
+    """Helper function to create shared AsyncLLM and tokenizer for tests."""
+    from transformers import AutoTokenizer
+    
+    # Model configuration
+    model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+    
+    print(f"Initializing shared AsyncLLM with model: {model_name}")
+    
+    # Create AsyncLLM instance
+    async_llm = AsyncLLM(
+        model=model_name,
+        tensor_parallel_size=1,
+        trust_remote_code=True,
+        max_model_len=2048,
+        gpu_memory_utilization=0.8,
+        enforce_eager=True,
+        noset_visible_devices=False,
+        num_gpus=1,
+    )
+    
+    # Load tokenizer for encoding prompts
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
+    return async_llm, tokenizer
+
+
+async def test_async_llm_abort(async_llm: AsyncLLM, tokenizer: Any):
     """Test the abort functionality of AsyncLLM.
     
     This test creates long-running generation tasks and demonstrates
@@ -256,30 +276,6 @@ async def test_async_llm_abort():
     abort to stop actual generation, then cancels the local asyncio task.
     """
     try:
-        from transformers import AutoTokenizer
-        
-        # Model configuration
-        model_name = "Qwen/Qwen2.5-0.5B-Instruct"
-        
-        print(f"Initializing AsyncLLM with model: {model_name}")
-        
-        # Create AsyncLLM instance
-        async_llm = AsyncLLM(
-            model=model_name,
-            tensor_parallel_size=1,
-            trust_remote_code=True,
-            max_model_len=2048,
-            gpu_memory_utilization=0.8,
-            enforce_eager=True,
-            noset_visible_devices=False,
-            num_gpus=1,
-        )
-        
-        # Load tokenizer for encoding prompts
-        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        
         # Test prompts designed to generate longer responses
         test_prompts = [
             "Write a detailed explanation of machine learning with examples and applications in at least 500 words.",
@@ -334,25 +330,22 @@ async def test_async_llm_abort():
             print("No running tasks found to abort")
         
         # Wait for remaining tasks to complete or handle exceptions
-        try:
-            outputs = await generation_task
-            print(f"\nRemaining generation tasks completed")
-            
-            # Process results
-            completed_count = 0
-            aborted_count = 0
-            for i, output in enumerate(outputs):
-                result, status = output
-                if status == 'completed':
-                    completed_count += 1
-                    print(f"Task {i} completed with {len(result.outputs[0].token_ids)} tokens")
-                elif status == 'aborted':
-                    aborted_count += 1
-            
-            print(f"\nSummary: {completed_count} completed, {aborted_count} aborted")
-            
-        except Exception as e:
-            print(f"Generation task failed: {e}")
+        outputs = await generation_task
+        print(f"\nRemaining generation tasks completed")
+        
+        # Process results
+        completed_count = 0
+        aborted_count = 0
+        for i, output in enumerate(outputs):
+            result, status = output
+            if status == 'completed':
+                completed_count += 1
+                print(f"Task {i} completed with {len(result.outputs[0].token_ids)} tokens.\n prompt: {test_prompts[i]}\n response: {tokenizer.decode(result.outputs[0].token_ids, skip_special_tokens=True)}")
+            elif status == 'aborted':
+                aborted_count += 1
+                print(f"Task {i} aborted with {len(result.outputs[0].token_ids)} tokens.\n prompt: {test_prompts[i]}\n response: {tokenizer.decode(result.outputs[0].token_ids, skip_special_tokens=True)}")
+        
+        print(f"\nSummary: {completed_count} completed, {aborted_count} aborted")
         
         print(f"\n✅ Abort test completed successfully!")
         return True
@@ -364,36 +357,13 @@ async def test_async_llm_abort():
         return False
 
 
-async def test_async_llm():
+async def test_async_llm(async_llm: AsyncLLM, tokenizer: Any):
     """Simple test for AsyncLLM using Qwen/Qwen2.5-0.5B model.
     
     This test creates an AsyncLLM instance and tests it with several prompts
     without depending on Ray.
     """
     try:
-        from transformers import AutoTokenizer
-        
-        # Model configuration
-        model_name = "Qwen/Qwen2.5-0.5B-Instruct"
-        
-        print(f"Initializing AsyncLLM with model: {model_name}")
-        
-        # Create AsyncLLM instance
-        async_llm = AsyncLLM(
-            model=model_name,
-            tensor_parallel_size=1,
-            trust_remote_code=True,
-            max_model_len=2048,
-            gpu_memory_utilization=0.8,
-            enforce_eager=True,
-            noset_visible_devices=False,
-            num_gpus=1,
-        )
-        
-        # Load tokenizer for encoding prompts
-        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
         
         # Test prompts
         test_prompts = [
@@ -439,12 +409,13 @@ async def test_async_llm():
         print("GENERATION RESULTS")
         print("="*50)
         
-        for i, (prompt, output) in enumerate(zip(test_prompts, outputs)):
+        for i, (prompt, (output, status)) in enumerate(zip(test_prompts, outputs)):
             if output and output.outputs:
                 generated_text = tokenizer.decode(
                     output.outputs[0].token_ids, 
                     skip_special_tokens=True
                 )
+                print(f"Status: {status}")
                 print(f"\nPrompt {i+1}: {prompt}")
                 print(f"Generated: {generated_text}")
                 print(f"Tokens generated: {len(output.outputs[0].token_ids)}")
@@ -467,13 +438,13 @@ async def test_async_llm():
         return False
 
 
-def run_async_llm_test():
+def run_async_llm_test(async_llm: AsyncLLM, tokenizer: Any):
     """Synchronous wrapper to run the async test."""
     print("Starting AsyncLLM test...")
     
     try:
         # Run the async test
-        result = asyncio.run(test_async_llm())
+        result = asyncio.run(test_async_llm(async_llm, tokenizer))
         
         if result:
             print("\n✅ AsyncLLM test passed!")
@@ -487,13 +458,13 @@ def run_async_llm_test():
         return False
 
 
-def run_async_llm_abort_test():
+def run_async_llm_abort_test(async_llm: AsyncLLM, tokenizer: Any):
     """Synchronous wrapper to run the async abort test."""
     print("Starting AsyncLLM abort test...")
     
     try:
         # Run the async abort test
-        result = asyncio.run(test_async_llm_abort())
+        result = asyncio.run(test_async_llm_abort(async_llm, tokenizer))
         
         if result:
             print("\n✅ AsyncLLM abort test passed!")
@@ -509,25 +480,12 @@ def run_async_llm_abort_test():
 
 if __name__ == "__main__":
     import sys
+
+    async_llm, tokenizer = get_shared_async_llm_and_tokenizer()
     
     # Check command line arguments for which test to run
     if len(sys.argv) > 1 and sys.argv[1] == "abort":
         # Run the abort test
-        run_async_llm_abort_test()
-    elif len(sys.argv) > 1 and sys.argv[1] == "both":
-        # Run both tests
-        print("Running both tests...\n")
-        basic_result = run_async_llm_test()
-        print("\n" + "="*60 + "\n")
-        abort_result = run_async_llm_abort_test()
-        
-        if basic_result and abort_result:
-            print("\n🎉 All tests passed!")
-        else:
-            print("\n❌ Some tests failed!")
+        run_async_llm_abort_test(async_llm, tokenizer)
     else:
-        # Default: run the basic test
-        print("Run with 'abort' argument to test abort functionality")
-        print("Run with 'both' argument to test both basic and abort functionality")
-        print("Running basic test...\n")
-        run_async_llm_test()
+        basic_result = run_async_llm_test(async_llm, tokenizer)
