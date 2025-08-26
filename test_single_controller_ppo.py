@@ -815,12 +815,15 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # Calculate GRPO advantage
         grpo_advantage = (flat_rewards - mean_rewards)
         # Only normalize the advantage if flag is set
+
+        advantages = torch.zeros_like(rewards)
+        batch_adv_mean = torch.tensor(0.0)
+        batch_adv_var = torch.tensor(0.0)
+
         if self.loss_type == OnPolicyEnum.GRPO:
             if self.model_config['normalize_advantage']:  # type: ignore
                 grpo_advantage /= (std_rewards + 1e-4)
 
-            # Create advantages of the same shape as original rewards
-            advantages = torch.zeros_like(rewards)
             # Copy the flat grpo_advantage according to action_mask
             expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
                 batch['action_mask'],
@@ -841,15 +844,15 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             print(batch_adv_var)
             print("-----------------------------------------------")
  
-        elif self.loss_type == OnPolicyEnum.SMD:
-            advantages = grpo_advantage
-            batch_adv_mean = torch.mean(advantages)
-            batch_adv_var = torch.std(advantages)**2
-            print("------------------------SMD-----------------------")
-            print(grpo_advantage.shape)
-            print(batch_adv_mean)
-            print(batch_adv_var)
-            print("-----------------------------------------------")
+        #elif self.loss_type == OnPolicyEnum.SMD:
+            #advantages = grpo_advantage
+            #batch_adv_mean = torch.mean(advantages)
+            #batch_adv_var = torch.std(advantages)**2
+            #print("------------------------SMD-----------------------")
+            #print(grpo_advantage.shape)
+            #print(batch_adv_mean)
+            #print(batch_adv_var)
+            #print("-----------------------------------------------")
         else:
             raise ValueError(f"Unsupported loss_type: {self.loss_type}")
             
