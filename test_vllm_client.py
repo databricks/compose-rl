@@ -185,6 +185,7 @@ async def test_vllm_openai_single_rounds(client: VllmOpenAI):
                     print(f"✓ Tensor conversion successful - input_ids shape: {tensor_dict['input_ids'].shape}")
                 except Exception as e:
                     print(f"⚠ Tensor conversion failed: {e}")
+                    raise e
             
         except Exception as e:
             print(f"❌ Error generating response: {str(e)}")

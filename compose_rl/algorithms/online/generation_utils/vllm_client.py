@@ -46,7 +46,7 @@ class CompletionWithTokenLogp:
     request_output: RequestOutput
     messages: list[dict] = field(default_factory=list)
 
-    def _extract_logprobs(self, logprob_list: List[Dict[int, Logprob]], token_ids: List[int]) -> List[float]:
+    def _extract_logprobs(self, logprob_list: List[Optional[Dict[int, Logprob]]], token_ids: List[int]) -> List[float]:
         """Extract logprob values from vLLM's list[dict[token_id, Logprob]] structure.
         
         Args:
@@ -60,6 +60,11 @@ class CompletionWithTokenLogp:
         
         logprobs = []
         for token_id, logprob_dict in zip(token_ids, logprob_list):
+            # Handle case where logprob_dict is None, e.g.,likely a special token like BOS/beginning-of-sequence
+            if logprob_dict is None:
+                logprobs.append(0.0)
+                continue
+
             logprobs.append(logprob_dict[token_id].logprob)
         return logprobs
 
@@ -75,9 +80,7 @@ class CompletionWithTokenLogp:
         
         # Extract logprobs using helper function
         output_logprobs = self._extract_logprobs(output.logprobs, output_tokens)
-        prompt_logprobs = self._extract_logprobs(self.request_output.prompt_logprobs, 
-            input_tokens
-        )
+        prompt_logprobs = self._extract_logprobs(self.request_output.prompt_logprobs, input_tokens)
         
         # Combine sequences and create tensors
         seq = input_tokens + output_tokens
@@ -141,10 +144,10 @@ class AsyncCompletionsWithReward(BaseAsyncCompletions):
             extra_body = {}
             
         # Convert messages to prompt format
-        tools = tools if tools is not NOT_GIVEN else None
+        tools_list = None if tools is NOT_GIVEN else tools
         prompt_token_ids = self.tokenizer.apply_chat_template(
             messages_list,
-            tools=tools,
+            tools=tools_list,
             add_generation_prompt=True,
             tokenize=True,
             **extra_body.get("chat_template_kwargs", {}),
@@ -155,7 +158,7 @@ class AsyncCompletionsWithReward(BaseAsyncCompletions):
         max_new_tokens = 512
         
         if max_tokens is not NOT_GIVEN and max_tokens is not None:
-            max_new_tokens = max_tokens - len(prompt_token_ids)
+            max_new_tokens = int(max_tokens) - len(prompt_token_ids)
             if max_new_tokens <= 0:
                 raise RuntimeError(
                     "max_tokens must be greater than the number of prompt tokens"
@@ -189,14 +192,12 @@ class AsyncCompletionsWithReward(BaseAsyncCompletions):
         )
 
         # Call vLLM AsyncLLM generate method (expects batch of prompts)
-        request_outputs = await self.async_engine.generate([prompt_token_ids], sampling_params)
+        request_outputs = [re[0] for re in await self.async_engine.generate([prompt_token_ids], sampling_params)]
         
         if not request_outputs or not request_outputs[0].outputs:
             raise RuntimeError("No output generated from vLLM")
             
-        request_output, status = request_outputs[0]
-        if status == 'aborted':
-            raise RuntimeError("Generation aborted")
+        request_output = request_outputs[0]
         completion_output = request_output.outputs[0]
         
         # Convert response to OpenAI format
@@ -212,10 +213,10 @@ class AsyncCompletionsWithReward(BaseAsyncCompletions):
         # Parse tool calls if needed
         tool_calls = None
         finish_reason = completion_output.finish_reason
-        if tool_choice != "none" and tools:
+        if tool_choice != "none" and tools_list:
             tool_calls, output_text, finish_reason = process_tool_calls(
                 output_text,
-                tools,
+                tools_list,
                 self.tool_call_parser,
                 finish_reason,
             )
@@ -268,7 +269,7 @@ class VllmOpenAI(AsyncOpenAI):
         async_engine: AsyncLLM,
         tokenizer: PreTrainedTokenizerFast,
         tool_call_parser: Optional[str] = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self.async_engine = async_engine
