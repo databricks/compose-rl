@@ -166,6 +166,7 @@ class AsyncLLM(BaseLLM):
         # Track running tasks by request_id for abort functionality
         self.running_tasks: dict[str, asyncio.Task] = {}
 
+
     async def _collect_outputs(self, prompt_token_ids: list[int], request_id: str, sampling_params: SamplingParams):
         """Collect outputs for a single prompt."""
         final_output = None
@@ -180,11 +181,32 @@ class AsyncLLM(BaseLLM):
             # Local task was cancelled (likely due to abort() call)
             # The actual generation in vLLM engine should have been aborted separately
             return final_output, 'aborted'
-        finally:
-            # Clean up tracking
-            self.running_tasks.pop(request_id, None)
         return final_output, 'completed'
+    
+    async def _generate(self, prompt_token_ids: list[int], sampling_params: SamplingParams):
+        request_id = str(uuid4().hex)
+        task = asyncio.create_task(self._collect_outputs(prompt_token_ids, request_id, sampling_params))
+        # Track the task by request_id
+        self.running_tasks[request_id] = task
+        res = await task
+        self.running_tasks.pop(request_id)
+        return res
 
+    async def _generate_with_retries(self, prompt_token_ids: list[int], sampling_params: SamplingParams, max_retries: int = 0):
+        retry = 0
+        sampling_params_with_retries = sampling_params.clone()
+        while max_retries == 0 or retry < max_retries:
+            res, status = await self._generate(prompt_token_ids, sampling_params_with_retries)
+            if status == 'completed':
+                return res, status
+            elif status == 'aborted':
+                retry += 1
+                prompt_token_ids = prompt_token_ids + list(res.outputs[0].token_ids)
+                if sampling_params_with_retries.max_tokens is not None:
+                    sampling_params_with_retries.max_tokens = sampling_params_with_retries.max_tokens - len(res.outputs[0].token_ids)
+                # TODO: need to masssage the res status
+        return res, status
+    
     async def generate(self, batched_promts: list[list[int]], sampling_params: SamplingParams):
         """Generate responses using vLLM's async engine."""
 
@@ -192,11 +214,7 @@ class AsyncLLM(BaseLLM):
         for prompt in batched_promts:
             # Schedule the collection of outputs for each prompt.
             # Avoid duplicate request_ids
-            request_id = str(uuid4().hex)
-            task = asyncio.create_task(self._collect_outputs(prompt, request_id, sampling_params))
-            
-            # Track the task by request_id
-            self.running_tasks[request_id] = task
+            task = asyncio.create_task(self._generate_with_retries(prompt, sampling_params))
             tasks.append(task)
         
         outputs = await asyncio.gather(*tasks)
