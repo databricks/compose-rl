@@ -633,35 +633,61 @@ def online_rl_loss(
     print("DEBUG: return_dict updated successfully")
 
     print("DEBUG: Starting batch items processing...")
-    for key, value in batch.items():
-        # This logic handles reward logging a little differently than other quantities.
-        # For rewards shaped as [batch, actions] we log (1) the per-sequence masked average
-        # and (2) the per-sequence masked sum over actions, both size [batch].
-        # We then average over [batch], so the interpretation is (1) the average per-token
-        # reward, and (2) the average total reward.
-        if 'reward' in key:
-            if value.shape == batch['action_mask'].shape:
-                # Average reward per timestep
-                return_dict['env/' + str(key) + '_mean'] = utils.masked_mean(
+    try:
+        for key, value in batch.items():
+            print(f"DEBUG: Processing batch key: {key}")
+            print(f"DEBUG: Value type: {type(value)}, shape: {getattr(value, 'shape', 'N/A')}")
+            
+            # This logic handles reward logging a little differently than other quantities.
+            # For rewards shaped as [batch, actions] we log (1) the per-sequence masked average
+            # and (2) the per-sequence masked sum over actions, both size [batch].
+            # We then average over [batch], so the interpretation is (1) the average per-token
+            # reward, and (2) the average total reward.
+            if 'reward' in key:
+                print(f"DEBUG: Processing reward key: {key}")
+                print(f"DEBUG: action_mask shape: {batch['action_mask'].shape}")
+                print(f"DEBUG: value shape: {value.shape}")
+                
+                if value.shape == batch['action_mask'].shape:
+                    print(f"DEBUG: Shapes match, computing masked operations...")
+                    # Average reward per timestep
+                    return_dict['env/' + str(key) + '_mean'] = utils.masked_mean(
+                        value,
+                        batch['action_mask'],
+                        dim=1,
+                    ).mean(dim=0)
+                    print(f"DEBUG: Masked mean computed for {key}")
+                    
+                    # Total reward over timesteps
+                    return_dict['env/' + str(key) + '_total'] = utils.masked_sum(
+                        value,
+                        batch['action_mask'],
+                        dim=1,
+                    ).mean(dim=0)
+                    print(f"DEBUG: Masked sum computed for {key}")
+                else:
+                    print(f"DEBUG: Shapes don't match, skipping {key}")
+            elif 'ift_kl' == key:
+                print(f"DEBUG: Processing ift_kl key: {key}")
+                return_dict['kl/' + str(key)] = utils.masked_mean(
                     value,
                     batch['action_mask'],
-                    dim=1,
-                ).mean(dim=0)
-                # Total reward over timesteps
-                return_dict['env/' + str(key) + '_total'] = utils.masked_sum(
-                    value,
-                    batch['action_mask'],
-                    dim=1,
-                ).mean(dim=0)
+                )
+                print(f"DEBUG: ift_kl processed successfully")
             else:
+                print(f"DEBUG: Processing non-reward key: {key}")
                 # If this value is not [batch, actions] shaped, just do a
                 # vanilla mean.
                 return_dict['env/' + str(key)] = value.mean(dim=0)
-        if 'ift_kl' == key:
-            return_dict['kl/' + str(key)] = utils.masked_mean(
-                value,
-                batch['action_mask'],
-            )
+                print(f"DEBUG: Non-reward key {key} processed successfully")
+                
+        print("DEBUG: Batch items processing completed successfully")
+        
+    except Exception as e:
+        print(f"DEBUG: Error in batch processing: {e}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        raise
 
     # 3. Compute the total loss
     return_dict['total'] = return_dict['loss/policy_loss']
