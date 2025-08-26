@@ -64,6 +64,7 @@ def offline_dataset_collate_fn(
 
     batch_input_ids = []
     attention_masks = []
+    sequence_id = []
     sequence_lens = []
     prompt_lens = []
     rewards = []
@@ -160,6 +161,11 @@ def offline_dataset_collate_fn(
                 mask = mask[0: len(attention_mask)]
             assert mask.shape == attention_mask.shape and mask.shape == input_ids.shape
 
+
+        cur_sequence_id = torch.tensor(([0] * sequence_len) +
+                                       ([-1] * max(0, int(pad_len.item()))),)
+
+        sequence_id.append(cur_sequence_id)
         batch_input_ids.append(input_ids)
         attention_masks.append(attention_mask)
         sequence_lens.append(sequence_len)  # TODO: this sequence_len is out of dated? 
@@ -181,6 +187,7 @@ def offline_dataset_collate_fn(
 
     batch_input_ids = ref_collate_fn(batch_input_ids)['input_ids']
     attention_masks = torch.stack(attention_masks)
+    sequence_id = torch.stack(sequence_id)
 
     sequence_lens = torch.cat(sequence_lens)
     prompt_lens = torch.cat(prompt_lens)
@@ -189,6 +196,7 @@ def offline_dataset_collate_fn(
         'prompt_len': prompt_lens,
         'input_ids': batch_input_ids,
         'attention_mask': attention_masks,
+        'sequence_id': sequence_id,
     }
     if len(masks) > 0:
         masks = torch.stack(masks)
