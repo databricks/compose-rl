@@ -850,6 +850,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             print(batch_adv_mean)
             print(batch_adv_var)
             print("-----------------------------------------------")
+        else:
+            raise ValueError(f"Unsupported loss_type: {self.loss_type}")
             
 
         advantage_output = {
