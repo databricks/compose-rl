@@ -837,6 +837,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             advantages = grpo_advantage # simply use plain average. TODO: maybe add a beta parameter to compute V* style advantage
             batch_adv_mean = torch.mean(advantages)
             batch_adv_var = torch.var(advantages)
+        else:
+            raise ValueError(f"Unsupported loss_type: {self.loss_type}")
 
         advantage_output = {
             'advantages': advantages,

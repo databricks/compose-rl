@@ -439,6 +439,9 @@ def policy_loss(
                 batch['action_mask'],
                 dim=-1,
             )
+        else:
+            raise ValueError(f'Regression Policy loss not implemented for {loss_type}')
+
         assert advantages is not None
         assert advantages.shape == masked_log_probs_diff.shape
         
