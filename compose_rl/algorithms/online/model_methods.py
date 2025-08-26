@@ -400,6 +400,10 @@ def policy_loss(
         assert advantages is not None
         assert advantages.dim() == 1 # (bs,)
 
+        print("########################")
+        print(f'loss_type: {loss_type}')
+        print("########################")
+
         online_log_probs = outputs['online_log_probs']
         ref_log_probs = batch['ift_log_probs']
         old_entropies = batch['old_entropies']

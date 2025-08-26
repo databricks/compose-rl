@@ -1,4 +1,4 @@
-name: single-controller-hackathon
+name: single-controller-hackathon_smd
 
 image: mosaicml/dle:nightly-latest
 scheduling:
@@ -44,7 +44,7 @@ parameters:
     policy_clip_ratio: 0.2
     attn_implementation: flash_attention_2
     allow_embedding_resizing: true
-    normalize_advantage: true
+    normalize_advantage: False
     use_flash_attention_2: true
     length_normalize_policy_loss: true
     pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
