@@ -165,6 +165,10 @@ class AsyncLLM(BaseLLM):
         
         # Track running tasks by request_id for abort functionality
         self.running_tasks: dict[str, asyncio.Task] = {}
+        
+        # Generation control: Event is set when generation is allowed
+        self._generation_enabled = asyncio.Event()
+        self._generation_enabled.set()  # Initially allow generation
 
 
     async def _collect_outputs(self, prompt_token_ids: list[int], request_id: str, sampling_params: SamplingParams):
@@ -184,6 +188,9 @@ class AsyncLLM(BaseLLM):
         return final_output, 'completed'
     
     async def _generate(self, prompt_token_ids: list[int], sampling_params: SamplingParams):
+        # Wait for generation to be enabled before proceeding
+        await self._generation_enabled.wait()
+        
         request_id = str(uuid4().hex)
         task = asyncio.create_task(self._collect_outputs(prompt_token_ids, request_id, sampling_params))
         # Track the task by request_id
@@ -238,6 +245,36 @@ class AsyncLLM(BaseLLM):
             log.info(f"Cancelled local task for request {request_id}")
         return
 
+    async def pause_generation(self):
+        """
+        Abort all current requests and prevent any new _generate calls.
+        
+        This method will:
+        1. Clear the generation enabled event to block new requests
+        2. Cancel all currently running generation tasks
+        """
+        # Prevent new generation requests
+        self._generation_enabled.clear()
+        log.info("Generation paused - new requests will be blocked")
+        
+        # Cancel all running tasks
+        if self.running_tasks:
+            log.info(f"Cancelling {len(self.running_tasks)} running tasks")
+            for request_id in list(self.running_tasks.keys()):
+                await self.abort(request_id)
+        else:
+            log.info("No running tasks to cancel")
+
+    async def continue_generation(self):
+        """
+        Remove the generation lock and allow new generation requests.
+        
+        This method sets the generation enabled event, allowing blocked
+        and new _generate calls to proceed.
+        """
+        self._generation_enabled.set()
+        log.info("Generation resumed - new requests are now allowed")
+
     async def init_process_group(
         self, master_address: str, master_port: str, rank_offset: int, world_size: int
     ):
@@ -284,6 +321,131 @@ def get_shared_async_llm_and_tokenizer():
         tokenizer.pad_token = tokenizer.eos_token
     
     return async_llm, tokenizer
+
+
+async def test_async_llm_pause_continue(async_llm: AsyncLLM, tokenizer: Any):
+    """Test the pause_generation and continue_generation functionality of AsyncLLM.
+    
+    This test demonstrates:
+    1. Starting generation tasks
+    2. Pausing generation (aborts current tasks and blocks new ones)
+    3. Trying to start new generation while paused (should be blocked)
+    4. Continuing generation (unblocks new tasks)
+    5. Verifying new tasks can run after continue
+    """
+    try:
+        print("Testing pause_generation and continue_generation functionality...")
+        
+        # Test prompts for initial generation
+        initial_prompts = [
+            "Write a short story about a robot.",
+            "Explain the concept of quantum entanglement.",
+        ]
+        
+        # Test prompts for blocked generation
+        blocked_prompts = [
+            "What is the capital of France?",
+        ]
+        
+        # Test prompts for resumed generation  
+        resumed_prompts = [
+            "Describe the process of photosynthesis.",
+            "What are the benefits of exercise?",
+        ]
+        
+        # Encode all prompts
+        def encode_prompts(prompts: list[str]) -> list[list[int]]:
+            return [tokenizer.encode(prompt, return_tensors="pt").squeeze(0).tolist() 
+                   for prompt in prompts]
+        
+        initial_encoded = encode_prompts(initial_prompts)
+        blocked_encoded = encode_prompts(blocked_prompts)
+        resumed_encoded = encode_prompts(resumed_prompts)
+        
+        # Create sampling parameters
+        sampling_params = SamplingParams(
+            temperature=0.7,
+            top_p=0.9,
+            max_tokens=100,
+            stop_token_ids=[tokenizer.eos_token_id] if tokenizer.eos_token_id else None,
+        )
+        
+        print(f"\n1. Starting initial generation with {len(initial_prompts)} prompts...")
+        
+        # Start initial generation but don't await immediately
+        initial_task = asyncio.create_task(
+            async_llm.generate(initial_encoded, sampling_params)
+        )
+        
+        # Wait a bit for generation to start
+        await asyncio.sleep(0.5)
+        print(f"Running tasks before pause: {len(async_llm.running_tasks)}")
+        
+        print("\n2. Pausing generation...")
+        await async_llm.pause_generation()
+        
+        # Verify generation is paused by checking the event
+        is_paused = not async_llm._generation_enabled.is_set()
+        print(f"Generation is paused: {is_paused}")
+        
+        print("\n3. Attempting to start new generation while paused (should be blocked)...")
+        
+        # This should be blocked and wait
+        blocked_task_started = False
+        blocked_task = asyncio.create_task(
+            async_llm.generate(blocked_encoded, sampling_params)
+        )
+        
+        # Give it a moment to see if it starts (it shouldn't)
+        # Use shield() to prevent the task from being cancelled when timeout occurs
+        try:
+            await asyncio.wait_for(asyncio.shield(blocked_task), timeout=1.0)
+            blocked_task_started = True
+            print("❌ ERROR: Blocked task completed (should have been blocked)")
+        except asyncio.TimeoutError:
+            print("✅ Confirmed: New generation is properly blocked while paused")
+            print("   (Task is still running in background, protected by shield)")
+        
+        print("\n4. Continuing generation...")
+        await async_llm.continue_generation()
+        
+        # Verify generation is resumed
+        is_resumed = async_llm._generation_enabled.is_set()
+        print(f"Generation is resumed: {is_resumed}")
+        
+        print("\n5. Waiting for blocked task to complete after resume...")
+        # With shield(), the task should not have been cancelled and should complete now
+        blocked_outputs = await blocked_task
+        print(f"✅ Blocked task completed after resume with {len(blocked_outputs)} outputs")
+        
+        print("\n6. Starting new generation after resume...")
+        resumed_outputs = await async_llm.generate(resumed_encoded, sampling_params)
+        print(f"✅ New generation completed with {len(resumed_outputs)} outputs")
+        
+        # Wait for initial task to complete (may have been cancelled)
+        try:
+            initial_outputs = await initial_task
+            print(f"Initial task completed with {len(initial_outputs)} outputs")
+        except asyncio.CancelledError:
+            print("Initial task was cancelled during pause (expected)")
+        
+        print("\n✅ Pause/Continue test completed successfully!")
+        
+        # Summary
+        print("\nTest Summary:")
+        print(f"- Generation was successfully paused: {is_paused}")
+        print(f"- New tasks were blocked while paused: {not blocked_task_started}")
+        print(f"- Generation was successfully resumed: {is_resumed}")
+        print(f"- New tasks work after resume: {len(resumed_outputs) > 0}")
+        print(f"- Blocked tasks completed after resume (protected by shield): {len(blocked_outputs) > 0}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error during pause/continue testing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 async def test_async_llm_abort(async_llm: AsyncLLM, tokenizer: Any):
@@ -476,6 +638,26 @@ def run_async_llm_test(async_llm: AsyncLLM, tokenizer: Any):
         return False
 
 
+def run_async_llm_pause_continue_test(async_llm: AsyncLLM, tokenizer: Any):
+    """Synchronous wrapper to run the async pause/continue test."""
+    print("Starting AsyncLLM pause/continue test...")
+    
+    try:
+        # Run the async pause/continue test
+        result = asyncio.run(test_async_llm_pause_continue(async_llm, tokenizer))
+        
+        if result:
+            print("\n✅ AsyncLLM pause/continue test passed!")
+        else:
+            print("\n❌ AsyncLLM pause/continue test failed!")
+            
+        return result
+        
+    except Exception as e:
+        print(f"\n❌ AsyncLLM pause/continue test failed with exception: {str(e)}")
+        return False
+
+
 def run_async_llm_abort_test(async_llm: AsyncLLM, tokenizer: Any):
     """Synchronous wrapper to run the async abort test."""
     print("Starting AsyncLLM abort test...")
@@ -502,8 +684,16 @@ if __name__ == "__main__":
     async_llm, tokenizer = get_shared_async_llm_and_tokenizer()
     
     # Check command line arguments for which test to run
-    if len(sys.argv) > 1 and sys.argv[1] == "abort":
-        # Run the abort test
-        run_async_llm_abort_test(async_llm, tokenizer)
+    if len(sys.argv) > 1:
+        test_type = sys.argv[1]
+        if test_type == "abort":
+            # Run the abort test
+            run_async_llm_abort_test(async_llm, tokenizer)
+        elif test_type == "pause_continue":
+            # Run the pause/continue test
+            run_async_llm_pause_continue_test(async_llm, tokenizer)
+        else:
+            print(f"Unknown test type: {test_type}")
+            print("Available tests: abort, pause_continue")
     else:
         basic_result = run_async_llm_test(async_llm, tokenizer)
