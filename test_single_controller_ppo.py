@@ -835,7 +835,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 advantages,
                 batch['action_mask'],
             )
-            print("-----------------------------------------------")
+            print("-----------------------GRPO------------------------")
             print(grpo_advantage.shape)
             print(batch_adv_mean)
             print(batch_adv_var)
@@ -845,7 +845,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             advantages = grpo_advantage
             batch_adv_mean = torch.mean(advantages)
             batch_adv_var = torch.std(advantages)**2
-            print("-----------------------------------------------")
+            print("------------------------SMD-----------------------")
             print(grpo_advantage.shape)
             print(batch_adv_mean)
             print(batch_adv_var)
