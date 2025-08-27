@@ -235,8 +235,6 @@ def policy_loss(
     kl_clip_range: Optional[float] = 40.0,
 ) -> MutableMapping:
 
-    print(f"DEBUG: policy_loss called with loss_type: {loss_type}")
-
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
         assert advantages is not None
         assert advantages.dim() == 2 #(bs, max_gen_len)
@@ -403,37 +401,25 @@ def policy_loss(
         assert prompt_advantages is not None
         assert prompt_advantages.dim() == 1 # (bs,)
 
-        print("########################")
-        print(f'loss_type: {loss_type}')
-        print(f'prompt_advantages shape: {prompt_advantages.shape}')
-        print("########################")
-
-        print("DEBUG: Getting log probs...")
         online_log_probs = outputs['online_log_probs']
         ref_log_probs = batch['ift_log_probs']
         old_entropies = batch['old_entropies']
         old_log_probs = batch['old_log_probs']
-        print(f"DEBUG: online_log_probs shape: {online_log_probs.shape}")
-        print(f"DEBUG: old_log_probs shape: {old_log_probs.shape}")
-
-        print("DEBUG: Computing log prob diff...")
         online_to_old_diff = online_log_probs - old_log_probs  # ln(π/π_old) for SMD
-        print(f"DEBUG: online_to_old_diff shape: {online_to_old_diff.shape}")
-
-        print("DEBUG: Computing KL estimates...")
+        
         #compute KL to pi_ref to keep track the divergence to \pi_ref
         policy_kl_dict = utils.approx_kl(
             log_p=ref_log_probs,
             log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
         )
-        print("DEBUG: First KL computed")
+        
         old_policy_kl_dict = utils.approx_kl(
             log_p=old_log_probs,
             log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
         )
-        print("DEBUG: Second KL computed")
+        
         with torch.no_grad():
             policy_kl = utils.masked_mean(
                 policy_kl_dict[kl_estimator],  # pyright: ignore
@@ -443,11 +429,6 @@ def policy_loss(
                 old_policy_kl_dict[kl_estimator],  # pyright: ignore
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
-        print("DEBUG: KL means computed")
-
-        print("DEBUG: Computing policy loss...")
-        print(f"DEBUG: Before masked_sum - online_to_old_diff shape: {online_to_old_diff.shape}")
-        print(f"DEBUG: Before masked_sum - action_mask shape: {batch['action_mask'].shape}")
         
         #compute the policy loss for SMD; 
         masked_log_probs_diff = utils.masked_sum(
@@ -455,66 +436,16 @@ def policy_loss(
             batch['action_mask'],
             dim=-1,
         )  #size: (batch_size,)
-        print(f"DEBUG: After masked_sum - masked_log_probs_diff created successfully")
-        print(f"DEBUG: masked_log_probs_diff shape: {masked_log_probs_diff.shape}")
-        print(f"DEBUG: beta: {beta}")
-        print(f"DEBUG: About to compute policy loss with shapes:")
-        print(f"  - masked_log_probs_diff: {masked_log_probs_diff.shape}")  
-        print(f"  - prompt_advantages: {prompt_advantages.shape}")
+        # Convert beta to a simple float
+        beta_float = float(beta)
+        policy_loss = ((beta_float * masked_log_probs_diff - prompt_advantages)**2).mean()       
 
-        #policy_loss = ((beta * masked_log_probs_diff - prompt_advantages)**2).mean()
-        print(f"DEBUG: Tensor details:")
-        print(f"  - masked_log_probs_diff device: {masked_log_probs_diff.device}, dtype: {masked_log_probs_diff.dtype}")
-        print(f"  - prompt_advantages device: {prompt_advantages.device}, dtype: {prompt_advantages.dtype}")
-        print(f"  - masked_log_probs_diff value: {masked_log_probs_diff}")
-        print(f"  - prompt_advantages value: {prompt_advantages}")
-        print(f"DEBUG: About to compute: beta * masked_log_probs_diff - prompt_advantages")
-        
-        try:
-            print("DEBUG: Step 1 - Computing beta * masked_log_probs_diff...")
-            print(f"DEBUG: beta type: {type(beta)}")
-            print(f"DEBUG: beta value: {beta}")
-            if hasattr(beta, 'shape'):
-                print(f"DEBUG: beta shape: {beta.shape}")
-            if hasattr(beta, 'device'):
-                print(f"DEBUG: beta device: {beta.device}")
-            
-            # Convert beta to a simple float to avoid tensor indexing issues
-            beta_float = float(beta)
-            print(f"DEBUG: beta_float: {beta_float}")
-            step1 = beta_float * masked_log_probs_diff
-            print(f"DEBUG: Step 1 result: {step1}")
-            
-            print("DEBUG: Step 2 - Subtracting prompt_advantages...")
-            step2 = step1 - prompt_advantages
-            print(f"DEBUG: Step 2 result: {step2}")
-            
-            print("DEBUG: Step 3 - Squaring...")
-            step3 = step2 ** 2
-            print(f"DEBUG: Step 3 result: {step3}")
-            
-            print("DEBUG: Step 4 - Taking mean...")
-            policy_loss = step3.mean()
-            print(f"DEBUG: Final policy_loss: {policy_loss}")
-            
-        except Exception as e:
-            print(f"DEBUG: Error during computation: {e}")
-            import traceback
-            print(f"DEBUG: Full traceback: {traceback.format_exc()}")
-            raise
-        
-        
-        print(f"DEBUG: policy_loss computed: {policy_loss}")
-
-        print("DEBUG: Computing rewards...")
         rewards = utils.masked_sum(
             batch['rewards'],
             batch['action_mask'],
             dim=-1,
         )
-        print(f"DEBUG: rewards shape: {rewards.shape}")
-
-        print("DEBUG: Creating return dictionary...")
+        
         policy_dict = {
             'loss/policy_loss': policy_loss,
             'kl/policy_kl': policy_kl,  # Required by calling code in model.py
@@ -529,9 +460,7 @@ def policy_loss(
                 prompt_advantages,  # SMD uses prompt_advantages, not advantages
             ),  #compute the average of the prompt advantages for SMD
         }
-        print("DEBUG: Policy dict created successfully")
         return policy_dict
-
     else:
         raise ValueError(f'Policy loss not implemented for {loss_type}')
 
@@ -580,7 +509,7 @@ def online_rl_loss(
 
     return_dict = {}
     advantages = None
-    if loss_type not in ALGORITHM_TYPE.REGRESSION:
+    if loss_type not in ALGORITHM_TYPE.REGRESSION: # basically grpo/ppo
         advantages = batch['advantages']
 
     # 1. Critic Loss
@@ -627,106 +556,58 @@ def online_rl_loss(
         kl_estimator=kl_estimator,
         kl_clip_range=kl_clip_range,
     )
-    print("DEBUG: Policy loss function completed successfully")
 
-    print("DEBUG: About to update return_dict with policy_dict")
     return_dict.update(**policy_dict)
-    print("DEBUG: return_dict updated successfully")
 
-    print("DEBUG: Starting batch items processing...")
-    try:
-        for key, value in batch.items():
-            print(f"DEBUG: Processing batch key: {key}")
-            print(f"DEBUG: Value type: {type(value)}, shape: {getattr(value, 'shape', 'N/A')}")
-            
-            # This logic handles reward logging a little differently than other quantities.
-            # For rewards shaped as [batch, actions] we log (1) the per-sequence masked average
-            # and (2) the per-sequence masked sum over actions, both size [batch].
-            # We then average over [batch], so the interpretation is (1) the average per-token
-            # reward, and (2) the average total reward.
-            if 'reward' in key:
-                print(f"DEBUG: Processing reward key: {key}")
-                print(f"DEBUG: action_mask shape: {batch['action_mask'].shape}")
-                print(f"DEBUG: value shape: {value.shape}")
-                
-                if value.shape == batch['action_mask'].shape:
-                    print(f"DEBUG: Shapes match, computing masked operations...")
-                    # Average reward per timestep
-                    return_dict['env/' + str(key) + '_mean'] = utils.masked_mean(
-                        value,
-                        batch['action_mask'],
-                        dim=1,
-                    ).mean(dim=0)
-                    print(f"DEBUG: Masked mean computed for {key}")
-                    
-                    # Total reward over timesteps
-                    return_dict['env/' + str(key) + '_total'] = utils.masked_sum(
-                        value,
-                        batch['action_mask'],
-                        dim=1,
-                    ).mean(dim=0)
-                    print(f"DEBUG: Masked sum computed for {key}")
-                else:
-                    print(f"DEBUG: Shapes don't match, skipping {key}")
-            elif 'ift_kl' == key:
-                print(f"DEBUG: Processing ift_kl key: {key}")
-                return_dict['kl/' + str(key)] = utils.masked_mean(
+
+    for key, value in batch.items():
+        # This logic handles reward logging a little differently than other quantities.
+        # For rewards shaped as [batch, actions] we log (1) the per-sequence masked average
+        # and (2) the per-sequence masked sum over actions, both size [batch].
+        # We then average over [batch], so the interpretation is (1) the average per-token
+        # reward, and (2) the average total reward.
+        if 'reward' in key:                
+            if value.shape == batch['action_mask'].shape:
+                print(f"DEBUG: Shapes match, computing masked operations...")
+                # Average reward per timestep
+                return_dict['env/' + str(key) + '_mean'] = utils.masked_mean(
                     value,
                     batch['action_mask'],
-                )
-                print(f"DEBUG: ift_kl processed successfully")
-            else:
-                print(f"DEBUG: Skipping non-essential key: {key}")
-                # Skip all other keys - we only need rewards and ift_kl
-                
-        print("DEBUG: Batch items processing completed successfully")
-        
-    except Exception as e:
-        print(f"DEBUG: Error in batch processing: {e}")
-        import traceback
-        print(f"DEBUG: Traceback: {traceback.format_exc()}")
-        raise
+                    dim=1,
+                ).mean(dim=0)
+                    
+                # Total reward over timesteps
+                return_dict['env/' + str(key) + '_total'] = utils.masked_sum(
+                    value,
+                    batch['action_mask'],
+                    dim=1,
+                ).mean(dim=0)
+        elif 'ift_kl' == key:
+            return_dict['kl/' + str(key)] = utils.masked_mean(
+                value,
+                batch['action_mask'],
+            )
 
-    # 3. Compute the total loss
-    print("DEBUG: About to compute total loss")
-    print(f"DEBUG: return_dict keys: {list(return_dict.keys())}")
-    print(f"DEBUG: Checking for 'loss/policy_loss' key...")
-    
-    try:
-        return_dict['total'] = return_dict['loss/policy_loss']
-        print("DEBUG: Total loss assigned successfully")
-    except KeyError as e:
-        print(f"DEBUG: KeyError accessing policy_loss: {e}")
-        print(f"DEBUG: Available keys: {list(return_dict.keys())}")
-        raise
+    # 3. Compute the total loss  
+    return_dict['total'] = return_dict['loss/policy_loss']
         
-    print("DEBUG: Checking ACTOR_CRITIC condition...")
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
-        print("DEBUG: Adding value loss to total (ACTOR_CRITIC)")
         # Add value loss to total loss
         return_dict['total'] += value_loss_weight * return_dict[
             'loss/value_loss']  # pyright: ignore
-    else:
-        print("DEBUG: Skipping value loss (not ACTOR_CRITIC)")
+
         
-    print("DEBUG: Checking add_direct_kl_loss condition...")
     # If we want to directly minimize the KL Divergence, we can do so here
     # and it will not include the KL in the reward.
     if add_direct_kl_loss:
-        print("DEBUG: Adding direct KL loss")
         return_dict['total'] += batch['ift_kl_scalar'][0] * return_dict[
             'kl/online_ift_kl']
         return_dict['loss/online_ift_kl'] = (
             batch['ift_kl_scalar'][0] * return_dict['kl/online_ift_kl']
         )
-    else:
-        print("DEBUG: Skipping direct KL loss")
 
-    print("DEBUG: Checking entropy loss...")
     # Entropy Loss. Meant to promote diversity.
     if entropy_loss_weight is not None:
-        print(f"DEBUG: Processing entropy loss with weight: {entropy_loss_weight}")
-        print(f"DEBUG: Looking for 'gen/cur_seq_entropy' in return_dict keys: {list(return_dict.keys())}")
         # We want to maximize entropy so we deduct it from the loss.
         entropy_loss = -1.0 * (
             entropy_loss_weight * return_dict['gen/cur_seq_entropy']
@@ -734,44 +615,15 @@ def online_rl_loss(
         # breakpoint()
         return_dict['loss/entropy'] = entropy_loss
         return_dict['total'] += entropy_loss
-        print("DEBUG: Entropy loss processed successfully")
-    else:
-        print("DEBUG: Skipping entropy loss (weight is None)")
-
-    print("DEBUG: Checking label loss...")
+    
     if 'lbl' in outputs and outputs['lbl'] is not None:
-        print("DEBUG: Processing label loss")
         return_dict['loss/lbl'] = outputs['lbl']
         return_dict['total'] += outputs['lbl']
-        print("DEBUG: Label loss processed successfully")
-    else:
-        print("DEBUG: Skipping label loss")
-
-    print("DEBUG: Starting detachment of return_dict values...")
-    try:
-        # Detaching all return_dict values
-        for key, value in return_dict.items():
-            print(f"DEBUG: Detaching key: {key}")
-            if key not in 'total':
-                return_dict[key] = value.detach().cpu()
-        print("DEBUG: All values detached successfully")
-    except Exception as e:
-        print(f"DEBUG: Error during detachment: {e}")
-        import traceback
-        print(f"DEBUG: Traceback: {traceback.format_exc()}")
-        raise
-
-    print("DEBUG: About to return return_dict")
-    print(f"DEBUG: return_dict type: {type(return_dict)}")
-    print(f"DEBUG: return_dict keys: {list(return_dict.keys())}")
-    print(f"DEBUG: return_dict size: {len(return_dict)}")
     
-    try:
-        result = return_dict
-        print("DEBUG: Return assignment successful")
-        return result
-    except Exception as e:
-        print(f"DEBUG: Error during return: {e}")
-        import traceback
-        print(f"DEBUG: Traceback: {traceback.format_exc()}")
-        raise
+    # Detaching all return_dict values
+    for key, value in return_dict.items():
+        if key not in 'total':
+            return_dict[key] = value.detach().cpu()
+
+    #result = return_dict
+    return return_dict
