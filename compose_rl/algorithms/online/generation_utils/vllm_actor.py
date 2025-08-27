@@ -34,44 +34,35 @@ from vllm.inputs import TokensPrompt
 log = logging.getLogger(__name__)
 
 
-class BaseLLM:
+def set_env_and_pop_args(kwargs: dict[str, Any]) -> dict[str, Any]:
+    noset_visible_devices = kwargs.pop('noset_visible_devices', False)
 
-    def __init__(
-        self,
-        *args: Any,
-        **kwargs: Any,
-    ) -> None:
-        self.noset_visible_devices = kwargs.pop('noset_visible_devices')
+    if kwargs.get('distributed_executor_backend') == 'ray':
+        # a hack to make the script work.
+        # stop ray from manipulating *_VISIBLE_DEVICES
+        # at the top-level when the distributed_executor_backend is ray.
+        os.environ.pop('CUDA_VISIBLE_DEVICES', None)
+        os.environ.pop('ROCR_VISIBLE_DEVICES', None)
+    elif noset_visible_devices:
+        # We need to set CUDA_VISIBLE_DEVICES to the ray assigned GPU
+        # when the distributed_executor_backend is not ray and
+        # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set.
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(ray.get_gpu_ids()[0])
 
-        if kwargs.get('distributed_executor_backend') == 'ray':
-            # a hack to make the script work.
-            # stop ray from manipulating *_VISIBLE_DEVICES
-            # at the top-level when the distributed_executor_backend is ray.
-            os.environ.pop('CUDA_VISIBLE_DEVICES', None)
-            os.environ.pop('ROCR_VISIBLE_DEVICES', None)
-        elif self.noset_visible_devices:
-            # We need to set CUDA_VISIBLE_DEVICES to the ray assigned GPU
-            # when the distributed_executor_backend is not ray and
-            # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set.
-            os.environ['CUDA_VISIBLE_DEVICES'] = str(ray.get_gpu_ids()[0])
+    num_gpus = kwargs.pop('num_gpus', None)
+    bundle_indices = kwargs.pop('bundle_indices', None)
+    if bundle_indices is not None:
+        os.environ['VLLM_RAY_PER_WORKER_GPUS'] = str(num_gpus)
+        os.environ['VLLM_RAY_BUNDLE_INDICES'] = ','.join(
+            map(str, bundle_indices),
+        )
+        log.info(f'creating LLM with bundle_indices={bundle_indices}')
 
-        self.num_gpus = kwargs.pop('num_gpus')
-        self.bundle_indices = kwargs.pop('bundle_indices', None)
-        if self.bundle_indices is not None:
-            os.environ['VLLM_RAY_PER_WORKER_GPUS'] = str(self.num_gpus)
-            os.environ['VLLM_RAY_BUNDLE_INDICES'] = ','.join(
-                map(str, self.bundle_indices),
-            )
-            log.info(f'creating LLM with bundle_indices={self.bundle_indices}')
+        # return kwargs for child classes to use
+    return kwargs
 
-        # Store args and kwargs for child classes to use
-        self.args = args
-        self.kwargs = kwargs
 
-        if version.parse(vllm.__version__) >= version.parse("0.9.0"):
-            os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
-
-class LLM(BaseLLM):
+class LLM:
 
     def __init__(
         self,
@@ -79,10 +70,9 @@ class LLM(BaseLLM):
         **kwargs: Any,
     ) -> None:
         # Initialize base class first
-        super().__init__(*args, **kwargs)
-        
+        kwargs = set_env_and_pop_args(kwargs)        
         # Create sync LLM engine
-        self.llm = vllm.LLM(*self.args, **self.kwargs)
+        self.llm = vllm.LLM(*args, **kwargs)
 
     def generate(
         self,
@@ -148,28 +138,28 @@ class LLM(BaseLLM):
     def reset_prefix_cache(self):
         self.llm.llm_engine.reset_prefix_cache()
 
-class AsyncLLM:
+class AsyncEngine:
 
-    def __init__(
-        self,
-        *args: Any,
-        **kwargs: Any,
-    ) -> None:
-        # this env is necessary otherwise vLLM will not create V1 engine even if vllm.envs.VLLM_USE_V1 is True
-        os.environ["VLLM_USE_V1"] = "1"
-        if version.parse(vllm.__version__) >= version.parse("0.9.0"):
-            # otherwise it can not serialize torch dtype
-            os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
-        # Create AsyncLLMEngine instead of regular LLM
-        engine_args = vllm.AsyncEngineArgs(*args, **kwargs)
-        self.engine = vllm.AsyncLLMEngine.from_engine_args(engine_args)
-        
+    def __init__(self, engine: vllm.AsyncLLMEngine) -> None:
+        # Use an existing AsyncLLMEngine (avoid re-allocating)
+        self.engine = engine
         # Track running tasks by request_id for abort functionality
         self.running_tasks: dict[str, asyncio.Task] = {}
-        
         # Generation control: Event is set when generation is allowed
         self._generation_enabled = asyncio.Event()
         self._generation_enabled.set()  # Initially allow generation
+
+    def construct_engine_from_args(self, *args: Any, **kwargs: Any) -> vllm.AsyncLLMEngine:
+        os.environ["VLLM_USE_V1"] = "1"
+        if version.parse(vllm.__version__) >= version.parse("0.9.0"):
+            os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
+        engine_args = vllm.AsyncEngineArgs(*args, **kwargs)
+        return vllm.AsyncLLMEngine.from_engine_args(engine_args)
+
+    @classmethod
+    def from_args(cls, *args: Any, **kwargs: Any) -> "AsyncEngine":
+        engine = cls.construct_engine_from_args(*args, **kwargs)
+        return cls(engine)
 
     async def _collect_outputs(self, prompt_token_ids: list[int], request_id: str, sampling_params: SamplingParams):
         """Collect outputs for a single prompt."""
@@ -298,6 +288,13 @@ class AsyncLLM:
 
     async def reset_prefix_cache(self):
         await self.engine.reset_prefix_cache()
+
+
+class AsyncLLM(AsyncEngine):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs = set_env_and_pop_args(kwargs)
+        engine = self.construct_engine_from_args(*args, **kwargs)
+        super().__init__(engine)
 
 
 LLMRayActor = ray.remote(LLM)
