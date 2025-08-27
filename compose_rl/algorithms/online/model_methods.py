@@ -437,8 +437,7 @@ def policy_loss(
             dim=-1,
         )  #size: (batch_size,)
         # Convert beta to a simple float
-        # TODO: fix that later!! this is for debugging.
-        beta_float = beta #float(beta)
+        beta_float = float(beta)
         policy_loss = ((beta_float * masked_log_probs_diff - prompt_advantages)**2).mean()       
 
         rewards = utils.masked_sum(
