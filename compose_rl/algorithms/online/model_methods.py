@@ -448,8 +448,7 @@ def policy_loss(
         
         policy_dict = {
             'loss/policy_loss': policy_loss,
-            #'kl/policy_kl': policy_kl,  # Required by calling code in model.py
-            'kl/ref_policy_kl': policy_kl,
+            'kl/policy_kl': policy_kl,  # Required by calling code in model.py
             'kl/old_policy_kl': old_policy_kl,
             'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
             'gen/entropy': old_entropies,
