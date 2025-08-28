@@ -565,7 +565,7 @@ def online_rl_loss(
         # and (2) the per-sequence masked sum over actions, both size [batch].
         # We then average over [batch], so the interpretation is (1) the average per-token
         # reward, and (2) the average total reward.
-        if 'reward' in key:                
+        if 'reward' in key:
             if value.shape == batch['action_mask'].shape:
                 # Average reward per timestep
                 return_dict['env/' + str(key) + '_mean'] = utils.masked_mean(
