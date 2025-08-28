@@ -275,7 +275,7 @@ class AsyncEngine:
         self._generation_enabled.set()
         log.info("Generation resumed - new requests are now allowed")
 
-    async def init_process_group(
+    async def init_weight_update_group(
         self, master_address: str, master_port: str, rank_offset: int, world_size: int
     ):
         return await self.engine.collective_rpc(

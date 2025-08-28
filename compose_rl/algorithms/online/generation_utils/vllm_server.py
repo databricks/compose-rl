@@ -68,6 +68,7 @@ def _serialize_request_output(output: Any) -> Dict[str, Any]:
                     "token_ids": getattr(o, "token_ids", []) or [],
                     "finish_reason": getattr(o, "finish_reason", None),
                     "stop_reason": getattr(o, "stop_reason", None),
+                    "logprobs": getattr(o, "logprobs", None),
                 }
             )
     except Exception:
@@ -91,6 +92,7 @@ class AsyncLLMServer:
         signal.signal(signal.SIGTERM, signal_handler)
 
         os.environ["VLLM_USE_V1"] = "1"
+        os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
 
         engine_args = AsyncEngineArgs.from_cli_args(self.server_args)
         engine = AsyncLLMEngine.from_engine_args(
@@ -124,7 +126,7 @@ class AsyncLLMServer:
             outputs = await async_engine.generate(
                 batched_prompt_token_ids, sampling_params
             )
-            return {"outputs": [_serialize_request_output(o) for o in outputs]}
+            return {"results": [_serialize_request_output(o) for o in outputs]}
 
         @app.post("/pause_generation")
         async def _pause_generation():
@@ -136,8 +138,8 @@ class AsyncLLMServer:
             await async_engine.continue_generation()
             return {"status": "ok"}
 
-        @app.post("/init_process_group")
-        async def _init_process_group(request: Request):
+        @app.post("/init_weight_update_group")
+        async def _init_weight_update_group(request: Request):
             data = await request.json()
             master_addr: str = data.get("master_address")
             master_port = data.get("master_port")
@@ -147,7 +149,7 @@ class AsyncLLMServer:
             # Normalize types
             master_port_str = str(master_port)
 
-            await async_engine.init_process_group(
+            await async_engine.init_weight_update_group(
                 master_addr, master_port_str, rank_offset, world_size
             )
             return {"status": "ok"}

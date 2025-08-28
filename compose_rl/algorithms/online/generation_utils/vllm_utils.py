@@ -148,7 +148,7 @@ class WorkerWrap:
         rank = torch.distributed.get_rank() + rank_offset
         self._model_update_group = stateless_init_process_group(
             master_address,
-            master_port,
+            int(master_port),
             rank,
             world_size,
             self.device,

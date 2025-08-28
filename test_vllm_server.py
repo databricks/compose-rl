@@ -105,21 +105,21 @@ async def async_test_pause_continue_server() -> None:
             r.raise_for_status()
 
         blocked_result = await blocked_task
-        assert "outputs" in blocked_result and len(blocked_result["outputs"]) == 1
-        blocked_text = _decode_output_text(blocked_result["outputs"][0])
+        assert "results" in blocked_result and len(blocked_result["results"]) == 1
+        blocked_text = _decode_output_text(blocked_result["results"][0])
         print(f"Blocked task completed after resume: {blocked_prompts[0]}\n{blocked_text}\n")
 
         # 5) Start new generation after resume
         resumed_result = await post_generate(session, resumed_encoded)
-        assert "outputs" in resumed_result and len(resumed_result["outputs"]) == len(resumed_prompts)
-        for i, out in enumerate(resumed_result["outputs"]):
+        assert "results" in resumed_result and len(resumed_result["results"]) == len(resumed_prompts)
+        for i, out in enumerate(resumed_result["results"]):
             text = _decode_output_text(out)
             print(f"Resumed prompt {i+1}: {resumed_prompts[i]}\nResumed response {i+1}: {text}\n")
 
         # Await the initial task (it may have been cancelled server-side)
         try:
             initial_result = await initial_task
-            for i, out in enumerate(initial_result.get("outputs", [])):
+            for i, out in enumerate(initial_result.get("results", [])):
                 text = _decode_output_text(out)
                 print(f"Initial prompt {i+1}: {initial_prompts[i]}\nInitial response {i+1}: {text}\n")
         except asyncio.CancelledError:
