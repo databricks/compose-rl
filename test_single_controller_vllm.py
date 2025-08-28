@@ -256,7 +256,7 @@ async def test_distributed_ray_actors(
                             
                     except Exception as e:
                         print(f"❌ Generation failed for prompt '{prompt}': {e}")
-                        continue
+                        raise e
                 
                 # Display detailed results with tokens, logprobs and decoded text
                 print(f"\n📊 Detailed Generation Results:")

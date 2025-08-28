@@ -2,7 +2,7 @@ import os
 import time
 import uuid
 from copy import deepcopy
-from typing import Any, Dict, Iterable, List, Optional, Set, Union
+from typing import Dict, Iterable, List, Optional, Set, Union
 
 from openai import AsyncOpenAI
 from openai._types import NOT_GIVEN, Body, NotGiven
@@ -22,8 +22,10 @@ from openai.types.chat.chat_completion_tool_choice_option_param import (
 from openai.types.completion_usage import CompletionUsage
 from openai.types.shared_params.metadata import Metadata
 
-from .sglang_remote import GenerationHyperparameters, ModelRequest, ModelResponse, RemoteSGLangEngine
+from .dataclasses import GenerationHyperparameters, ModelRequest, ModelResponse
 from .tool_call_parser import process_tool_calls
+from .sglang_remote import RemoteSGLangEngine
+from .vllm_remote import RemoteVLLMEngine
 
 from transformers import PreTrainedTokenizerFast
 
@@ -185,7 +187,7 @@ class AsyncCompletionsWithReward(BaseAsyncCompletions):
                 Choice(
                     finish_reason=response.stop_reason,
                     index=0,
-                    logprobs=None,  # For simplicity
+                    logprobs=None,  # For simplicity # FIXME: why not add logprobs here?
                     message=ChatCompletionMessage(
                         content=output_text,
                         role="assistant",
@@ -220,7 +222,7 @@ class ArealOpenAI(AsyncOpenAI):
 
     def __init__(
         self,
-        engine: RemoteSGLangEngine,
+        engine: RemoteSGLangEngine | RemoteVLLMEngine,
         tokenizer: PreTrainedTokenizerFast,
         tool_call_parser: Optional[str] = None,
         **kwargs,

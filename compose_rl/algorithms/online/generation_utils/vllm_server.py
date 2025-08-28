@@ -21,6 +21,8 @@ from vllm.entrypoints.openai.cli_args import (
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import FlexibleArgumentParser, set_ulimit
 import vllm.envs as envs
+from vllm.sequence import Logprob
+from vllm.outputs import RequestOutput
 
 from .vllm_actor import AsyncEngine
 
@@ -52,27 +54,50 @@ def _to_torch_dtype(dtype_str: str) -> torch.dtype:
     return mapping[s]
 
 
-def _serialize_request_output(output: Any) -> Dict[str, Any]:
-    if output is None:
-        return {"request_id": None, "finished": False, "outputs": []}
+def _extract_logprobs(logprob_list: list[dict[int, Logprob] | None], token_ids: list[int]) -> list[float]:
+    """Extract logprob values from vLLM's list[dict[token_id, Logprob]] structure.
+    
+    Args:
+        logprob_list: vLLM's logprobs structure (list[dict[token_id, Logprob]])
+        token_ids: List of token IDs corresponding to the logprobs
+        
+    Returns:
+        List of float logprob values, with 0.0 for missing entries
+    """
+    assert len(logprob_list) == len(token_ids), f"length mismatch: logprob_list: {len(logprob_list)}, token_ids: {len(token_ids)}"
+    
+    logprobs = []
+    for token_id, logprob_dict in zip(token_ids, logprob_list):
+        # Handle case where logprob_dict is None, e.g.,likely a special token like BOS/beginning-of-sequence
+        if logprob_dict is None:
+            logprobs.append(0.0)
+            continue
+
+        logprobs.append(logprob_dict[token_id].logprob)
+    return logprobs
+
+
+def _serialize_request_output(output: RequestOutput) -> Dict[str, Any]:
     out: Dict[str, Any] = {
-        "request_id": getattr(output, "request_id", None),
-        "finished": getattr(output, "finished", False),
+        "request_id": output.request_id,
+        "finished": output.finished,
         "outputs": [],
     }
-    try:
-        outs = getattr(output, "outputs", []) or []
-        for o in outs:
-            out["outputs"].append(
-                {
-                    "token_ids": getattr(o, "token_ids", []) or [],
-                    "finish_reason": getattr(o, "finish_reason", None),
-                    "stop_reason": getattr(o, "stop_reason", None),
-                    "logprobs": getattr(o, "logprobs", None),
-                }
-            )
-    except Exception:
-        pass
+    for o in output.outputs:
+        token_ids = o.token_ids
+        vllm_logprobs = o.logprobs
+        if vllm_logprobs is not None:
+            logprobs = _extract_logprobs(vllm_logprobs, token_ids)
+        else:
+            logprobs = None
+        out["outputs"].append(
+            {
+                "token_ids": token_ids,
+                "finish_reason": o.finish_reason,
+                "stop_reason": o.stop_reason,
+                "logprobs": logprobs,
+            }
+        )
     return out
 
 
