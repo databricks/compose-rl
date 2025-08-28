@@ -241,7 +241,7 @@ def offline_dataset_collate_fn_test(
     ret = ref_collate_fn(list_input_ids)  # right padded based on the longest sequence in the batch
     batch_input_ids = ret['input_ids']
     attention_masks = torch.logical_not(
-        torch.eq(batch_input_ids, tokenizer.eos_token_id)
+        torch.eq(batch_input_ids, tokenizer.pad_token_id)
     ).to(torch.int64)
 
     batch_max_seq_len = batch_input_ids.shape[1]
