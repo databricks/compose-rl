@@ -1,4 +1,4 @@
-name: single-controller-hackathon_grpo
+name: single-controller-hackathon
 
 image: mosaicml/dle:nightly-latest
 scheduling:
@@ -14,7 +14,7 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: single-controller-hackathon-smd #single-controller-hackathon
+  git_branch: single-controller-hackathon
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
@@ -37,7 +37,6 @@ parameters:
     pretrained: true
     init_device: mixed
     kl_estimator: k3
-    beta: 0.01 
     kl_clip_range: 40
     use_auth_token: true
     compute_kl_loss: false
@@ -51,7 +50,7 @@ parameters:
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k_grpo
+        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
@@ -59,7 +58,7 @@ parameters:
     ppo: {}
     orl_eval:
       evals:
-      #- name: gsm8k
+      - name: gsm8k
       - name: math_500
       - name: math_hard
       eval_overrides:
@@ -83,7 +82,7 @@ parameters:
     betas:
     - 0.9
     - 0.95
-    weight_decay: 1.0e-8
+    weight_decay: 0
   precision: amp_bf16
   scheduler:
     name: constant_with_warmup
@@ -169,7 +168,7 @@ parameters:
   max_seq_len: 10240
   save_folder: /tmp/checkpoints
   dist_timeout: 1800
-  max_duration: 200iter
+  max_duration: 10iter
   progress_bar: false
   train_loader:
     name: prompt
@@ -184,8 +183,7 @@ parameters:
       download_timeout: 1800
     drop_last: true
     num_workers: 1
-  eval_interval: 10iter
-  eval_first: false
+  eval_interval: 2iter
   save_interval: 100iter
   log_to_console: true
   save_overwrite: true
@@ -194,7 +192,7 @@ parameters:
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
   global_train_batch_size: 64
-  device_train_microbatch_size: 1  # Increased for better SMD batch statistics
+  device_train_microbatch_size: 1
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
   save_num_checkpoints_to_keep: 1

@@ -416,7 +416,7 @@ def policy_loss(
         
         old_policy_kl_dict = utils.approx_kl(
             log_p=old_log_probs,
-            log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
+            log_q=online_log_probs, #log_q - log_p = log pi - log pi_old
             kl_clip_range=kl_clip_range,
         )
         
@@ -567,7 +567,6 @@ def online_rl_loss(
         # reward, and (2) the average total reward.
         if 'reward' in key:                
             if value.shape == batch['action_mask'].shape:
-                print(f"DEBUG: Shapes match, computing masked operations...")
                 # Average reward per timestep
                 return_dict['env/' + str(key) + '_mean'] = utils.masked_mean(
                     value,
@@ -618,11 +617,10 @@ def online_rl_loss(
     if 'lbl' in outputs and outputs['lbl'] is not None:
         return_dict['loss/lbl'] = outputs['lbl']
         return_dict['total'] += outputs['lbl']
-    
+
     # Detaching all return_dict values
     for key, value in return_dict.items():
         if key not in 'total':
             return_dict[key] = value.detach().cpu()
 
-    #result = return_dict
     return return_dict
