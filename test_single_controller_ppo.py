@@ -1471,11 +1471,6 @@ class RolloutAgent:
         sequences = sequences[0]
         vllm_logprobs = vllm_logprobs[0]
 
-        print('===============================')
-        print(f'len(sequences): {len(sequences)=}')
-        print(f'len(vllm_logprobs): {len(vllm_logprobs)=}')
-        print('===============================')
-
         max_vllm_generated_len = max([len(response) for response in sequences])
         padded_responses = []
         for sequence in sequences:
@@ -1493,12 +1488,21 @@ class RolloutAgent:
         processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
         iter_data['sequences'] = processed_sequences
 
+        print('===============================')
+        print(f"processed_sequences.shape: {processed_sequences.shape=}")
+        print('===============================')
+
         padded_logprobs = []
         for logprobs in vllm_logprobs:
             logprobs = list(logprobs)
             if len(logprobs) < max_vllm_generated_len:
                 logprobs = logprobs + [0] * (max_vllm_generated_len - len(logprobs))
             padded_logprobs.append(logprobs)
+        
+        print('===============================')
+        print(f"len(padded_logprobs): {len(padded_logprobs)=}")
+        print('===============================')
+
         padded_logprobs = torch.tensor(
             padded_logprobs,
             dtype=torch.float,
@@ -1509,7 +1513,6 @@ class RolloutAgent:
         iter_data['vllm_logprobs'] = processed_logprobs
         print('===============================')
         print(f"processed_logprobs.shape: {processed_logprobs.shape=}")
-        print(f"processed_sequences.shape: {processed_sequences.shape=}")
         print('===============================')
         assert processed_logprobs.shape == processed_sequences.shape, f'vllm_logprobs and sequences have different shapes {processed_logprobs.shape=}, {processed_sequences.shape=}'
 
@@ -1532,6 +1535,7 @@ class RolloutAgent:
         assert 'sequences' in iter_data, f'sequences is not in iter_data {iter_data.keys()=}'
 
         sequences = iter_data['sequences']
+        vllm_logprobs = iter_data['vllm_logprobs']
         generated_len = torch.ones(
             batch_size,
             device=cur_device,
@@ -1553,6 +1557,16 @@ class RolloutAgent:
             ) * pad_token_id
             sequences = torch.cat(
                 [sequences, extra_padding],  # type: ignore
+                dim=-1,  # type: ignore
+            )
+
+            extra_zero_padding = torch.zeros(
+                (batch_size, len_to_pad),
+                device=cur_device,
+                dtype=torch.float,
+            )
+            vllm_logprobs = torch.cat(
+                [vllm_logprobs, extra_zero_padding],  # type: ignore
                 dim=-1,  # type: ignore
             )
 
