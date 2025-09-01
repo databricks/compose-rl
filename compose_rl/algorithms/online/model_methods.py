@@ -404,7 +404,12 @@ def policy_loss(
         online_log_probs = outputs['online_log_probs']
         ref_log_probs = batch['ift_log_probs']
         old_entropies = batch['old_entropies']
-        old_log_probs = batch['old_log_probs']
+        old_log_probs = batch['old_log_probs'] # note this is the log prob of the pi_prox -- the usual pi_old in ppo language. 
+        vllm_logprobs = batch['vllm_logprobs'] # note this the log prob from vllm when generating the rollouts, i.e., log pi_behavior
+        
+        importance_ratio = torch.exp(old_log_probs - vllm_logprobs) # pi_prox / pi_behavior
+        importance_ratio = torch.clamp(importance_ratio, min = 0.0, max = 10)
+
         online_to_old_diff = online_log_probs - old_log_probs  # ln(π/π_old) for SMD
         
         #compute KL to pi_ref to keep track the divergence to \pi_ref
@@ -438,7 +443,7 @@ def policy_loss(
         )  #size: (batch_size,)
         # Convert beta to a simple float
         beta_float = float(beta)
-        policy_loss = ((beta_float * masked_log_probs_diff - prompt_advantages)**2).mean()       
+        policy_loss = (importance_ratio*((beta_float * masked_log_probs_diff - prompt_advantages)**2)).mean()       
 
         rewards = utils.masked_sum(
             batch['rewards'],

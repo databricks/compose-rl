@@ -37,7 +37,7 @@ parameters:
     pretrained: true
     init_device: mixed
     kl_estimator: k3
-    beta: 0.001 #0.01 
+    beta: 0.1 #0.01 
     kl_clip_range: 40
     use_auth_token: true
     compute_kl_loss: false
@@ -47,11 +47,11 @@ parameters:
     normalize_advantage: false 
     use_flash_attention_2: true
     length_normalize_policy_loss: true
-    pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B #deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k_smd_beta_0.001_max_async_step_2
+        run: test_single_controller_smd_beta_0.1_max_async_step_2_ds_llama_7b
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
@@ -90,7 +90,7 @@ parameters:
     alpha: 1
     t_warmup: 10iter
   tokenizer:
-    name: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B #deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
     kwargs:
       padding: longest
       pad_token: <|finetune_right_pad_id|>
@@ -116,7 +116,7 @@ parameters:
     kl_controller:
       kl_ctl_type: fixed
       init_kl_coef: 0
-    tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B #deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
     num_train_nodes: 1
     reference_model:
       precision: amp_bf16
@@ -126,7 +126,7 @@ parameters:
         pretrained: true
         use_auth_token: true
         use_flash_attention_2: true
-        pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+        pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B #deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
     generation_kwargs:
       top_p: 1
       do_sample: true

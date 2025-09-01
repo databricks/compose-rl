@@ -514,8 +514,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         prompt_dtype = prompt_tokens.dtype
 
         assert 'sequences' in current_rank_rollouts, f'sequences is not in batch {current_rank_rollouts.keys()=}'
-
+        assert 'vllm_logprobs' in current_rank_rollouts, f'vllm_logprobs is not in batch {current_rank_rollouts.keys()=}'
         sequences = current_rank_rollouts['sequences']
+        vllm_logprobs = current_rank_rollouts['vllm_logprobs']
         generated_len = torch.ones(
             batch_size,
             device=device,
@@ -540,6 +541,16 @@ class DistributedGPUActor(BaseDistributedGPUActor):
                 dim=-1,  # type: ignore
             )
 
+            extra_zero_padding = torch.zeros(
+                (batch_size, len_to_pad),
+                device=device,
+                dtype=torch.float,
+            )
+            vllm_logprobs = torch.cat(
+                [vllm_logprobs, extra_zero_padding],  # type: ignore
+                dim=-1,  # type: ignore
+            )
+
         # Sanity checking we're adding max_gen_len to prompt_tokens
         if prompt_tokens.size(1) + self.max_gen_len != sequences.size(1):
             raise ValueError(
@@ -548,6 +559,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
         # Actions are what tokens the current policy would generate.
         actions = sequences[:, -self.max_gen_len:]  # type: ignore
+        vllm_logprobs_gen = vllm_logprobs[:, -self.max_gen_len:]  # type: ignore
 
         right_padded_obs = switch_left_to_right_padding(
             sequences,
@@ -624,6 +636,9 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         device_train_microbatch_log_probs = torch.cat(log_probs)
         device_train_microbatch_entropies = torch.cat(entropies)
 
+        assert vllm_logprobs_gen.shape == device_train_microbatch_log_probs.shape, f'vllm_logprobs_gen and device_train_microbatch_log_probs have different shapes {vllm_logprobs_gen.shape=}, {device_train_microbatch_log_probs.shape=}'
+
+
         partial_env_output = {
             'prompt_id': prompt_id,
             'old_log_probs': device_train_microbatch_log_probs,
@@ -634,6 +649,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'action_mask': action_mask,
             'generated_len': generated_len,
             'prompt_len': prompt_len,
+            'vllm_logprobs': vllm_logprobs_gen,
         }
         if len(values) > 0:
             device_train_microbatch_values = torch.cat(values)
@@ -1443,7 +1459,7 @@ class RolloutAgent:
         # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
         # we should move this to the separate util file.
         with get_precision_context(self.precision), torch.no_grad():
-            sequences = _vllm_generate(
+            sequences, vllm_logprobs = _vllm_generate(
                 vllm_engines=self.inference_server.engines,
                 max_gen_len=self.max_gen_len,
                 generation_kwargs=self.generation_kwargs,
@@ -1453,6 +1469,8 @@ class RolloutAgent:
             )
 
         sequences = sequences[0]
+        vllm_logprobs = vllm_logprobs[0]
+
         max_vllm_generated_len = max([len(response) for response in sequences])
         padded_responses = []
         for sequence in sequences:
@@ -1469,6 +1487,23 @@ class RolloutAgent:
 
         processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
         iter_data['sequences'] = processed_sequences
+
+        padded_logprobs = []
+        for logprobs in vllm_logprobs:
+            logprobs = list(logprobs)
+            if len(logprobs) < max_vllm_generated_len:
+                logprobs = logprobs + [0] * (max_vllm_generated_len - len(logprobs))
+            padded_logprobs.append(logprobs)
+        padded_logprobs = torch.tensor(
+            padded_logprobs,
+            dtype=torch.float,
+            device=torch.device('cpu'),
+        )
+        temp_zeros = torch.zeros_like(all_prompts, dtype=torch.float, device=torch.device('cpu'))
+        processed_logprobs = torch.cat([temp_zeros, padded_logprobs], dim=-1)
+        iter_data['vllm_logprobs'] = processed_logprobs
+        assert processed_logprobs.shape == processed_sequences.shape, f'vllm_logprobs and sequences have different shapes {processed_logprobs.shape=}, {processed_sequences.shape=}'
+
 
         # Calculate the rewards here
         # Initialize the required variables from the reward actor
