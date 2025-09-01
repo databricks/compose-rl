@@ -151,6 +151,10 @@ def _vllm_generate(
         f'took: {time.time() - start_time} to gather futures',
     )
 
+    print('===============================')
+    print(f'all_logprobs: {all_logprobs=}')
+    print('===============================')
+
     # Distribute padded responses back to the correct device
     split_responses = []
     split_logprobs = []
@@ -163,6 +167,11 @@ def _vllm_generate(
             all_logprobs[start:start + size],
         )
         start += size
+    
+    print('===============================')
+    print(f'split_logprobs: {split_logprobs=}')
+    print('===============================')
+    
     return split_responses, split_logprobs
 
 
