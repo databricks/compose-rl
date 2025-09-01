@@ -1472,6 +1472,13 @@ class RolloutAgent:
         vllm_logprobs = vllm_logprobs[0]
 
         max_vllm_generated_len = max([len(response) for response in sequences])
+        max_vllm_logprobs_len = max([len(response) for response in vllm_logprobs])
+
+        print('===============================')
+        print(f"max_vllm_generated_len: {max_vllm_generated_len=}")
+        print(f"max_vllm_logprobs_len: {max_vllm_logprobs_len=}")
+        print('===============================')
+        
         padded_responses = []
         for sequence in sequences:
             sequence = list(sequence)
@@ -1498,6 +1505,7 @@ class RolloutAgent:
             if len(logprobs) < max_vllm_generated_len:
                 logprobs = logprobs + [0] * (max_vllm_generated_len - len(logprobs))
             else:
+                print(f"logprobs.shape: {logprobs.shape=} is larger than max_vllm_generated_len: {max_vllm_generated_len=}")
                 raise ValueError(f"logprobs.shape: {logprobs.shape=} is larger than max_vllm_generated_len: {max_vllm_generated_len=}")
             padded_logprobs.append(logprobs)
         
@@ -1508,14 +1516,14 @@ class RolloutAgent:
         try:
             padded_logprobs = torch.tensor(
                 padded_logprobs,
-            dtype=torch.float,
+                dtype=torch.float,
                 device=torch.device('cpu'),
             )
         except Exception as e:
             print(f"Error: {e}")
             print(f"padded_logprobs: {padded_logprobs=}")
             raise e
-            
+
         print('===============================')
         print(f"padded_logprobs.shape: {padded_logprobs.shape=}")
         print('===============================')
