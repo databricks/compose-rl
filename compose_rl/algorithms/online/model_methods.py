@@ -450,7 +450,7 @@ def policy_loss(
         masked_importance_ratio = torch.exp(masked_log_ratio) # pi_prox / pi_behavior
         
         # Convert beta to a simple float
-        assert masked_importance_ratio.shape == masked_log_probs_diff.shape, f'masked_importance_ratio and masked_log_probs_diff have different shapes {importance_ratio.shape=}, {masked_log_probs_diff.shape=}'
+        assert masked_importance_ratio.shape == masked_log_probs_diff.shape, f'masked_importance_ratio and masked_log_probs_diff have different shapes {masked_importance_ratio.shape=}, {masked_log_probs_diff.shape=}'
         beta_float = float(beta)
         policy_loss = (masked_importance_ratio*((beta_float * masked_log_probs_diff - prompt_advantages)**2)).mean()       
 
