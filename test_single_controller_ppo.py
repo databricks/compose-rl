@@ -1473,11 +1473,6 @@ class RolloutAgent:
 
         max_vllm_generated_len = max([len(response) for response in sequences])
         max_vllm_logprobs_len = max([len(response) for response in vllm_logprobs])
-
-        print('===============================')
-        print(f"max_vllm_generated_len: {max_vllm_generated_len=}")
-        print(f"max_vllm_logprobs_len: {max_vllm_logprobs_len=}")
-        print('===============================')
         
         padded_responses = []
         for sequence in sequences:
@@ -1504,9 +1499,6 @@ class RolloutAgent:
             logprobs = list(logprobs)
             if len(logprobs) < max_vllm_generated_len:
                 logprobs = logprobs + [0] * (max_vllm_generated_len - len(logprobs))
-            else:
-                print(f"logprobs.shape: {logprobs.shape=} is larger than max_vllm_generated_len: {max_vllm_generated_len=}")
-                raise ValueError(f"logprobs.shape: {logprobs.shape=} is larger than max_vllm_generated_len: {max_vllm_generated_len=}")
             padded_logprobs.append(logprobs)
         
         print('===============================')
