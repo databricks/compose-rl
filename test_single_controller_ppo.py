@@ -1472,7 +1472,6 @@ class RolloutAgent:
         vllm_logprobs = vllm_logprobs[0]
 
         max_vllm_generated_len = max([len(response) for response in sequences])
-        max_vllm_logprobs_len = max([len(response) for response in vllm_logprobs])
         
         padded_responses = []
         for sequence in sequences:
@@ -1490,20 +1489,12 @@ class RolloutAgent:
         processed_sequences = torch.cat([all_prompts, padded_responses], dim=-1)
         iter_data['sequences'] = processed_sequences
 
-        print('===============================')
-        print(f"processed_sequences.shape: {processed_sequences.shape=}")
-        print('===============================')
-
         padded_logprobs = []
         for logprobs in vllm_logprobs:
             logprobs = list(logprobs)
             if len(logprobs) < max_vllm_generated_len:
                 logprobs = logprobs + [0] * (max_vllm_generated_len - len(logprobs))
             padded_logprobs.append(logprobs)
-        
-        print('===============================')
-        print(f"len(padded_logprobs): {len(padded_logprobs)=}")
-        print('===============================')
 
         try:
             padded_logprobs = torch.tensor(
@@ -1515,16 +1506,9 @@ class RolloutAgent:
             print(f"Error: {e}")
             raise e
 
-        print('===============================')
-        print(f"padded_logprobs.shape: {padded_logprobs.shape=}")
-        print('===============================')
-
         temp_zeros = torch.zeros_like(all_prompts, dtype=torch.float, device=torch.device('cpu'))
         processed_logprobs = torch.cat([temp_zeros, padded_logprobs], dim=-1)
         iter_data['vllm_logprobs'] = processed_logprobs
-        print('===============================')
-        print(f"processed_logprobs.shape: {processed_logprobs.shape=}")
-        print('===============================')
         assert processed_logprobs.shape == processed_sequences.shape, f'vllm_logprobs and sequences have different shapes {processed_logprobs.shape=}, {processed_sequences.shape=}'
 
 
