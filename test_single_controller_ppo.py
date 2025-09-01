@@ -28,6 +28,7 @@ from multiprocessing.pool import AsyncResult, Pool
 
 from composer.loggers import MLFlowLogger
 import ray
+ray.init(_internal_config={"logging_level": "DEBUG"})
 import spacy
 import torch
 import torch.distributed as dist
