@@ -442,6 +442,7 @@ def policy_loss(
             dim=-1,
         )  #size: (batch_size,)
         # Convert beta to a simple float
+        assert importance_ratio.shape == masked_log_probs_diff.shape, f'importance_ratio and masked_log_probs_diff have different shapes {importance_ratio.shape=}, {masked_log_probs_diff.shape=}'
         beta_float = float(beta)
         policy_loss = (importance_ratio*((beta_float * masked_log_probs_diff - prompt_advantages)**2)).mean()       
 
