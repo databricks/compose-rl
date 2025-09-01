@@ -1508,6 +1508,10 @@ class RolloutAgent:
             dtype=torch.float,
             device=torch.device('cpu'),
         )
+        print('===============================')
+        print(f"padded_logprobs.shape: {padded_logprobs.shape=}")
+        print('===============================')
+        
         temp_zeros = torch.zeros_like(all_prompts, dtype=torch.float, device=torch.device('cpu'))
         processed_logprobs = torch.cat([temp_zeros, padded_logprobs], dim=-1)
         iter_data['vllm_logprobs'] = processed_logprobs
