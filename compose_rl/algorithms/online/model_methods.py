@@ -405,18 +405,10 @@ def policy_loss(
         ref_log_probs = batch['ift_log_probs']
         old_entropies = batch['old_entropies']
         old_log_probs = batch['old_log_probs'] # note this is the log prob of the pi_prox -- the usual pi_old in ppo language. 
-        vllm_logprobs = batch['vllm_logprobs'] # note this the log prob from vllm when generating the rollouts, i.e., log pi_behavior
-        
-        print('===============================')
-        print(f'old_log_probs: {old_log_probs.shape=}, {old_log_probs=}')
-        print(f'vllm_logprobs: {vllm_logprobs.shape=}, {vllm_logprobs=}')
-        print('===============================')
-        
+        vllm_logprobs = batch['vllm_logprobs'] # note this the log prob from vllm when generating the rollouts, i.e., log pi_behavior   
         assert old_log_probs.shape == vllm_logprobs.shape, f'old_log_probs and vllm_logprobs have different shapes {old_log_probs.shape=}, {vllm_logprobs.shape=}'
 
-
-        importance_ratio = torch.exp(old_log_probs - vllm_logprobs) # pi_prox / pi_behavior
-        importance_ratio = torch.clamp(importance_ratio, min = 0.0, max = 10)
+        token_log_ratio = old_log_probs - vllm_logprobs # [ ln (pi_prox_t / pi_behavior_t) ]
 
         online_to_old_diff = online_log_probs - old_log_probs  # ln(π/π_old) for SMD
         
@@ -449,11 +441,13 @@ def policy_loss(
             batch['action_mask'],
             dim=-1,
         )  #size: (batch_size,)
-        masked_importance_ratio = utils.masked_sum(
-            importance_ratio,
+        masked_log_ratio = utils.masked_sum(
+            token_log_ratio,
             batch['action_mask'],
             dim=-1,
-        )  #size: (batch_size,)
+        )  #size: (batch_size,) # \sum_t ln (pi_prox_t / pi_behavior_t)
+        masked_log_ratio = torch.clamp(masked_log_ratio, min = -100.0, max = 10.0) # clip to avoid overflow
+        masked_importance_ratio = torch.exp(masked_log_ratio) # pi_prox / pi_behavior
         
         # Convert beta to a simple float
         assert masked_importance_ratio.shape == masked_log_probs_diff.shape, f'masked_importance_ratio and masked_log_probs_diff have different shapes {importance_ratio.shape=}, {masked_log_probs_diff.shape=}'
@@ -466,10 +460,6 @@ def policy_loss(
             dim=-1,
         )
         
-        print('===============================')
-        print(f'masked_importance_ratio: {masked_importance_ratio.shape=}, {masked_importance_ratio=}')
-        print('===============================')
-
         policy_dict = {
             'loss/policy_loss': policy_loss,
             'kl/policy_kl': policy_kl,  # Required by calling code in model.py
