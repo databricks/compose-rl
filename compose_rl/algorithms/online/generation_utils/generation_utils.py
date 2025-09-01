@@ -145,7 +145,7 @@ def _vllm_generate(
     for i, result in enumerate(results):
         # Each result is a list of responses this assumes one output per input
         all_responses.extend([resp.outputs[0].token_ids for resp in result])
-        all_logprobs.extend([[list(datum.values())[0] for datum in resp.outputs[0].logprobs] for resp in result])
+        all_logprobs.extend([[list(datum.values())[0].logprob for datum in resp.outputs[0].logprobs] for resp in result])
 
     log.info(
         f'took: {time.time() - start_time} to gather futures',
