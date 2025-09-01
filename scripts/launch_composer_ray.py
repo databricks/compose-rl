@@ -161,7 +161,7 @@ def start_ray_nodes():
         # Send the local node IP to other ranks
         broadcast_string(ip, src_rank=0)
 
-        ray.init(logging_level="DEBUG")
+        ray.init()
         # Wait for all ray clusters to start
         dist.barrier()
 
