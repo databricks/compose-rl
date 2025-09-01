@@ -1497,21 +1497,29 @@ class RolloutAgent:
             logprobs = list(logprobs)
             if len(logprobs) < max_vllm_generated_len:
                 logprobs = logprobs + [0] * (max_vllm_generated_len - len(logprobs))
+            else:
+                raise ValueError(f"logprobs.shape: {logprobs.shape=} is larger than max_vllm_generated_len: {max_vllm_generated_len=}")
             padded_logprobs.append(logprobs)
         
         print('===============================')
         print(f"len(padded_logprobs): {len(padded_logprobs)=}")
         print('===============================')
 
-        padded_logprobs = torch.tensor(
-            padded_logprobs,
+        try:
+            padded_logprobs = torch.tensor(
+                padded_logprobs,
             dtype=torch.float,
-            device=torch.device('cpu'),
-        )
+                device=torch.device('cpu'),
+            )
+        except Exception as e:
+            print(f"Error: {e}")
+            print(f"padded_logprobs: {padded_logprobs=}")
+            raise e
+            
         print('===============================')
         print(f"padded_logprobs.shape: {padded_logprobs.shape=}")
         print('===============================')
-        
+
         temp_zeros = torch.zeros_like(all_prompts, dtype=torch.float, device=torch.device('cpu'))
         processed_logprobs = torch.cat([temp_zeros, padded_logprobs], dim=-1)
         iter_data['vllm_logprobs'] = processed_logprobs
