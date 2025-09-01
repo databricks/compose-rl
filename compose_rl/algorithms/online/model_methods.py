@@ -452,6 +452,10 @@ def policy_loss(
             dim=-1,
         )
         
+        print('===============================')
+        print(f'importance_ratio: {importance_ratio.shape=}, {importance_ratio=}')
+        print('===============================')
+
         policy_dict = {
             'loss/policy_loss': policy_loss,
             'kl/policy_kl': policy_kl,  # Required by calling code in model.py
