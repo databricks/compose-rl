@@ -464,6 +464,9 @@ def policy_loss(
             'advantages/mean': torch.mean(
                 prompt_advantages,  # SMD uses prompt_advantages, not advantages
             ),  #compute the average of the prompt advantages for SMD
+            'importance_ratio/mean': torch.mean(
+                importance_ratio,
+            ),
         }
         return policy_dict
     else:

@@ -51,7 +51,7 @@ parameters:
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_smd_beta_0.1_max_async_step_2_ds_llama_7b
+        run: test_single_controller_smd_beta_0.1_max_async_step_2_ds_llama_7b_IS
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
