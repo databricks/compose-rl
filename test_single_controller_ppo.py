@@ -1513,7 +1513,6 @@ class RolloutAgent:
             )
         except Exception as e:
             print(f"Error: {e}")
-            print(f"padded_logprobs: {padded_logprobs=}")
             raise e
 
         print('===============================')
