@@ -51,7 +51,7 @@ parameters:
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_smd_beta_0.1_max_async_step_2_ds_llama_7b_IS
+        run: test_single_controller_smd_beta_0.1_max_async_step_4_ds_llama_7b_IS
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
@@ -59,9 +59,10 @@ parameters:
     ppo: {}
     orl_eval:
       evals:
-      - name: gsm8k
-      #- name: math_500
-      #- name: math_hard
+      #- name: gsm8k
+      - name: math_500
+      - name: math_hard
+      - name: math_competition
       eval_overrides:
         generation_params:
           max_tokens: 8192
@@ -182,9 +183,9 @@ parameters:
   console_log_interval: 1ba
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
-  global_train_batch_size: 16 # global_train_batch_size * num_batches_per_update / generations_per_prompt = number of unique prompts
+  global_train_batch_size: 64 # global_train_batch_size * num_batches_per_update / generations_per_prompt = number of unique prompts
   device_train_microbatch_size: 1  
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
   save_num_checkpoints_to_keep: 1
-  max_async_step: 2
+  max_async_step: 4

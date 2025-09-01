@@ -241,6 +241,11 @@ def policy_loss(
         online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
             'old_log_probs']
         old_entropies = batch['old_entropies']
+        
+        vllm_logprobs = batch['vllm_logprobs']
+        token_log_ratio = torch.clamp(old_log_probs - vllm_logprobs, min = -100.0, max = 100.0) # [ ln (pi_prox_t / pi_behavior_t) ]
+        token_IS_ratio = torch.exp(token_log_ratio) # [ pi_prox_t / pi_behavior_t ], (bs, gen_len)
+
         gen_logits = utils.get_batched_generated_values(
             batched_values=outputs['logits'],
             prompt_len=batch['prompt_len'],
@@ -324,6 +329,8 @@ def policy_loss(
             torch.gt(policy_loss_1, policy_loss_2).double(),
             batch['action_mask'],
         )
+
+        policy_loss = policy_loss * token_IS_ratio # [ pi_prox_t / pi_behavior_t * policy_loss_t ]_t
 
         if length_normalize_policy_loss:
             policy_loss = utils.sample_wise_masked_mean(
