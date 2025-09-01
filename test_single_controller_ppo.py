@@ -1471,6 +1471,11 @@ class RolloutAgent:
         sequences = sequences[0]
         vllm_logprobs = vllm_logprobs[0]
 
+        print('===============================')
+        print(f'len(sequences): {len(sequences)=}')
+        print(f'len(vllm_logprobs): {len(vllm_logprobs)=}')
+        print('===============================')
+
         max_vllm_generated_len = max([len(response) for response in sequences])
         padded_responses = []
         for sequence in sequences:
@@ -1502,6 +1507,10 @@ class RolloutAgent:
         temp_zeros = torch.zeros_like(all_prompts, dtype=torch.float, device=torch.device('cpu'))
         processed_logprobs = torch.cat([temp_zeros, padded_logprobs], dim=-1)
         iter_data['vllm_logprobs'] = processed_logprobs
+        print('===============================')
+        print(f"processed_logprobs.shape: {processed_logprobs.shape=}")
+        print(f"processed_sequences.shape: {processed_sequences.shape=}")
+        print('===============================')
         assert processed_logprobs.shape == processed_sequences.shape, f'vllm_logprobs and sequences have different shapes {processed_logprobs.shape=}, {processed_sequences.shape=}'
 
 

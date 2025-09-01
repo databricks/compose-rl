@@ -59,9 +59,9 @@ parameters:
     ppo: {}
     orl_eval:
       evals:
-      #- name: gsm8k
-      - name: math_500
-      - name: math_hard
+      - name: gsm8k
+      #- name: math_500
+      #- name: math_hard
       eval_overrides:
         generation_params:
           max_tokens: 8192
@@ -182,7 +182,7 @@ parameters:
   console_log_interval: 1ba
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
-  global_train_batch_size: 64 # global_train_batch_size * num_batches_per_update / generations_per_prompt = number of unique prompts
+  global_train_batch_size: 16 # global_train_batch_size * num_batches_per_update / generations_per_prompt = number of unique prompts
   device_train_microbatch_size: 1  
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
