@@ -316,6 +316,10 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.temperature = temperature
         self.importance_weighting = importance_weighting
 
+        print("*"*100)
+        print('Importance weighting at initialization: ', self.importance_weighting)
+        print("*"*100)
+
     def forward(self, batch: MutableMapping):
         ret_val = composer_online_rl_forward(
             batch,
