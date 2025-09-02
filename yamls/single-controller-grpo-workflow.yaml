@@ -14,7 +14,7 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: single-controller-hackathon
+  git_branch:  single-controller-hackathon-smd-vllm
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
@@ -50,7 +50,7 @@ parameters:
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_grpo_ds_llama_7b_open_r1_48k_grpo_max_async_step_0_nols
+        run: test_single_controller_grpo_ds_llama_7b_open_r1_48k_grpo_max_async_step_2_ls
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_grpo_IS_vs_no_IS
@@ -186,4 +186,4 @@ parameters:
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
   save_num_checkpoints_to_keep: 1
-  max_async_step: 0
+  max_async_step: 2
