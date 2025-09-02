@@ -50,10 +50,10 @@ parameters:
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_grpo_ds_llama_7b_open_r1_48k_grpo_max_async_step_4_ls
+        run: test_single_controller_grpo_ds_llama_7b_open_r1_48k_grpo_max_async_step_0_nols
         group: grpo
       tracking_uri: databricks
-      experiment_name: test_single_controller_ppo
+      experiment_name: test_single_controller_grpo_IS_vs_no_IS
   callbacks:
     ppo: {}
     orl_eval:
@@ -186,4 +186,4 @@ parameters:
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
   save_num_checkpoints_to_keep: 1
-  max_async_step: 4
+  max_async_step: 0
