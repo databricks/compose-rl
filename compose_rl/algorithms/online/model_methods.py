@@ -394,6 +394,8 @@ def policy_loss(
                 seq_entropies,
             'advantages/mean':
                 utils.sample_wise_masked_mean(advantages, batch['action_mask']),
+            'importance_ratio/mean':
+                utils.sample_wise_masked_mean(token_IS_ratio, batch['action_mask']),
         }
         # Add entropy percentiles to policy_dict
         for i, p in enumerate(percentiles):
