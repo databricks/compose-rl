@@ -423,7 +423,7 @@ def policy_loss(
         online_to_old_diff = online_log_probs - old_log_probs  # ln(π/π_old) for SMD
         
         #compute KL to pi_ref to keep track the divergence to \pi_ref
-        policy_kl_dict = utils.approx_kl(
+        ref_policy_kl_dict = utils.approx_kl(
             log_p=ref_log_probs,
             log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
@@ -437,11 +437,11 @@ def policy_loss(
         
         with torch.no_grad():
             policy_kl = utils.masked_mean(
-                policy_kl_dict[kl_estimator],  # pyright: ignore
+                old_policy_kl_dict[kl_estimator],  # pyright: ignore
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
-            old_policy_kl = utils.masked_mean(
-                old_policy_kl_dict[kl_estimator],  # pyright: ignore
+            ref_policy_kl = utils.masked_mean(
+                ref_policy_kl_dict[kl_estimator],  # pyright: ignore
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
         
@@ -475,7 +475,7 @@ def policy_loss(
         policy_dict = {
             'loss/policy_loss': policy_loss,
             'kl/policy_kl': policy_kl,  # Required by calling code in model.py
-            'kl/old_policy_kl': old_policy_kl,
+            'kl/online_ift_kl': ref_policy_kl,
             'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
             'gen/entropy': old_entropies,
             'rewards/mean': torch.mean(
