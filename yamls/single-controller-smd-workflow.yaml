@@ -14,7 +14,7 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: single-controller-hackathon-smd-vllm #single-controller-hackathon
+  git_branch: single-controller-hackathon-smd #single-controller-hackathon
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
@@ -33,11 +33,11 @@ parameters:
   model:
     name: hf_critic_free_lm
     loss_type: smd #grpo
-    target_kl: 0.1 # is it used in SDM?
+    target_kl: 100000 # is it used in SDM?
     pretrained: true
     init_device: mixed
     kl_estimator: k3
-    beta: 0.1 #0.01 
+    beta: 1e-3 #0.01 
     kl_clip_range: 40
     use_auth_token: true
     compute_kl_loss: false
@@ -47,12 +47,12 @@ parameters:
     normalize_advantage: false 
     use_flash_attention_2: true
     length_normalize_policy_loss: true
-    importance_weighting: true # Enable importance sampling for off-policy rollouts
-    pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B #deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    importance_weighting: true
+    pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_smd_beta_0.1_max_async_step_4_ds_llama_7b_IS
+        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k_smd_beta_0.01_target_kl_100000
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
@@ -63,7 +63,6 @@ parameters:
       #- name: gsm8k
       - name: math_500
       - name: math_hard
-      - name: math_competition
       eval_overrides:
         generation_params:
           max_tokens: 8192
@@ -92,7 +91,7 @@ parameters:
     alpha: 1
     t_warmup: 10iter
   tokenizer:
-    name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B #deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     kwargs:
       padding: longest
       pad_token: <|finetune_right_pad_id|>
@@ -118,7 +117,7 @@ parameters:
     kl_controller:
       kl_ctl_type: fixed
       init_kl_coef: 0
-    tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B #deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     num_train_nodes: 1
     reference_model:
       precision: amp_bf16
@@ -128,7 +127,7 @@ parameters:
         pretrained: true
         use_auth_token: true
         use_flash_attention_2: true
-        pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B #deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+        pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     generation_kwargs:
       top_p: 1
       do_sample: true
@@ -141,7 +140,7 @@ parameters:
   algorithms:
     gradient_clipping:
       clipping_type: norm
-      clipping_threshold: 0.001
+      clipping_threshold: 1.0 #0.001
   autoresume: true
   log_config: true
   fsdp_config:
@@ -160,7 +159,7 @@ parameters:
   max_seq_len: 10240
   save_folder: /tmp/checkpoints
   dist_timeout: 1800
-  max_duration: 100iter
+  max_duration: 200iter
   progress_bar: false
   train_loader:
     name: prompt
@@ -175,7 +174,7 @@ parameters:
       download_timeout: 1800
     drop_last: true
     num_workers: 1
-  eval_interval: 5iter
+  eval_interval: 10iter
   eval_first: false
   save_interval: 100iter
   log_to_console: true
@@ -184,9 +183,9 @@ parameters:
   console_log_interval: 1ba
   device_eval_batch_size: 1
   eval_subset_num_batches: -1
-  global_train_batch_size: 64 # global_train_batch_size * num_batches_per_update / generations_per_prompt = number of unique prompts
-  device_train_microbatch_size: 1  
+  global_train_batch_size: 64
+  device_train_microbatch_size: 1  # Increased for better SMD batch statistics
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
   save_num_checkpoints_to_keep: 1
-  max_async_step: 4
+  max_async_step: 0
