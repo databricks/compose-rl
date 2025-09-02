@@ -396,7 +396,7 @@ def policy_loss(
                 seq_entropies,
             'advantages/mean':
                 utils.sample_wise_masked_mean(advantages, batch['action_mask']),
-            'importance_ratio/mean':
+            'importance_ratio/mean': # always logging this in default regardless of importance weighting: want to check how far vllm logp is from log pi_old
                 utils.sample_wise_masked_mean(token_IS_ratio, batch['action_mask']),
         }
         # Add entropy percentiles to policy_dict
@@ -458,15 +458,13 @@ def policy_loss(
         )  #size: (batch_size,) # \sum_t ln (pi_prox_t / pi_behavior_t)
         masked_log_ratio = torch.clamp(masked_log_ratio, min = -100.0, max = 100.0) # clip to avoid overflow
         masked_importance_ratio = torch.exp(masked_log_ratio) # pi_prox / pi_behavior
-        
-        # Convert beta to a simple float
         assert masked_importance_ratio.shape == masked_log_probs_diff.shape, f'masked_importance_ratio and masked_log_probs_diff have different shapes {masked_importance_ratio.shape=}, {masked_log_probs_diff.shape=}'
-        beta_float = float(beta)
         
-        seq_level_policy_loss = (beta_float * masked_log_probs_diff - prompt_advantages)**2
+        beta_float = float(beta) # convert it to float to avoid type error
+        seq_level_policy_loss = (beta_float * masked_log_probs_diff - prompt_advantages)**2 # (bs,)
         if importance_weighting:
             seq_level_policy_loss = masked_importance_ratio * seq_level_policy_loss # IS at the sequence level
-        policy_loss = seq_level_policy_loss.mean()
+        policy_loss = seq_level_policy_loss.mean() # (1,)
 
         rewards = utils.masked_sum(
             batch['rewards'],
@@ -482,13 +480,13 @@ def policy_loss(
             'gen/entropy': old_entropies,
             'rewards/mean': torch.mean(
                 rewards,
-            ),  #compute the average reward of the current batch
+            ),  # compute the average reward of the current batch
             'advantages/mean': torch.mean(
                 prompt_advantages,  # SMD uses prompt_advantages, not advantages
-            ),  #compute the average of the prompt advantages for SMD
+            ),  # compute the average of the prompt advantages for SMD
             'importance_ratio/mean': torch.mean(
                 masked_importance_ratio,
-            ),
+            ), # always logging this in default regardless of importance weighting: want to check how far vllm logp is from log pi_old
         }
         return policy_dict
     else:
