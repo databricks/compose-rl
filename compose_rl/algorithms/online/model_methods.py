@@ -330,7 +330,7 @@ def policy_loss(
             batch['action_mask'],
         )
 
-        policy_loss = policy_loss * token_IS_ratio # [ pi_prox_t / pi_behavior_t * policy_loss_t ]_t
+        #policy_loss = policy_loss * token_IS_ratio # [ pi_prox_t / pi_behavior_t * policy_loss_t ]_t
 
         if length_normalize_policy_loss:
             policy_loss = utils.sample_wise_masked_mean(
