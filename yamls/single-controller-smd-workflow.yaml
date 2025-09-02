@@ -47,6 +47,7 @@ parameters:
     normalize_advantage: false 
     use_flash_attention_2: true
     length_normalize_policy_loss: true
+    importance_weighting: true # Enable importance sampling for off-policy rollouts
     pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B #deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
   loggers:
     mlflow:

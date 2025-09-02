@@ -233,6 +233,7 @@ def policy_loss(
     length_normalize_policy_loss: bool = True,
     kl_estimator: Optional[str] = 'k3',
     kl_clip_range: Optional[float] = 40.0,
+    importance_weighting: bool = True,
 ) -> MutableMapping:
 
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
@@ -330,7 +331,11 @@ def policy_loss(
             batch['action_mask'],
         )
 
-        policy_loss = policy_loss * token_IS_ratio # [ pi_prox_t / pi_behavior_t * policy_loss_t ]_t
+        if importance_weighting:
+            print("*"*100)
+            print('Using importance weighting')
+            print("*"*100)
+            policy_loss = policy_loss * token_IS_ratio # [ pi_prox_t / pi_behavior_t * policy_loss_t ]_t
 
         if length_normalize_policy_loss:
             policy_loss = utils.sample_wise_masked_mean(
@@ -461,7 +466,17 @@ def policy_loss(
         # Convert beta to a simple float
         assert masked_importance_ratio.shape == masked_log_probs_diff.shape, f'masked_importance_ratio and masked_log_probs_diff have different shapes {masked_importance_ratio.shape=}, {masked_log_probs_diff.shape=}'
         beta_float = float(beta)
-        policy_loss = (masked_importance_ratio*((beta_float * masked_log_probs_diff - prompt_advantages)**2)).mean()       
+        
+        if importance_weighting:
+            print("*"*100)
+            print('Using importance weighting')
+            print("*"*100)
+            policy_loss = (masked_importance_ratio*((beta_float * masked_log_probs_diff - prompt_advantages)**2)).mean()       
+        else:
+            print("*"*100)
+            print('Not using importance weighting')
+            print("*"*100)
+            policy_loss = ((beta_float * masked_log_probs_diff - prompt_advantages)**2).mean()
 
         rewards = utils.masked_sum(
             batch['rewards'],
@@ -504,6 +519,7 @@ def online_rl_loss(
     entropy_loss_weight: float | None = None,
     kl_estimator: Optional[str] = 'k3',
     kl_clip_range: Optional[float] = 40.0,
+    importance_weighting: bool = True,
 ) -> MutableMapping:
     """Compute the online RL loss.
 
@@ -580,6 +596,7 @@ def online_rl_loss(
         length_normalize_policy_loss=length_normalize_policy_loss,
         kl_estimator=kl_estimator,
         kl_clip_range=kl_clip_range,
+        importance_weighting=importance_weighting,
     )
 
     return_dict.update(**policy_dict)
