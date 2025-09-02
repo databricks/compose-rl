@@ -60,9 +60,10 @@ parameters:
     ppo: {}
     orl_eval:
       evals:
-      #- name: gsm8k
+      - name: gsm8k
       - name: math_500
       - name: math_hard
+      - name: math_competition
       eval_overrides:
         generation_params:
           max_tokens: 8192
