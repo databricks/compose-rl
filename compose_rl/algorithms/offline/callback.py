@@ -33,7 +33,8 @@ class ReferencePolicyCallback(CallbackWithConfig):
         self.reference_model = None
 
     def after_load(self, state: State, logger: Logger) -> None:
-        model_config = self.train_config['model']
+        #model_config = self.train_config['model']
+        model_config = self.train_config['reference_model']
         init_context = process_init_device(
             model_config,
             self.train_config.get('fsdp_config'),
