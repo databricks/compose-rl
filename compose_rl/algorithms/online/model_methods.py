@@ -15,14 +15,16 @@ class OnPolicyEnum(Enum):
     PPO = 'ppo'
     GRPO = 'grpo'
     APO = 'apo'  #add A-star PO
+    SMD = 'smd' # SMD
 
 
 class ALGORITHM_TYPE(set, Enum):
-    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.APO}
+    CRITIC_FREE = {OnPolicyEnum.GRPO, OnPolicyEnum.APO, OnPolicyEnum.SMD}
     ACTOR_CRITIC = {OnPolicyEnum.PPO}
     CLIPPED_PG = {OnPolicyEnum.PPO, OnPolicyEnum.GRPO}
     REGRESSION = {
         OnPolicyEnum.APO,
+        OnPolicyEnum.SMD,
     }
 
 
@@ -231,13 +233,19 @@ def policy_loss(
     length_normalize_policy_loss: bool = True,
     kl_estimator: Optional[str] = 'k3',
     kl_clip_range: Optional[float] = 40.0,
+    importance_weighting: bool = True,
 ) -> MutableMapping:
 
     if loss_type in ALGORITHM_TYPE.CLIPPED_PG:
         assert advantages is not None
+        assert advantages.dim() == 2 #(bs, max_gen_len)
         online_log_probs, old_log_probs = outputs['online_log_probs'], batch[
             'old_log_probs']
         old_entropies = batch['old_entropies']
+        
+        vllm_logprobs = batch['vllm_logprobs']
+        token_IS_ratio = torch.exp(old_log_probs)/torch.exp(vllm_logprobs)
+
         gen_logits = utils.get_batched_generated_values(
             batched_values=outputs['logits'],
             prompt_len=batch['prompt_len'],
@@ -322,6 +330,9 @@ def policy_loss(
             batch['action_mask'],
         )
 
+        if importance_weighting:
+            policy_loss = policy_loss * token_IS_ratio # [ pi_old_t / pi_behavior_t * policy_loss_t ]_t
+
         if length_normalize_policy_loss:
             policy_loss = utils.sample_wise_masked_mean(
                 policy_loss,
@@ -384,6 +395,8 @@ def policy_loss(
                 seq_entropies,
             'advantages/mean':
                 utils.sample_wise_masked_mean(advantages, batch['action_mask']),
+            'importance_ratio/mean': # always logging this in default regardless of importance weighting: want to check how far vllm logp is from log pi_old
+                utils.sample_wise_masked_mean(token_IS_ratio, batch['action_mask']),
         }
         # Add entropy percentiles to policy_dict
         for i, p in enumerate(percentiles):
@@ -392,55 +405,89 @@ def policy_loss(
         return policy_dict
 
     elif loss_type in ALGORITHM_TYPE.REGRESSION:
-        #assume batch contains (1) V-star values (key 'vstar), (2) rewards (key 'rewards'), (3) ref_log_probs
+        # current it only supports SMD
+        # TODO: add APO support
+        prompt_advantages = batch['prompt_advantages'].detach()
+        assert prompt_advantages is not None
+        assert prompt_advantages.dim() == 1 # (bs,)
+
         online_log_probs = outputs['online_log_probs']
         ref_log_probs = batch['ift_log_probs']
-        log_probs_diff = online_log_probs - ref_log_probs
         old_entropies = batch['old_entropies']
+        old_log_probs = batch['old_log_probs'] # note this is the log prob of the pi_old -- the usual pi_old in ppo language. 
+        vllm_logprobs = batch['vllm_logprobs'] # note this the log prob from vllm when generating the rollouts, i.e., log pi_behavior   
+        assert old_log_probs.shape == vllm_logprobs.shape, f'old_log_probs and vllm_logprobs have different shapes {old_log_probs.shape=}, {vllm_logprobs.shape=}'
 
+        token_log_ratio = old_log_probs - vllm_logprobs # [ ln (pi_old_t / pi_behavior_t) ]
+        online_to_old_diff = online_log_probs - old_log_probs  # ln(π/π_old) for SMD
+        
         #compute KL to pi_ref to keep track the divergence to \pi_ref
-        policy_kl_dict = utils.approx_kl(
+        ref_policy_kl_dict = utils.approx_kl(
             log_p=ref_log_probs,
             log_q=online_log_probs, #log_q - log_p = log pi - log pi_ref
             kl_clip_range=kl_clip_range,
         )
+        
+        old_policy_kl_dict = utils.approx_kl(
+            log_p=old_log_probs,
+            log_q=online_log_probs, #log_q - log_p = log pi - log pi_old
+            kl_clip_range=kl_clip_range,
+        )
+        
         with torch.no_grad():
             policy_kl = utils.masked_mean(
-                policy_kl_dict[kl_estimator],  # pyright: ignore
+                old_policy_kl_dict[kl_estimator],  # pyright: ignore
                 batch['action_mask'],
             )  #plain average over all tokens (KL to pi_ref)
-
-        #compute the policy loss
+            ref_policy_kl = utils.masked_mean(
+                ref_policy_kl_dict[kl_estimator],  # pyright: ignore
+                batch['action_mask'],
+            )  #plain average over all tokens (KL to pi_ref)
+        
+        #compute the policy loss for SMD; 
         masked_log_probs_diff = utils.masked_sum(
-            log_probs_diff,
+            online_to_old_diff,  # Correct: ln(π/π_old)
             batch['action_mask'],
             dim=-1,
         )  #size: (batch_size,)
-        vstars = batch['vstar']
+        masked_log_ratio = utils.masked_sum(
+            token_log_ratio,
+            batch['action_mask'],
+            dim=-1,
+        )  #size: (batch_size,) # \sum_t ln (pi_old_t / pi_behavior_t)
+        masked_log_ratio = torch.clamp(masked_log_ratio, min = -100.0, max = 100.0) # clip to avoid overflow
+        masked_importance_ratio = torch.exp(masked_log_ratio) # pi_old / pi_behavior
+        assert masked_importance_ratio.shape == masked_log_probs_diff.shape, f'masked_importance_ratio and masked_log_probs_diff have different shapes {masked_importance_ratio.shape=}, {masked_log_probs_diff.shape=}'
+        
+        beta_float = float(beta) # convert it to float to avoid type error
+        seq_level_policy_loss = (beta_float * masked_log_probs_diff - prompt_advantages)**2 # (bs,)
+        if importance_weighting:
+            seq_level_policy_loss = masked_importance_ratio * seq_level_policy_loss # IS at the sequence level
+        policy_loss = seq_level_policy_loss.mean() # (1,)
+
         rewards = utils.masked_sum(
             batch['rewards'],
             batch['action_mask'],
             dim=-1,
         )
-        assert vstars.size() == rewards.size() == masked_log_probs_diff.size(
-        )  # should have the same shape which is (batch_size, )
-
-        policy_loss = ((beta * masked_log_probs_diff -
-                        (rewards - vstars))**2).mean()
+        
         policy_dict = {
             'loss/policy_loss': policy_loss,
-            'kl/policy_kl': policy_kl,
+            'kl/policy_kl': policy_kl,  # Required by calling code in model.py
+            'kl/online_ift_kl': ref_policy_kl,
             'gen/gen_length': batch['action_mask'].sum(dim=1).to(torch.float32),
             'gen/entropy': old_entropies,
             'rewards/mean': torch.mean(
                 rewards,
-            ),  #compute the average reward of the current batch
-            'vstars/mean': torch.mean(
-                vstars,
-            ),  #compute the average of the vstar of the current batch
+            ),  # compute the average reward of the current batch
+            'advantages/mean': torch.mean(
+                prompt_advantages,  # SMD uses prompt_advantages, not advantages
+            ),  # compute the average of the prompt advantages for SMD
+            'importance_ratio/mean': torch.mean(
+                masked_importance_ratio,
+            ), # always logging this in default regardless of importance weighting: want to check how far vllm logp is from log pi_old
         }
         return policy_dict
-
     else:
         raise ValueError(f'Policy loss not implemented for {loss_type}')
 
@@ -459,6 +506,7 @@ def online_rl_loss(
     entropy_loss_weight: float | None = None,
     kl_estimator: Optional[str] = 'k3',
     kl_clip_range: Optional[float] = 40.0,
+    importance_weighting: bool = True,
 ) -> MutableMapping:
     """Compute the online RL loss.
 
@@ -489,7 +537,7 @@ def online_rl_loss(
 
     return_dict = {}
     advantages = None
-    if loss_type not in ALGORITHM_TYPE.REGRESSION:
+    if loss_type not in ALGORITHM_TYPE.REGRESSION: # basically grpo/ppo
         advantages = batch['advantages']
 
     # 1. Critic Loss
@@ -535,9 +583,11 @@ def online_rl_loss(
         length_normalize_policy_loss=length_normalize_policy_loss,
         kl_estimator=kl_estimator,
         kl_clip_range=kl_clip_range,
+        importance_weighting=importance_weighting,
     )
 
     return_dict.update(**policy_dict)
+
 
     for key, value in batch.items():
         # This logic handles reward logging a little differently than other quantities.
@@ -553,28 +603,28 @@ def online_rl_loss(
                     batch['action_mask'],
                     dim=1,
                 ).mean(dim=0)
+                    
                 # Total reward over timesteps
                 return_dict['env/' + str(key) + '_total'] = utils.masked_sum(
                     value,
                     batch['action_mask'],
                     dim=1,
                 ).mean(dim=0)
-            else:
-                # If this value is not [batch, actions] shaped, just do a
-                # vanilla mean.
-                return_dict['env/' + str(key)] = value.mean(dim=0)
-        if 'ift_kl' == key:
+        elif 'ift_kl' == key:
             return_dict['kl/' + str(key)] = utils.masked_mean(
                 value,
                 batch['action_mask'],
             )
 
-    # 3. Compute the total loss
+    # 3. Compute the total loss  
     return_dict['total'] = return_dict['loss/policy_loss']
+        
     if loss_type in ALGORITHM_TYPE.ACTOR_CRITIC:
         # Add value loss to total loss
         return_dict['total'] += value_loss_weight * return_dict[
             'loss/value_loss']  # pyright: ignore
+
+        
     # If we want to directly minimize the KL Divergence, we can do so here
     # and it will not include the KL in the reward.
     if add_direct_kl_loss:
@@ -593,7 +643,7 @@ def online_rl_loss(
         # breakpoint()
         return_dict['loss/entropy'] = entropy_loss
         return_dict['total'] += entropy_loss
-
+    
     if 'lbl' in outputs and outputs['lbl'] is not None:
         return_dict['loss/lbl'] = outputs['lbl']
         return_dict['total'] += outputs['lbl']
