@@ -45,7 +45,7 @@ def init_ray_with_torch_distributed(timeout_seconds: int = 30):
         # Start Ray Server on master node
         subprocess.run(['ray', 'start', '--head'], check=True)
         # connect to the ray cluster
-        ray.init()
+        ray.init('auto')
         # get existing ray ip and port
         ctx = ray.get_runtime_context()
         address = ctx.gcs_address

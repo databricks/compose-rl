@@ -1473,6 +1473,7 @@ class RolloutAgent:
 
         max_vllm_generated_len = max([len(response) for response in sequences])
         
+        # TODO: clean this up since this padded_response and padded_log_probs share similarity with the generation_utils.py
         padded_responses = []
         for sequence in sequences:
             sequence = list(sequence)
@@ -1496,15 +1497,12 @@ class RolloutAgent:
                 logprobs = logprobs + [0] * (max_vllm_generated_len - len(logprobs))
             padded_logprobs.append(logprobs)
 
-        try:
-            padded_logprobs = torch.tensor(
-                padded_logprobs,
-                dtype=torch.float,
-                device=torch.device('cpu'),
-            )
-        except Exception as e:
-            print(f"Error: {e}")
-            raise e
+        padded_logprobs = torch.tensor(
+            padded_logprobs,
+            dtype=torch.float,
+            device=torch.device('cpu'),
+        )
+
 
         temp_zeros = torch.zeros_like(all_prompts, dtype=torch.float, device=torch.device('cpu'))
         processed_logprobs = torch.cat([temp_zeros, padded_logprobs], dim=-1)
@@ -1540,6 +1538,7 @@ class RolloutAgent:
         # If all the processes early exit generate, then we need to manually pad everything
         # we can pad this with pad tokens, since we switch the padding between left and right
         # padding based on the sequence length + max_sequence_length.
+        #TODO: check if this padding is needed? i assume so. 
         if prompt_tokens.size(1) + max_gen_len > sequences.size(1):
             len_to_pad = max_gen_len - (
                 sequences.size(1) - prompt_tokens.size(1)

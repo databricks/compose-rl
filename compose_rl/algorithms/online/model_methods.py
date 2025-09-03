@@ -244,8 +244,7 @@ def policy_loss(
         old_entropies = batch['old_entropies']
         
         vllm_logprobs = batch['vllm_logprobs']
-        token_log_ratio = torch.clamp(old_log_probs - vllm_logprobs, min = -100.0, max = 100.0) # [ ln (pi_prox_t / pi_behavior_t) ]
-        token_IS_ratio = torch.exp(token_log_ratio) # [ pi_prox_t / pi_behavior_t ], (bs, gen_len)
+        token_IS_ratio = torch.exp(old_log_probs)/torch.exp(vllm_logprobs)
 
         gen_logits = utils.get_batched_generated_values(
             batched_values=outputs['logits'],
@@ -332,7 +331,7 @@ def policy_loss(
         )
 
         if importance_weighting:
-            policy_loss = policy_loss * token_IS_ratio # [ pi_prox_t / pi_behavior_t * policy_loss_t ]_t
+            policy_loss = policy_loss * token_IS_ratio # [ pi_old_t / pi_behavior_t * policy_loss_t ]_t
 
         if length_normalize_policy_loss:
             policy_loss = utils.sample_wise_masked_mean(
@@ -415,11 +414,11 @@ def policy_loss(
         online_log_probs = outputs['online_log_probs']
         ref_log_probs = batch['ift_log_probs']
         old_entropies = batch['old_entropies']
-        old_log_probs = batch['old_log_probs'] # note this is the log prob of the pi_prox -- the usual pi_old in ppo language. 
+        old_log_probs = batch['old_log_probs'] # note this is the log prob of the pi_old -- the usual pi_old in ppo language. 
         vllm_logprobs = batch['vllm_logprobs'] # note this the log prob from vllm when generating the rollouts, i.e., log pi_behavior   
         assert old_log_probs.shape == vllm_logprobs.shape, f'old_log_probs and vllm_logprobs have different shapes {old_log_probs.shape=}, {vllm_logprobs.shape=}'
 
-        token_log_ratio = old_log_probs - vllm_logprobs # [ ln (pi_prox_t / pi_behavior_t) ]
+        token_log_ratio = old_log_probs - vllm_logprobs # [ ln (pi_old_t / pi_behavior_t) ]
         online_to_old_diff = online_log_probs - old_log_probs  # ln(π/π_old) for SMD
         
         #compute KL to pi_ref to keep track the divergence to \pi_ref
@@ -455,9 +454,9 @@ def policy_loss(
             token_log_ratio,
             batch['action_mask'],
             dim=-1,
-        )  #size: (batch_size,) # \sum_t ln (pi_prox_t / pi_behavior_t)
+        )  #size: (batch_size,) # \sum_t ln (pi_old_t / pi_behavior_t)
         masked_log_ratio = torch.clamp(masked_log_ratio, min = -100.0, max = 100.0) # clip to avoid overflow
-        masked_importance_ratio = torch.exp(masked_log_ratio) # pi_prox / pi_behavior
+        masked_importance_ratio = torch.exp(masked_log_ratio) # pi_old / pi_behavior
         assert masked_importance_ratio.shape == masked_log_probs_diff.shape, f'masked_importance_ratio and masked_log_probs_diff have different shapes {masked_importance_ratio.shape=}, {masked_log_probs_diff.shape=}'
         
         beta_float = float(beta) # convert it to float to avoid type error
