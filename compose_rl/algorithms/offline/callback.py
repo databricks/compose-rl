@@ -41,7 +41,8 @@ class ReferencePolicyCallback(CallbackWithConfig):
         )
         name = model_config.pop('name')
         print("################################################")
-        print(f"reference model name: {name}")
+        print("reference model config:")
+        print(model_config)
         print("################################################")
         self.reference_model = build_composer_model(
             name=name,
