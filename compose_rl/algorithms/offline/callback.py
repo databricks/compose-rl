@@ -40,6 +40,9 @@ class ReferencePolicyCallback(CallbackWithConfig):
             self.train_config.get('fsdp_config'),
         )
         name = model_config.pop('name')
+        print("################################################")
+        print(f"reference model name: {name}")
+        print("################################################")
         self.reference_model = build_composer_model(
             name=name,
             cfg=model_config,
