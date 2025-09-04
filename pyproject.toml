@@ -37,6 +37,9 @@ released = [
 cpu_released = [
     'llm-foundry[all-cpu]>=0.21.0',
 ]
+servers = [
+    'orl-servers @ file:./orl_servers',
+]
 
 # Registry entry points
 [project.entry-points."llmfoundry_models"]

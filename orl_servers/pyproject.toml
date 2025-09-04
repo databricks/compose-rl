@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools < 79.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = { find = { where = [".."], include = ["orl_servers*"] } }
+
+[project]
+name = "orl-servers"
+version = "0.1.0.dev0"
+description = "Online RL Servers subpackage"
+dependencies = [
+    "vllm>=0.9.0,<0.10.0",
+    "fastapi>=0.110",
+    "uvloop>=0.20",
+    "packaging>=23",
+]
+
+[project.scripts]
+orl-vllm-server = "orl_servers.vllm_server:main"
+
+
