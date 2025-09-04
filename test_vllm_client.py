@@ -21,8 +21,8 @@ Features tested:
 import asyncio
 from transformers import AutoTokenizer
 
-from compose_rl.algorithms.online.generation_utils.vllm_actor import AsyncLLM
-from compose_rl.algorithms.online.generation_utils.vllm_client import VllmOpenAI, CompletionWithTokenLogp
+from orl_servers import VllmOpenAI, AsyncEngine
+from orl_servers.vllm_client import CompletionWithTokenLogp
 
 
 def display_tokens_and_logprobs(cached_completion: CompletionWithTokenLogp, tokenizer: AutoTokenizer, max_tokens: int = 10):
@@ -85,7 +85,7 @@ def get_async_llm_and_client():
     print(f"Initializing AsyncLLM and tokenizer with model: {model_name}")
     
     # Create AsyncLLM instance with prefix caching enabled
-    async_llm = AsyncLLM(
+    async_llm = AsyncEngine.from_args(
         model=model_name,
         tensor_parallel_size=1,
         trust_remote_code=True,

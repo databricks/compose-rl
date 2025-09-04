@@ -11,13 +11,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from sglang.utils import wait_for_server, terminate_process
 
-from inference_server_test.sglang_remote import (
-    RemoteSGLangEngine,
-    InferenceEngineConfig,
-    WeightUpdateMeta,
-    ParamSpec,
-)
-from inference_server_test.client import ArealOpenAI
+from orl_servers.sglang_remote import RemoteSGLangEngine
+from orl_servers.structs import ParamSpec, WeightUpdateMeta, InferenceEngineConfig
+from orl_servers.client import ArealOpenAI
 from compose_rl.utils.ray_utils import start_ray_server
 from tests.common import BaseDistributedGPUActor
 

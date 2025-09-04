@@ -9,17 +9,13 @@ import torch
 import torch.distributed as dist
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from sglang.utils import wait_for_server, terminate_process
-
-from compose_rl.algorithms.online.generation_utils.vllm_remote import (
-    RemoteVLLMEngine,
-    InferenceEngineConfig,
-    WeightUpdateMeta,
-    ParamSpec,
-)
-from compose_rl.algorithms.online.generation_utils.client import ArealOpenAI
+from orl_servers.vllm_remote import RemoteVLLMEngine
+from orl_servers.structs import InferenceEngineConfig, WeightUpdateMeta, ParamSpec
+from orl_servers import ArealOpenAI
 from compose_rl.utils.ray_utils import start_ray_server
 from tests.common import BaseDistributedGPUActor
+
+from test_async_llm_server import _wait_for_server_ready
 
 WORKER_WRAP = 'compose_rl.algorithms.online.generation_utils.vllm_utils.WorkerWrap'
 
@@ -84,11 +80,11 @@ async def test_distributed_ray_actors(
     with start_ray_server() as address:
         if dist.get_rank() == 0:
             vllm_server_process = subprocess.Popen(
-                f'CUDA_VISIBLE_DEVICES={dist.get_world_size()} python3 -m compose_rl.algorithms.online.generation_utils.vllm_server --model {model_name} --worker-extension-cls="{WORKER_WRAP}"',
+                f'CUDA_VISIBLE_DEVICES={dist.get_world_size()} orl-vllm-server --model {model_name} --worker-extension-cls="{WORKER_WRAP}"',
                 shell=True
             )
             vllm_addresses = [f"localhost:{8000}"]
-            wait_for_server(f"http://{vllm_addresses[0]}")
+            _wait_for_server_ready()
 
             try:
                 # rank 0 is the ray client
@@ -298,7 +294,7 @@ async def test_distributed_ray_actors(
                     print(f'[{i+1:2d}] {role_emoji} {msg["role"].capitalize()}: {msg["content"]}')
                 print(f"\n✅ Multi-turn conversation completed with {len(conversation_messages)} total messages!")
             finally:
-                terminate_process(vllm_server_process)
+                vllm_server_process.kill()
 
 
 if __name__ == "__main__":
