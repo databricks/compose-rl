@@ -22,7 +22,7 @@ import logging
 import os
 import time
 from datetime import timedelta
-from typing import Optional, Union, Any
+from typing import Optional, Union
 
 import ray
 import torch
@@ -51,30 +51,6 @@ from compose_rl.algorithms.online.model_methods import (
 )
 
 log = logging.getLogger(__name__)
-
-
-def stateless_init_process_group(master_address, master_port, rank, world_size, device):
-    """
-    vLLM provides `StatelessProcessGroup` to create a process group
-    without considering the global process group in torch.distributed.
-    It is recommended to create `StatelessProcessGroup`, and then initialize
-    the data-plane communication (NCCL) between external (train processes)
-    and vLLM workers.
-    """
-    from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
-    from vllm.distributed.utils import StatelessProcessGroup
-
-    pg = StatelessProcessGroup.create(host=master_address, port=master_port, rank=rank, world_size=world_size)
-    pynccl = PyNcclCommunicator(pg, device=device)
-    return pynccl
-
-
-def get_physical_gpu_id():
-    import torch
-
-    device = torch.cuda.current_device()
-    props = torch.cuda.get_device_properties(device)
-    return str(props.uuid)
 
 
 # Copy from pytorch to allow creating multiple main groups.
@@ -137,44 +113,70 @@ def init_process_group(
 
 
 class WorkerWrap:
-    def init_process_group(
-        self, master_address: str, master_port: str, rank_offset: int, world_size: int
-    ):
-        """Init torch process group for model weights update"""
-        import torch
 
-        assert torch.distributed.is_initialized(), f"default torch process group must be initialized"
+    def init_process_group(
+        self,
+        master_address: str,
+        master_port: str,
+        rank_offset: int,
+        world_size: int,
+        group_name: str,
+        backend: str,
+    ):
+        """Init torch process group for model weights update."""
+        assert torch.distributed.is_initialized(
+        ), 'default torch process group must be initialized'
+        assert group_name != '', 'group name must not be empty'
 
         rank = torch.distributed.get_rank() + rank_offset
-        self._model_update_group = stateless_init_process_group(
-            master_address,
-            int(master_port),
-            rank,
-            world_size,
-            self.device,
+        self._model_update_group = init_process_group( # type: ignore
+            backend=backend,
+            init_method=f'tcp://{master_address}:{master_port}',
+            world_size=world_size,
+            rank=rank,
+            group_name=group_name,
         )
-        print(
-            f"init_process_group: master_address={master_address}, master_port={master_port}, ",
-            f"rank={rank}, world_size={world_size}",
+        log.info(f'init process group for: {torch.distributed.get_rank()}')
+        log.info(
+            f'init_process_group: master_address={master_address}, master_port={master_port}, '
+            + f'rank={rank}, world_size={world_size}, group_name={group_name}',
         )
 
-    def update_weight(self, name: str, dtype: torch.dtype, shape: Union[tuple[int, ...], list[int]], empty_cache: bool = False):
-        import torch
+    def update_weight(
+        self,
+        name: str,
+        dtype: torch.dtype,
+        shape: Union[tuple[int, ...], list[int], torch.Size],
+        empty_cache: bool = False,
+    ):
+        """Broadcast weights to vllm workers from source rank 0 actor model.
 
-        """Broadcast weight to all vllm workers from source rank 0 (actor model)"""
-        if torch.distributed.get_rank() == 0:
-            print(f"update weight: {name}, dtype: {dtype}, shape: {shape}")
+        Args:
+            name (str): Name of the weight to be updated
+            dtype (torch.dtype): Data type of the weight
+            shape (Union[Tuple[int, ...], List[int], torch.Size]): Shape of the weight
+            empty_cache (bool): Whether to empty cache after updating weights
+        """
+        weight = torch.empty(shape, dtype=dtype, device='cuda')
+        torch.distributed.broadcast(
+            weight,
+            0,
+            group=self._model_update_group,
+        )
 
-        assert dtype == self.model_config.dtype, f"mismatch dtype: src {dtype}, dst {self.model_config.dtype}"
-        weight = torch.empty(shape, dtype=dtype, device="cuda")
-        self._model_update_group.broadcast(weight, src=0, stream=torch.cuda.current_stream())
+        # Because FSDP keeps master weights in FP32 and vLLM typically doesn't do this
+        # We will need to cast the weight type to the model_config type
+        if weight.dtype != self.model_config.dtype:  # type: ignore
+            weight = weight.to(self.model_config.dtype)  # type: ignore
 
-        self.model_runner.model.load_weights(weights=[(name, weight)])
+        self.model_runner.model.load_weights( # type: ignore
+            weights=[(name, weight)],
+        )  # type: ignore
 
         del weight
-        # TODO: should we empty cache if all weights have updated?
-        # if empty_cache:
-        #     torch.cuda.empty_cache()
+
+        if empty_cache:
+            torch.cuda.empty_cache()
 
 
 def create_vllm_engines(
@@ -189,7 +191,6 @@ def create_vllm_engines(
     vllm_gpu_memory_utilization: float = 0.9,
     load_format: str = 'dummy',
     device_bundle: Optional[dict[str, int]] = None,
-    actor_class: Any = LLMRayActor
 ):
     """Creates vllm engines.
 
@@ -244,7 +245,7 @@ def create_vllm_engines(
         log.info(f'vllm: {num_gpus=}, {num_engines=}')
 
         vllm_engines.append(
-            actor_class.options(  # type: ignore
+            LLMRayActor.options(  # type: ignore
                 num_cpus=num_gpus,
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,

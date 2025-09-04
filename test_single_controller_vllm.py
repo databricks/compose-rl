@@ -17,7 +17,7 @@ from tests.common import BaseDistributedGPUActor
 
 from test_async_llm_server import _wait_for_server_ready
 
-WORKER_WRAP = 'compose_rl.algorithms.online.generation_utils.vllm_utils.WorkerWrap'
+WORKER_WRAP = 'orl_servers.vllm_worker_wrap.WorkerWrap'
 
 @ray.remote(num_gpus=1)
 class DistributedGPUActor(BaseDistributedGPUActor):
