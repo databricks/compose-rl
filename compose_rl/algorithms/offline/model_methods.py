@@ -3,6 +3,7 @@
 
 """DPO Utils."""
 
+import math
 from enum import Enum
 from typing import Mapping, MutableMapping, Optional, Union
 
@@ -60,6 +61,7 @@ def offline_forward(
             Note: this batch has chosen and rejected concated along the sequence dimension.
         average_log_prob (bool): Whether should we average the log probabilities.
         policy_model_config: Policy model config.
+        multistep: Whether the batch is multistep.
     """
     is_multimodal = 'pixel_values' in batch.keys()
     has_mask = 'mask' in batch.keys()
@@ -83,6 +85,7 @@ def offline_forward(
         inputs.update(multimodal_inputs)
 
     output_logits = model(**inputs).logits
+    assert output_logits.shape == inputs['input_ids'].shape, f"Output logits shape {output_logits.shape} does not match input ids shape {inputs['input_ids'].shape}"
     # Calculate token entropies from the logits
     token_entropies = get_token_entropies(logits=output_logits)
     token_entropies = token_entropies.detach()
@@ -95,7 +98,7 @@ def offline_forward(
             batch['sequence_len'],
             average_log_prob,
             temperature=temperature,
-        )
+        ) # (bs, )
         # Calculate sequence entropies
         action_mask = make_action_mask(
             batch['prompt_len'],
@@ -152,12 +155,44 @@ def offline_loss(
 ):
     # eta: r + eta * bonus (bonus can be used to model things like tool use)
     
-    policy_logp = outputs['policy_logp']  # (batch_size, )
+    policy_logp = outputs['policy_logp']  # (batch_size, ) or in multistep case, (total_num_turns,)
 
     ref_logp = batch.get(
         'ref_logp',
         torch.zeros_like(policy_logp),
     )
+    assert ref_logp.shape == policy_logp.shape, f"Ref logp shape {ref_logp.shape} does not match policy logp shape {policy_logp.shape}"
+
+    # Initialize vstar for linter
+    vstar = None
+
+    if multistep is True:
+        num_turns = batch['num_turns']  # Shape: (batch_size,)
+        assert policy_logp.size(0) == torch.sum(num_turns), f"Policy logp shape {policy_logp.shape} doesn't match total turns {torch.sum(num_turns)}"
+        
+        # Convert turn-level logp to sample-level logp by summing turns within each sample
+        seq_policy_logp = []
+        seq_ref_logp = []
+        start_idx = 0
+        
+        for i in range(num_turns.size(0)):
+            num_turns_i = num_turns[i].item()  # Convert tensor to int
+            end_idx = start_idx + num_turns_i
+            
+            # Sum logp for all turns in sample i, preserve device/dtype/gradients
+            sample_policy_logp = torch.sum(policy_logp[start_idx:end_idx])
+            sample_ref_logp = torch.sum(ref_logp[start_idx:end_idx])
+            
+            seq_policy_logp.append(sample_policy_logp)
+            seq_ref_logp.append(sample_ref_logp)
+            start_idx = end_idx
+        
+        # Stack preserves gradients and device/dtype
+        policy_logp = torch.stack(seq_policy_logp)  # Shape: (batch_size,)
+        ref_logp = torch.stack(seq_ref_logp)        # Shape: (batch_size,)
+        
+        assert batch['reward'].size(0) == policy_logp.size(0), f"Reward shape {batch['reward'].shape} doesn't match sample-level policy_logp shape {policy_logp.shape}"
+
 
     if loss_type == RegressionOfflineEnum.APO:
         # Reproducing the APO loss from APO paper: https://arxiv.org/pdf/2505.20686 on page 3
@@ -170,32 +205,27 @@ def offline_loss(
             vstar_rewards = batch.get('vstar_rewards', None)
             assert vstar_rewards is not None
             vstar_bonus = batch.get('vstar_bonus', torch.zeros_like(vstar_rewards))
-            added_vstar_bonus = vstar_bonus * vstar_rewards  # true added bonus is 1 iff both bonus = 1 and reward = 1
-            if not multistep: 
-                exponentiated_mean = torch.mean(torch.exp((vstar_rewards+eta*added_vstar_bonus) / beta1), dim=-1)
-            else:
-                exponentiated_mean = torch.mean(
-                    vstar_rewards * torch.exp(batch['reward'] / beta1).view(-1, 1) + (1 - vstar_rewards), # TODO: something is wrong here. 
-                    dim=-1,
-                )
+            exponentiated_mean = torch.mean(torch.exp((vstar_rewards+eta*vstar_bonus) / beta1), dim=-1)
             vstar = beta1 * torch.log(exponentiated_mean)
-
             assert vstar.shape == batch['reward'].shape
 
         bonuses = batch.get('bonus', torch.zeros_like(batch['reward']))
-        added_bonuses = bonuses * batch['reward']  # true added bonus = 1 if both bonus = 1 and reward = 1
         if bce == False:
             losses = (
                 beta2 * (policy_logp - ref_logp) -
-                (batch['reward'] + eta * added_bonuses - vstar)
+                (batch['reward'] + eta * bonuses - vstar)
             )**2
         elif bce == True:
             predicted_prob = F.sigmoid(beta2 * (policy_logp - ref_logp))
-            actual_prob = F.sigmoid(batch['reward'] - vstar)
+            actual_prob = F.sigmoid(batch['reward'] + eta * bonuses - vstar)
             losses = -(actual_prob * torch.log(predicted_prob) 
                         +   (1.-actual_prob)*torch.log(1.-predicted_prob)
                     )
+    
     elif loss_type == RegressionOfflineEnum.QRPO:
+        if multistep is True:
+            raise NotImplementedError("Multistep for QRPO not implemented")
+
         vstar_rewards = batch.get('vstar_rewards', None)
         assert vstar_rewards is not None
         if not multistep:

@@ -16,8 +16,10 @@ from compose_rl.data.messages_data import (
 )
 from compose_rl.data.offline_data import (
     OfflineStreamingDataset,
+    OfflineMultistepStreamingDataset,
     offline_dataset_collate_fn,
     offline_dataset_collate_fn_test,
+    offline_dataset_collate_fn_multistep,
 )
 from compose_rl.data.preference_data import (
     FinegrainedPreferenceStreamingDataset,
@@ -36,6 +38,7 @@ __all__ = [
     'build_prompt_dataloader',
     'build_messages_dataloader',
     'build_offline_dataloader',
+    'build_multistep_offline_dataloader',
 ]
 
 
@@ -136,4 +139,9 @@ build_messages_dataloader = generate_dataloader_builder(
 build_offline_dataloader = generate_dataloader_builder(
     OfflineStreamingDataset,
     offline_dataset_collate_fn_test,
+)
+
+build_multistep_offline_dataloader = generate_dataloader_builder(
+    OfflineMultistepStreamingDataset,
+    offline_dataset_collate_fn_multistep,
 )

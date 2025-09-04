@@ -63,6 +63,7 @@ finegrained_preference = "compose_rl.data:build_finegrained_preference_dataloade
 prompt = "compose_rl.data:build_prompt_dataloader"
 messages = "compose_rl.data:build_messages_dataloader"
 offline = "compose_rl.data:build_offline_dataloader"
+multistep_offline = "compose_rl.data:build_multistep_offline_dataloader"
 
 [project.entry-points."llmfoundry_callbacks_with_config"]
 offline_rl = "compose_rl.algorithms.offline:ReferencePolicyCallback"
