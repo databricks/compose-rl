@@ -225,7 +225,7 @@ def main() -> None:
     validate_parsed_serve_args(args)
     # Try to use ComposeRL's WorkerWrap if available, but don't hard-require it
     # Only set if not already provided by user via CLI/env
-    if not hasattr(args, "worker_extension_cls"):
+    if not getattr(args, "worker_extension_cls", None):
         args.worker_extension_cls = 'compose_rl.algorithms.online.generation_utils.vllm_utils.WorkerWrap'
 
     server = AsyncLLMServer(args)
