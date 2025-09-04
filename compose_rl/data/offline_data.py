@@ -220,6 +220,84 @@ def offline_dataset_collate_fn(
 
     return return_dict
 
+
+def offline_dataset_collate_fn_multistep(
+    tokenizer: PreTrainedTokenizer,
+    max_seq_len: int,
+    data: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Collator for offline data for multistep.
+
+    Args:
+        tokenizer (Tokenizer): The model's tokenizer.
+        max_seq_len (int): The maximum sequence length of the model.
+        data (list[dict]): The offline data to collate.
+    """
+    if tokenizer.eos_token_id is None:
+        raise ValueError('Tokenizer must have an EOS token.')
+    if tokenizer.pad_token_id is None:
+        raise ValueError('Tokenizer must have a PAD token.')
+    
+    tokenizer.padding_side = 'right' # right
+    ref_collate_fn = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,
+        mlm_probability=0.0,
+    )
+    
+    list_of_input_ids = []
+    list_of_prompt_lens = []
+    for data_point in data:
+        list_of_input_ids.extend([turn['input_ids'] for turn in data_point['turns']])
+        list_of_prompt_lens.extend([turn['prompt_len'] for turn in data_point['turns']])
+    
+    ret = ref_collate_fn(list_of_input_ids)
+    batch_input_ids = ret['input_ids']
+    attention_masks = torch.logical_not(
+        torch.eq(batch_input_ids, tokenizer.pad_token_id)
+    ).to(torch.int64)
+    
+    batch_max_seq_len = batch_input_ids.shape[1]
+    if batch_max_seq_len > max_seq_len:
+        batch_input_ids = batch_input_ids[:,:max_seq_len]
+        attention_masks = attention_masks[:,:max_seq_len]
+    
+    for i in range(batch_input_ids.shape[0]):
+        if batch_input_ids[i,-1] != tokenizer.eos_token_id and batch_input_ids[i,-1] != tokenizer.pad_token_id:
+            batch_input_ids[i,-1] = tokenizer.eos_token_id
+    
+    prompt_lens = torch.cat(list_of_prompt_lens)
+    sequence_lens = torch.sum(attention_masks, dim = -1)
+    assert prompt_lens.shape == sequence_lens.shape
+    
+    return_dict: dict[str, Any] = {
+        'sequence_len': sequence_lens,
+        'prompt_len': prompt_lens,
+        'input_ids': batch_input_ids,
+        'attention_mask': attention_masks,
+    }
+
+    assert "num_turns" in data[0].keys(), "num_turns must be a key in the data"
+    num_turns = torch.cat([item['num_turns'] for item in data])
+    return_dict["num_turns"] = num_turns
+    assert 'reward' in data[0].keys(), "reward must be a key in the data"
+    rewards = torch.cat([item['reward'] for item in data])
+    return_dict['reward'] = rewards
+    assert 'vstar_rewards' in data[0].keys(), "vstar_rewards must be a key in the data"
+    vstar_rewards = torch.stack([item['vstar_rewards'] for item in data])
+    return_dict['vstar_rewards'] = vstar_rewards
+
+    if 'bonus' in data[0].keys():
+        bonuses = torch.cat([item['bonus'] for item in data])
+        return_dict['bonus'] = bonuses
+    if 'vstar_bonus' in data[0].keys():
+        vstar_bonus = torch.stack([item['vstar_bonus'] for item in data])
+        return_dict['vstar_bonus'] = vstar_bonus
+
+    return return_dict
+
+    
+    
 def offline_dataset_collate_fn_test(
     tokenizer: PreTrainedTokenizer,
     max_seq_len: int,
@@ -317,6 +395,93 @@ def offline_dataset_collate_fn_test(
 
     return return_dict
 
+class OfflineMultistepStreamingDataset(StreamingDataset):
+    """Dataloader for streaming in offline data for multistep."""
+    
+    def __init__(self, max_seq_len: int, 
+                tokenizer: PreTrainedTokenizer,
+                remove_thinking_tokens: bool = False, 
+                processor_name: Optional[str] = None, 
+                **kwargs: dict[str, Any]):
+        self.max_seq_len = max_seq_len
+        self.tokenizer = tokenizer
+        super().__init__(**kwargs)
+        self.num_truncated = 0
+        self.num_read = 0
+        self.remove_thinking_tokens = remove_thinking_tokens  # pyright: ignore[reportAttributeAccessIssue]
+        
+        # For proper multimodal HF checkpointing
+        self.processor = None
+        if processor_name is not None:
+            self.processor = AutoProcessor.from_pretrained(processor_name)
+    
+
+    def remove_thinking(self, prompt_ids: torch.Tensor) -> torch.Tensor:
+        # remove thinking tokens but keep the markers 
+        think_id = self.tokenizer.convert_tokens_to_ids("<think>")
+        close_think_id = self.tokenizer.convert_tokens_to_ids("</think>")
+
+        start_mask = (prompt_ids == think_id).cumsum(0)
+        end_mask = (prompt_ids == close_think_id).cumsum(0)
+        inside = start_mask > end_mask # it marks <think> to be true, and all tokens before </think> to be true, but </think> is false
+        markers = (prompt_ids == think_id) | (prompt_ids == close_think_id) # marks <think> and </think> to be true
+        return prompt_ids[(~inside)|markers] # keep the <think> and </think> tokens. 
+
+
+    # How to process a sample
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        # sample is a dictionary with keys: turns (list[dict]), reward (float), bonus (float), vstar_rewards (array), vstar_bonus (array)
+        sample = super().__getitem__(idx)
+
+        # convert turns to pair of history and assistant turn pairs
+        assert 'turns' in sample, "turns must be a key in the sample"
+        assert len(sample["turns"]) > 0, "turns must be a non-empty list"
+        num_turns = len(sample["turns"])
+
+        assert 'reward' in sample, "reward must be a key in the sample"
+        reward = torch.Tensor([sample["reward"]])
+        assert 'vstar_rewards' in sample, "vstar_rewards must be a key in the sample"
+        assert isinstance(sample['vstar_rewards'], np.ndarray)
+        vstar_rewards = torch.from_numpy(sample['vstar_rewards'])
+
+        return_dict: dict[str, Any] = {
+            'reward': reward,
+            'vstar_rewards': vstar_rewards,
+            'num_turns': torch.Tensor([num_turns]).to(torch.int),
+        }
+
+        turn_data = [] # list of dictionaries of turn_wise_data
+        history = [] # list of tuples of (input_ids, labels)
+        for turn in sample["turns"]:
+            assert 'input_ids' in turn, "input_ids must be a key in the turn"
+            assert 'labels' in turn, "labels must be a key in the turn"
+            input_ids = torch.from_numpy(turn['input_ids'])
+            labels = torch.from_numpy(turn['labels'])
+            
+            history.append(input_ids)
+            curr_history_ids = torch.concatenate(history).to(torch.int)
+            if self.remove_thinking_tokens:
+                curr_history_ids = self.remove_thinking(curr_history_ids) # remove thinking content
+            assistant_turn_ids = labels
+
+            turn_wise_data = {
+                'input_ids': torch.cat([curr_history_ids, assistant_turn_ids]),
+                'sequence_len': torch.Tensor([len(curr_history_ids) + len(assistant_turn_ids)]).to(torch.int),
+                'prompt_len': torch.Tensor([len(curr_history_ids)]).to(torch.int),
+            }
+
+            turn_data.append(turn_wise_data)
+            history.append(labels)
+        
+        return_dict['turns'] = turn_data
+
+        if 'bonus' in sample:
+            return_dict['bonus'] = torch.Tensor([sample['bonus']])
+        if 'vstar_bonus' in sample:
+            return_dict['vstar_bonus'] = torch.from_numpy(sample['vstar_bonus'])
+        
+        return return_dict
+        
 
 class OfflineStreamingDataset(StreamingDataset):
     """Dataloader for streaming in preference data."""
