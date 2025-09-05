@@ -77,6 +77,7 @@ async def test_distributed_ray_actors(
     prompts = [
         'Where is the capital of France?',
         'what is the population of it?',
+        'is Louvre Museum located in it?'
     ]
 
 
@@ -190,6 +191,100 @@ async def test_distributed_ray_actors(
                 )
                 print('vLLM distributed group initialization done')
 
+                # Initialize tokenizer for proper tokenization/detokenization
+                print(f'Loading tokenizer for model: {model_name}')
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
+                print(f'Tokenizer loaded. Vocab size: {tokenizer.vocab_size}')
+
+                # Create ArealOpenAI client 
+                print(f'Creating ArealOpenAI client...')
+                client = ArealOpenAI(
+                    engine=vllm_engine,
+                    tokenizer=tokenizer,
+                    api_key="none",  # Not used but required
+                    base_url="none"  # Not used but required
+                )
+                print(f'ArealOpenAI client created successfully')
+
+                async def run_conversation_phase(phase_label: str):
+                    print(f"\n===== {phase_label}: Starting multi-turn conversation =====")
+                    results_local = []
+                    conversation_messages_local = []
+
+                    for i, prompt in enumerate(prompts):
+                        print(f'\n💬 Turn {i+1}: Processing prompt')
+                        print(f'📝 User: {prompt}')
+
+                        conversation_messages_local.append({"role": "user", "content": prompt})
+
+                        print(f'📋 Current conversation context ({len(conversation_messages_local)} messages):')
+                        for j, msg in enumerate(conversation_messages_local):
+                            print(f'   [{j+1}] {msg["role"]}: {msg["content"]}')
+
+                        try:
+                            response = await client.chat.completions.create(
+                                messages=conversation_messages_local,
+                                max_tokens=1024,
+                                temperature=1.0,
+                                top_p=1.0
+                            )
+
+                            assistant_reply = response.choices[0].message.content
+                            print(f'🤖 Assistant: {assistant_reply}')
+
+                            conversation_messages_local.append({"role": "assistant", "content": assistant_reply})
+
+                            completion = client.get_completions(response.id)
+                            if completion:
+                                results_local.append((prompt, completion, len(conversation_messages_local)))
+                            else:
+                                print(f"⚠️  Warning: Could not retrieve completion for response {response.id}")
+
+                        except Exception as e:
+                            print(f"❌ Generation failed for prompt '{prompt}': {e}")
+                            raise e
+
+                    print(f"\n📊 {phase_label} - Detailed Generation Results:")
+                    print("=" * 80)
+                    for i, (prompt, completion, context_length) in enumerate(results_local):
+                        print(f'\n🔄 Turn {i+1}:')
+                        print(f'   👤 User: {prompt!r}')
+                        print(f'   📋 Context length at time of generation: {context_length-1} messages (before assistant response)')
+
+                        assistant_text = tokenizer.decode(completion.response.output_tokens, skip_special_tokens=True)
+                        print(f'   🤖 Assistant: {assistant_text!r}')
+
+                        print(f'\n   📊 Token Analysis:')
+                        print(f'      Completion ID: {completion.completion.id}')
+                        print(f'      Input tokens: {completion.response.input_len}')
+                        print(f'      Output tokens: {completion.response.output_len}')
+                        print(f'      Input token IDs: {completion.response.input_tokens[:10]}...' if len(completion.response.input_tokens) > 10 else f'      Input token IDs: {completion.response.input_tokens}')
+                        print(f'      Output token IDs: {completion.response.output_tokens}')
+                        print(f'      Output logprobs: {[f"{lp:.3f}" for lp in completion.response.output_logprobs[:5]]}...' if len(completion.response.output_logprobs) > 5 else f'      Output logprobs: {[f"{lp:.3f}" for lp in completion.response.output_logprobs]}')
+
+                        print(f'      Output tokens decoded:')
+                        for j, token_id in enumerate(completion.response.output_tokens[:10]):
+                            token_text = tokenizer.decode([token_id], skip_special_tokens=False)
+                            logprob = completion.response.output_logprobs[j] if j < len(completion.response.output_logprobs) else 0.0
+                            print(f'        [{j:2d}] ID:{token_id:5d} → {token_text!r} (logprob: {logprob:.3f})')
+                        if len(completion.response.output_tokens) > 10:
+                            print(f'        ... and {len(completion.response.output_tokens) - 10} more tokens')
+
+                        print('-' * 60)
+
+                    print(f"\n🗨️  {phase_label} - Final Conversation Summary:")
+                    print("=" * 50)
+                    for i, msg in enumerate(conversation_messages_local):
+                        role_emoji = "👤" if msg["role"] == "user" else "🤖"
+                        print(f'[{i+1:2d}] {role_emoji} {msg["role"].capitalize()}: {msg["content"]}')
+                    print(f"\n✅ {phase_label} completed with {len(conversation_messages_local)} total messages!")
+
+                    return results_local, conversation_messages_local
+
+                # Phase 1: Pre-weight-update generation
+                pre_results, _ = await run_conversation_phase("PRE-UPDATE")
+
+                # Initialize trainer model and perform weight update broadcast
                 refs = [
                     actor.init_model.remote(model_name)  # type: ignore
                     for actor in train_actors
@@ -206,101 +301,19 @@ async def test_distributed_ray_actors(
                     )
                 print('sync weights done')
 
-                # Initialize tokenizer for proper tokenization/detokenization
-                print(f'Loading tokenizer for model: {model_name}')
-                tokenizer = AutoTokenizer.from_pretrained(model_name)
-                print(f'Tokenizer loaded. Vocab size: {tokenizer.vocab_size}')
+                # Phase 2: Post-weight-update generation (same prompts)
+                post_results, _ = await run_conversation_phase("POST-UPDATE")
 
-                # Create ArealOpenAI client 
-                print(f'Creating ArealOpenAI client...')
-                client = ArealOpenAI(
-                    engine=vllm_engine,
-                    tokenizer=tokenizer,
-                    api_key="none",  # Not used but required
-                    base_url="none"  # Not used but required
-                )
-                print(f'ArealOpenAI client created successfully')
-
-                # Test generation with ArealOpenAI chat interface - multi-turn conversation
-                results = []
-                conversation_messages = []  # Accumulate conversation history
-                
+                # Optional: simple comparison summary per prompt
+                print("\n===== Comparison: PRE-UPDATE vs POST-UPDATE =====")
                 for i, prompt in enumerate(prompts):
-                    print(f'\n💬 Turn {i+1}: Processing prompt')
-                    print(f'📝 User: {prompt}')
-                    
-                    # Add user message to conversation history
-                    conversation_messages.append({"role": "user", "content": prompt})
-                    
-                    print(f'📋 Current conversation context ({len(conversation_messages)} messages):')
-                    for j, msg in enumerate(conversation_messages):
-                        print(f'   [{j+1}] {msg["role"]}: {msg["content"]}')
-                    
-                    try:
-                        # Generate response using ArealOpenAI chat interface with full conversation history
-                        response = await client.chat.completions.create(
-                            messages=conversation_messages,
-                            max_tokens=1024,
-                            temperature=1.0,
-                            top_p=1.0
-                        )
-                        
-                        assistant_reply = response.choices[0].message.content
-                        print(f'🤖 Assistant: {assistant_reply}')
-                        
-                        # Add assistant response to conversation history for next turn
-                        conversation_messages.append({"role": "assistant", "content": assistant_reply})
-                        
-                        # Extract completion with token info
-                        completion = client.get_completions(response.id)
-                        if completion:
-                            results.append((prompt, completion, len(conversation_messages)))
-                        else:
-                            print(f"⚠️  Warning: Could not retrieve completion for response {response.id}")
-                            
-                    except Exception as e:
-                        print(f"❌ Generation failed for prompt '{prompt}': {e}")
-                        raise e
-                
-                # Display detailed results with tokens, logprobs and decoded text
-                print(f"\n📊 Detailed Generation Results:")
-                print("=" * 80)
-                for i, (prompt, completion, context_length) in enumerate(results):
-                    print(f'\n🔄 Turn {i+1}:')
-                    print(f'   👤 User: {prompt!r}')
-                    print(f'   📋 Context length at time of generation: {context_length-1} messages (before assistant response)')
-                    
-                    # Get assistant response text
-                    assistant_text = tokenizer.decode(completion.response.output_tokens, skip_special_tokens=True)
-                    print(f'   🤖 Assistant: {assistant_text!r}')
-                    
-                    # Token analysis
-                    print(f'\n   📊 Token Analysis:')
-                    print(f'      Completion ID: {completion.completion.id}')
-                    print(f'      Input tokens: {completion.response.input_len}')
-                    print(f'      Output tokens: {completion.response.output_len}')
-                    print(f'      Input token IDs: {completion.response.input_tokens[:10]}...' if len(completion.response.input_tokens) > 10 else f'      Input token IDs: {completion.response.input_tokens}')
-                    print(f'      Output token IDs: {completion.response.output_tokens}')
-                    print(f'      Output logprobs: {[f"{lp:.3f}" for lp in completion.response.output_logprobs[:5]]}...' if len(completion.response.output_logprobs) > 5 else f'      Output logprobs: {[f"{lp:.3f}" for lp in completion.response.output_logprobs]}')
-                    
-                    # Decode individual output tokens
-                    print(f'      Output tokens decoded:')
-                    for j, token_id in enumerate(completion.response.output_tokens[:10]):  # Show first 10 tokens
-                        token_text = tokenizer.decode([token_id], skip_special_tokens=False)
-                        logprob = completion.response.output_logprobs[j] if j < len(completion.response.output_logprobs) else 0.0
-                        print(f'        [{j:2d}] ID:{token_id:5d} → {token_text!r} (logprob: {logprob:.3f})')
-                    if len(completion.response.output_tokens) > 10:
-                        print(f'        ... and {len(completion.response.output_tokens) - 10} more tokens')
-                    
-                    print('-' * 60)
-                
-                # Final conversation summary
-                print(f"\n🗨️  Final Conversation Summary:")
-                print("=" * 50)
-                for i, msg in enumerate(conversation_messages):
-                    role_emoji = "👤" if msg["role"] == "user" else "🤖"
-                    print(f'[{i+1:2d}] {role_emoji} {msg["role"].capitalize()}: {msg["content"]}')
-                print(f"\n✅ Multi-turn conversation completed with {len(conversation_messages)} total messages!")
+                    print(f"\nPrompt {i+1}: {prompt!r}")
+                    if i < len(pre_results):
+                        pre_text = tokenizer.decode(pre_results[i][1].response.output_tokens, skip_special_tokens=True)
+                        print(f"  PRE:  {pre_text!r}")
+                    if i < len(post_results):
+                        post_text = tokenizer.decode(post_results[i][1].response.output_tokens, skip_special_tokens=True)
+                        print(f"  POST: {post_text!r}")
             finally:
                 # Try graceful shutdown first with SIGINT
                 print("🔄 Attempting graceful shutdown with SIGINT (like CTRL+C)...")

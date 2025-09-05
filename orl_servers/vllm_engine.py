@@ -59,7 +59,6 @@ class AsyncEngine:
 
     async def _collect_outputs(self, prompt_token_ids: list[int], request_id: str, sampling_params: SamplingParams):
         """Collect outputs for a single prompt."""
-        final_output = None
         try:
             async for request_output in self.engine.generate(
                 prompt=TokensPrompt(prompt_token_ids=prompt_token_ids),
@@ -93,6 +92,7 @@ class AsyncEngine:
         ans = None
         while max_retries == 0 or retry < max_retries:
             res = await self._generate(prompt_token_ids, sampling_params_with_retries)
+            print(f'res: {res.request_id}, num prompt tokens: {len(prompt_token_ids)}, num cached tokens: {res.num_cached_tokens}, num decoded tokens: {len(res.outputs[0].token_ids)}')
             if ans is None:
                 ans = res
             else:
@@ -101,7 +101,7 @@ class AsyncEngine:
                 log.info(f'request {res.request_id} is finished, finishreason: {res.outputs[0].finish_reason}, stopreason: {res.outputs[0].stop_reason}')
                 return ans
             else:
-                log.info(f'request {res.request_id} is not finished, finishreason: {res.outputs[0].finish_reason}, stopreason: {res.outputs[0].stop_reason}, retrying...')
+                print(f'request {res.request_id} is not finished, decoded tokens: {len(res.outputs[0].token_ids)} finishreason: {res.outputs[0].finish_reason}, stopreason: {res.outputs[0].stop_reason}, retrying...')
                 # TODO (handle n > 1)
                 assert sampling_params.n == 1, f'generate with retries does not work with sampling_params.n > 1, but got {sampling_params.n}'
                 retry += 1
@@ -201,6 +201,8 @@ def get_shared_async_llm_and_tokenizer():
         tensor_parallel_size=1,
         trust_remote_code=True,
         max_model_len=2048,
+        enable_prefix_caching=True,
+        worker_extension_cls='orl_servers.vllm_worker_wrap.WorkerWrap',
     )
     
     # Load tokenizer for encoding prompts
