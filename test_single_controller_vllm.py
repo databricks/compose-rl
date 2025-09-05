@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import os
+import signal
 import subprocess
 
 import ray
@@ -18,6 +20,7 @@ from tests.common import BaseDistributedGPUActor
 from test_async_llm_server import _wait_for_server_ready
 
 WORKER_WRAP = 'orl_servers.vllm_worker_wrap.WorkerWrap'
+
 
 @ray.remote(num_gpus=1)
 class DistributedGPUActor(BaseDistributedGPUActor):
@@ -79,10 +82,15 @@ async def test_distributed_ray_actors(
 
     with start_ray_server() as address:
         if dist.get_rank() == 0:
-            vllm_server_process = subprocess.Popen(
-                f'CUDA_VISIBLE_DEVICES={dist.get_world_size()} orl-vllm-server --model {model_name} --worker-extension-cls="{WORKER_WRAP}"',
-                shell=True
-            )
+            # Set environment variable for CUDA device visibility
+            env = os.environ.copy()
+            env['CUDA_VISIBLE_DEVICES'] = str(dist.get_world_size())
+            
+            vllm_server_process = subprocess.Popen([
+                'orl-vllm-server',
+                '--model', model_name,
+                '--worker-extension-cls', WORKER_WRAP
+            ], env=env)
             vllm_addresses = [f"localhost:{8000}"]
             _wait_for_server_ready()
 
@@ -294,7 +302,12 @@ async def test_distributed_ray_actors(
                     print(f'[{i+1:2d}] {role_emoji} {msg["role"].capitalize()}: {msg["content"]}')
                 print(f"\n✅ Multi-turn conversation completed with {len(conversation_messages)} total messages!")
             finally:
-                vllm_server_process.kill()
+                # Try graceful shutdown first with SIGINT
+                print("🔄 Attempting graceful shutdown with SIGINT (like CTRL+C)...")
+                vllm_server_process.send_signal(signal.SIGINT)
+                vllm_server_process.wait(timeout=10)  # Wait up to 10 seconds for graceful shutdown
+                print("✅ vLLM server shut down gracefully with SIGINT")
+
 
 
 if __name__ == "__main__":

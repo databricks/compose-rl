@@ -9,7 +9,7 @@ import ray
 import torch
 import torch.distributed as dist
 
-from compose_rl.algorithms.online.generation_utils.vllm_utils import stateless_init_process_group
+from orl_servers.vllm_worker_wrap import stateless_init_process_group
 from compose_rl.utils.ray_utils import (
     get_free_port,
     get_node_ip,
