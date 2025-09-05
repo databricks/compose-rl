@@ -92,6 +92,11 @@ def generate_dataloader_builder(
             MessagesStreamingDataset,
         ) and 'tokenizer' not in dataset_cfg:
             dataset_cfg['tokenizer'] = tokenizer
+        if issubclass(
+            dataset_cls,
+            RLStreamingDataset,
+        ) and 'tokenizer' not in dataset_cfg:
+            dataset_cfg['tokenizer'] = tokenizer
 
         streaming_dataset = dataset_cls(
             streams=streams,  # type: ignore
