@@ -143,14 +143,12 @@ class RLStreamingDataset(StreamingDataset):
 
     def __init__(self, 
                 max_seq_len: int, 
-                max_gen_len: int,
                 tokenizer: PreTrainedTokenizer,
                 chat_template: Optional[str] = None,
                 chat_template_path: Optional[str] = None,
                 **kwargs: Any):
         super().__init__(**kwargs)
         self.max_seq_len = max_seq_len
-        self.max_gen_len = max_gen_len
         self.tokenizer = tokenizer
         
         # Handle chat template (priority: file path > direct template > default)
@@ -276,4 +274,3 @@ class RLStreamingDataset(StreamingDataset):
             return_dict['verified_answer'] = sample['verified_answer']
         
         return return_dict
-        
