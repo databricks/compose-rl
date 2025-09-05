@@ -191,6 +191,11 @@ class AsyncLLMServer:
             await async_engine.update_weight(name, dtype, shape, empty_cache)
             return {"status": "ok"}
 
+        @app.post("/reset_prefix_cache")
+        async def _reset_prefix_cache():
+            await async_engine.reset_prefix_cache()
+            return {"status": "ok"}
+
         sock_addr = (self.server_args.host or "", self.server_args.port)
         sock = create_server_socket(sock_addr)
 

@@ -200,4 +200,11 @@ class RemoteVLLMEngine:
         )
         return 
 
-
+    async def areset_prefix_cache(self):
+        await asyncio.gather(
+            *[
+                arequest_with_retry(addr, endpoint="/reset_prefix_cache", method="POST", max_retries=1, timeout=self.config.request_timeout)
+                for addr in self.addresses
+            ]
+        )
+        return

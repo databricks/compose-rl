@@ -300,6 +300,7 @@ async def test_distributed_ray_actors(
                         master_actor.sync_weight.remote(param_spec.name),
                     )
                 print('sync weights done')
+                await vllm_engine.areset_prefix_cache()
 
                 # Phase 2: Post-weight-update generation (same prompts)
                 post_results, _ = await run_conversation_phase("POST-UPDATE")
