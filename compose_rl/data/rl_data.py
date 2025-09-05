@@ -146,6 +146,8 @@ class RLStreamingDataset(StreamingDataset):
                 tokenizer: PreTrainedTokenizer,
                 chat_template: Optional[str] = None,
                 chat_template_path: Optional[str] = None,
+                tools: Optional[list[dict[str, Any]]] = None,
+                tools_path: Optional[str] = None,
                 **kwargs: Any):
         super().__init__(**kwargs)
         self.max_seq_len = max_seq_len
@@ -177,6 +179,48 @@ class RLStreamingDataset(StreamingDataset):
         else:
             # Use tokenizer's default chat template
             self.chat_template = getattr(tokenizer, 'chat_template', None)
+
+        # Handle tools (priority: file path > direct tools > None)
+        if tools_path is not None:
+            # Load tools from JSONL file (one JSON object per line)
+            import json
+            import os
+            
+            abs_tools_path = os.path.abspath(tools_path)
+            if not os.path.exists(abs_tools_path):
+                raise FileNotFoundError(f"Tools file not found: {tools_path} (resolved to: {abs_tools_path})")
+            
+            self.tools = []
+            with open(abs_tools_path, 'r', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:  # Skip empty lines
+                        continue
+                    try:
+                        tool = json.loads(line)
+                        if not isinstance(tool, dict):
+                            raise ValueError(f"Tool on line {line_num} must be a dictionary, but got {type(tool)}")
+                        self.tools.append(tool)
+                    except json.JSONDecodeError as e:
+                        raise ValueError(f"Invalid JSON on line {line_num} in {abs_tools_path}: {e}")
+            
+            log.info(f"Loaded {len(self.tools)} tools from JSONL file: {abs_tools_path}")
+            
+        elif tools is not None:
+            # Use direct tools list
+            if not isinstance(tools, list):
+                raise ValueError(f"Tools must be a list, but got {type(tools)}")
+            
+            for i, tool in enumerate(tools):
+                if not isinstance(tool, dict):
+                    raise ValueError(f"Tool {i} must be a dictionary, but got {type(tool)}")
+            
+            self.tools = tools
+            log.info(f"Using {len(self.tools)} tools provided directly")
+            
+        else:
+            # No tools provided
+            self.tools = None
 
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
