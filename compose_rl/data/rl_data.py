@@ -270,6 +270,9 @@ class RLStreamingDataset(StreamingDataset):
             messages = sample['messages']
             assert isinstance(messages, list), f"Messages must be a list, but got {type(messages)}"
             for i in range(len(messages)):
+                print("############# Debug: message in messages #############")
+                print(messages[i])
+                print("############# Debug: message in messages #############")
                 message = messages[i]
                 assert isinstance(message, dict), f"Message must be a dictionary, but got {type(message)}"
                 if message['role'] == 'assistant':
