@@ -263,7 +263,6 @@ class RLStreamingDataset(StreamingDataset):
         
         # case 3: for multi-turn data, and sample['messages] contains a list of messages in text
         elif 'messages' in sample:
-            print("############# Debug: messages in sample #############")
             messages = sample['messages']
             assert isinstance(messages, list), f"Messages must be a list, but got {type(messages)}"
                      
@@ -280,6 +279,7 @@ class RLStreamingDataset(StreamingDataset):
                     
                     try:
                         history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=self.tools, add_generation_prompt=False, return_tensors='pt')[0]
+                        history_assistan_text = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=False, tools=self.tools, add_generation_prompt=False, return_tensors='pt')[0]
                     except Exception as e:
                         print(f"Error in history_assistant template: {e}")
                         print(f"Problematic messages slice: {messages[:i+1]}")
@@ -289,11 +289,7 @@ class RLStreamingDataset(StreamingDataset):
                     input_ids = history_assistant
                     prompt_len = len(history)
                     sequence_len = len(input_ids)
-                    print(f"History: {history}")
-                    print(f"History assistant: {history_assistant}")
-                    print(f"Input ids: {input_ids}")
-                    print(f"Prompt len: {prompt_len}")
-                    print(f"Sequence len: {sequence_len}")
+                    print(f"History assistant: {history_assistan_text}")
 
                     turn_data.append({
                         'input_ids': input_ids,
