@@ -122,6 +122,9 @@ def dataset_collate_fn(
     if len(list_of_num_turns) > 0: 
         assert 'turn_data' in data[0], "turn_data must be present if num_turns is present"
         return_dict['num_turns'] = torch.cat(list_of_num_turns)
+        print("#### test: print num_turns ####")
+        print(return_dict['num_turns'])
+        print("#### test: done printing num_turns ####")
         assert return_dict['input_ids'].shape[0] == torch.sum(return_dict['num_turns']), "input_ids and num_turns must have the same length"
     
 

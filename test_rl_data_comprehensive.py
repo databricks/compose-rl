@@ -638,6 +638,7 @@ def run_all_tests():
         test_tools_from_jsonl_file()
         test_chat_template_from_string()
         test_additional_fields()
+        test_variable_length_vstar_fields()
         test_error_cases()
         
         print("\n🎉 All tests passed! RLStreamingDataset is working correctly.")
