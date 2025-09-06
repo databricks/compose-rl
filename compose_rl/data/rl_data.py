@@ -266,46 +266,8 @@ class RLStreamingDataset(StreamingDataset):
             print("############# Debug: messages in sample #############")
             messages = sample['messages']
             assert isinstance(messages, list), f"Messages must be a list, but got {type(messages)}"
-            
-            # Clean messages by doing JSON round-trip - forces all values to be native Python types
-            import json
-            cleaned_messages = []
-            for i, msg in enumerate(messages):
-                try:
-                    # Serialize and deserialize to clean all Undefined objects
-                    json_str = json.dumps(msg)
-                    cleaned_msg = json.loads(json_str)
-                    print(f"✅ Message {i} cleaned via JSON round-trip")
-                    cleaned_messages.append(cleaned_msg)
-                except (TypeError, ValueError) as e:
-                    print(f"❌ Message {i} failed JSON round-trip: {e}")
-                    print(f"   Problematic message: {msg}")
-                    # Fallback: create a minimal safe message
-                    safe_msg = {
-                        'role': msg.get('role', 'unknown'),
-                        'content': str(msg.get('content', '')) if msg.get('content') else None,
-                        'tool_calls': None,
-                        'tool_call_id': None,
-                        'name': None
-                    }
-                    print(f"   Using fallback safe message: {safe_msg}")
-                    cleaned_messages.append(safe_msg)
-            
-            messages = cleaned_messages
-            print(f"Using {len(messages)} cleaned messages")
-            
-            # Test that cleaned messages are JSON serializable
-            import json
-            try:
-                json.dumps(messages)
-                print("✅ Cleaned messages are JSON serializable")
-            except (TypeError, ValueError) as e:
-                print(f"❌ Cleaned messages still not JSON serializable: {e}")
-            
+                     
             for i in range(len(messages)):
-                print("############# Debug: cleaned message #############")
-                print(messages[i])
-                print("############# Debug: cleaned message #############")
                 message = messages[i]
                 assert isinstance(message, dict), f"Message must be a dictionary, but got {type(message)}"
                 if message['role'] == 'assistant':
