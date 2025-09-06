@@ -272,20 +272,16 @@ class RLStreamingDataset(StreamingDataset):
                 assert isinstance(message, dict), f"Message must be a dictionary, but got {type(message)}"
                 if message['role'] == 'assistant':
                     try:
-                        print(f"🔄 Applying chat template for history (messages 0 to {i-1})")
-                        history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, tools=None, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
-                        print("✅ History template applied successfully")
+                        history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, tools=self.tools, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
                     except Exception as e:
-                        print(f"❌ Error in history template: {e}")
+                        print(f"Error in history template: {e}")
                         print(f"Problematic messages slice: {messages[:i]}")
                         raise e
                     
                     try:
-                        print(f"🔄 Applying chat template for history_assistant (messages 0 to {i})")
-                        history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=None, add_generation_prompt=False, return_tensors='pt')[0]
-                        print("✅ History_assistant template applied successfully")
+                        history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=self.tools, add_generation_prompt=False, return_tensors='pt')[0]
                     except Exception as e:
-                        print(f"❌ Error in history_assistant template: {e}")
+                        print(f"Error in history_assistant template: {e}")
                         print(f"Problematic messages slice: {messages[:i+1]}")
                         raise e
 
@@ -293,6 +289,11 @@ class RLStreamingDataset(StreamingDataset):
                     input_ids = history_assistant
                     prompt_len = len(history)
                     sequence_len = len(input_ids)
+                    print(f"History: {history}")
+                    print(f"History assistant: {history_assistant}")
+                    print(f"Input ids: {input_ids}")
+                    print(f"Prompt len: {prompt_len}")
+                    print(f"Sequence len: {sequence_len}")
 
                     turn_data.append({
                         'input_ids': input_ids,
