@@ -45,25 +45,26 @@ def dataset_collate_fn(
     list_of_num_turns = []
     return_dict: dict[str, Any] = {}
 
-    # case 1: input_ids key is present
+    # case 1: input_ids key is present # for single turn and flattten messages case
     if 'input_ids' in data[0]:
         list_of_input_ids = [item['input_ids'] for item in data]
         list_of_prompt_len = [item['prompt_len'] for item in data]
     
-    # case 2: turn_data key is present
+    # case 2: turn_data key is present: for non-flatterned messages
     elif "turn_data" in data[0]:
         for data_point in data:
             list_of_input_ids.extend([turn['input_ids'] for turn in data_point['turn_data']])
             list_of_prompt_len.extend([turn['prompt_len'] for turn in data_point['turn_data']])
             list_of_num_turns.append(torch.tensor([len(data_point['turn_data'])], dtype=torch.int64))
     
+    # case 3: prompt key is presented; no response key
     elif 'prompt' in data[0]:
         list_of_prompts = [item['prompt'] for item in data]
         list_of_prompt_len = [item['prompt_len'] for item in data]
         list_of_prompt_ids = [item['prompt_id'] for item in data]
 
-    
-    if len(list_of_input_ids) > 0: # dealing with input_ids if it not empty. batch, padd, and truncate based on max_seq_len
+    # dealing with input_ids if it not empty. batch, padd, and truncate based on max_seq_len
+    if len(list_of_input_ids) > 0: 
         batch_input_ids = ref_collate_fn(list_of_input_ids)['input_ids']
         attention_masks = torch.logical_not(torch.eq(batch_input_ids, tokenizer.pad_token_id)).to(torch.int64)
         # truncate if length of the batch exceeds max_seq_len
@@ -99,11 +100,11 @@ def dataset_collate_fn(
             masks = []
             for i in range(batch_input_ids.shape[0]):
                 mask_i = data[i]['mask']
-                if len(mask_i) < len(batch_input_ids[i]): # right padded
+                if len(mask_i) < len(batch_input_ids[i]): # input_id got right padded
                     all_zeros = torch.zeros(len(batch_input_ids[i]))
                     all_zeros[0:len(mask_i)] = mask_i
                     mask_i = all_zeros
-                else: # truncated
+                else: # input_ids got truncated
                     mask_i = mask_i[0:len(batch_input_ids[i])]
                 masks.append(mask_i)
             masks = torch.stack(masks)
@@ -117,12 +118,13 @@ def dataset_collate_fn(
         return_dict['prompt_id'] = torch.cat(list_of_prompt_ids)
         return_dict['prompt_len'] = torch.cat(list_of_prompt_len)
     
-
-    if len(list_of_num_turns) > 0: # this is the case where we have turn level data
+    # this is the case where we have turn level data and messages are not flatterned
+    if len(list_of_num_turns) > 0: 
         assert 'turn_data' in data[0], "turn_data must be present if num_turns is present"
         return_dict['num_turns'] = torch.cat(list_of_num_turns)
+        assert return_dict['input_ids'].shape[0] == torch.sum(return_dict['num_turns']), "input_ids and num_turns must have the same length"
     
-    
+
     if 'reward' in data[0]:
         return_dict['reward'] = torch.cat([item['reward'] for item in data])
     if 'bonus' in data[0]:
@@ -357,10 +359,6 @@ class RLStreamingDataset(StreamingDataset):
                     'prompt_len': torch.tensor([prompt_len], dtype=torch.int64),
                     'sequence_len': torch.tensor([sequence_len], dtype=torch.int64),
                 }
-
-                print("#### test: print assistant tokens ####")
-                print(self.tokenizer.decode(input_ids[mask.bool()]))
-                print("#### test: done printing assistant tokens ####")
 
         else:
             raise ValueError(f"Sample must contain 'prompt', 'prompt'+'response', 'input'+'mask', or 'messages', but got keys: {list(sample.keys())}")
