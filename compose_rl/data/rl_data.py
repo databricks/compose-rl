@@ -311,7 +311,7 @@ class RLStreamingDataset(StreamingDataset):
                 if message['role'] == 'assistant':
                     try:
                         print(f"🔄 Applying chat template for history (messages 0 to {i-1})")
-                        history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, tools=self.tools, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
+                        history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, tools=None, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
                         print("✅ History template applied successfully")
                     except Exception as e:
                         print(f"❌ Error in history template: {e}")
@@ -320,7 +320,7 @@ class RLStreamingDataset(StreamingDataset):
                     
                     try:
                         print(f"🔄 Applying chat template for history_assistant (messages 0 to {i})")
-                        history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=self.tools, add_generation_prompt=False, return_tensors='pt')[0]
+                        history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=None, add_generation_prompt=False, return_tensors='pt')[0]
                         print("✅ History_assistant template applied successfully")
                     except Exception as e:
                         print(f"❌ Error in history_assistant template: {e}")
