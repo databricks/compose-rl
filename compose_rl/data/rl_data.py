@@ -181,6 +181,7 @@ class RLStreamingDataset(StreamingDataset):
             self.chat_template = getattr(tokenizer, 'chat_template', None)
 
         # Handle tools (priority: file path > direct tools > None)
+        self.tools = []
         if tools_path is not None:
             # Load tools from JSONL file (one JSON object per line)
             import json
@@ -190,7 +191,6 @@ class RLStreamingDataset(StreamingDataset):
             if not os.path.exists(abs_tools_path):
                 raise FileNotFoundError(f"Tools file not found: {tools_path} (resolved to: {abs_tools_path})")
             
-            self.tools = []
             with open(abs_tools_path, 'r', encoding='utf-8') as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
@@ -218,9 +218,9 @@ class RLStreamingDataset(StreamingDataset):
             self.tools = tools
             log.info(f"Using {len(self.tools)} tools provided directly")
             
-        else:
-            # No tools provided
-            self.tools = None
+        print("############# Debug: tools #############")
+        print(self.tools)
+        print("############# Debug: tools #############")
 
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
@@ -265,14 +265,15 @@ class RLStreamingDataset(StreamingDataset):
         
         # case 3: for multi-turn data, and sample['messages] contains a list of messages in text
         elif 'messages' in sample:
+            print("############# Debug: messages in sample #############")
             messages = sample['messages']
             assert isinstance(messages, list), f"Messages must be a list, but got {type(messages)}"
             for i in range(len(messages)):
                 message = messages[i]
                 assert isinstance(message, dict), f"Message must be a dictionary, but got {type(message)}"
                 if message['role'] == 'assistant':
-                    history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
-                    history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, add_generation_prompt=False, return_tensors='pt')[0]
+                    history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, tools = self.tools, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
+                    history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools = self.tools, add_generation_prompt=False, return_tensors='pt')[0]
 
                     assert torch.allclose(history_assistant[:len(history)], history, atol=1e-5), f"History assistant must be the same as history"  # pyright: ignore[reportIndexIssue]
                     input_ids = history_assistant
