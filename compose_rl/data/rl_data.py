@@ -148,11 +148,13 @@ class RLStreamingDataset(StreamingDataset):
                 chat_template_path: Optional[str] = None,
                 tools: Optional[list[dict[str, Any]]] = None,
                 tools_path: Optional[str] = None,
+                flatten_messages: bool = False,
                 **kwargs: Any):
         super().__init__(**kwargs)
         self.max_seq_len = max_seq_len
         self.tokenizer = tokenizer
-        
+        self.flatten_messages = flatten_messages 
+
         # Handle chat template (priority: file path > direct template > default)
         if chat_template_path is not None:
             # Load template from file
@@ -180,6 +182,8 @@ class RLStreamingDataset(StreamingDataset):
             # Use tokenizer's default chat template
             self.chat_template = getattr(tokenizer, 'chat_template', None)
 
+        print(f"Using chat template: {self.chat_template}")
+
         # Handle tools (priority: file path > direct tools > None)
         self.tools = []
         if tools_path is not None:
@@ -201,9 +205,6 @@ class RLStreamingDataset(StreamingDataset):
                         if not isinstance(tool, dict):
                             raise ValueError(f"Tool on line {line_num} must be a dictionary, but got {type(tool)}")
                         self.tools.append(tool)
-                        print("############# Debug: tools #############")
-                        print(self.tools)
-                        print("############# Debug: tools #############")
                     except json.JSONDecodeError as e:
                         raise ValueError(f"Invalid JSON on line {line_num} in {abs_tools_path}: {e}")
             
@@ -220,6 +221,57 @@ class RLStreamingDataset(StreamingDataset):
             
             self.tools = tools
             log.info(f"Using {len(self.tools)} tools provided directly")
+        
+        print(f"Using {len(self.tools)} tools, and tools are {self.tools}")
+
+    def _convert_messages_to_turn_wise_data(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        #convert mesage to turn wise data 
+        turn_data: list[dict[str, Any]] = []
+        assert isinstance(messages, list), f"Messages must be a list, but got {type(messages)}"
+                     
+        for i in range(len(messages)):
+            message = messages[i]
+            assert isinstance(message, dict), f"Message must be a dictionary, but got {type(message)}"
+            if message['role'] == 'assistant':
+                history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, tools=self.tools, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
+                history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=self.tools, add_generation_prompt=False, return_tensors='pt')[0]
+                assert torch.allclose(history_assistant[:len(history)], history, atol=1e-5), f"History assistant must be the same as history"  # pyright: ignore[reportIndexIssue]
+                
+                input_ids = history_assistant
+                prompt_len = len(history)
+                sequence_len = len(input_ids)
+                    
+                turn_data.append({
+                    'input_ids': input_ids,
+                    'prompt_len': torch.tensor([prompt_len], dtype=torch.int64),
+                    'sequence_len': torch.tensor([sequence_len], dtype=torch.int64),
+                })
+
+        return turn_data # list of dict
+    
+    def _convert_messages_to_traj_wise_data(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        assert isinstance(messages, list), f"Messages must be a list, but got {type(messages)}"
+        mask = []
+        for i in range(len(messages)):
+            message = messages[i]
+            assert isinstance(message, dict), f"Message must be a dictionary, but got {type(message)}"
+            if message['role'] == "assistant":
+                history = self.tokenizer.apply_chat_template(messages[0:i], return_tensors='pt', add_generation_prompt=True, tokenize=True, tools=self.tools)[0]
+                history_assistant = self.tokenizer.apply_chat_template(messages[0:i+1], return_tensors='pt', add_generation_prompt=False, tokenize=True, tools=self.tools)[0]
+                generation_len = len(history_assistant) - len(history)
+                current_mask = [0]*len(history) + [1]*generation_len
+                current_mask[0:len(mask)] = mask
+                mask = current_mask
+        
+        input_ids = self.tokenizer.apply_chat_template(messages, return_tensors='pt', add_generation_prompt=False, tokenize=True, tools=self.tools)[0]
+        assert len(input_ids) == len(mask), f"Input ids and mask must have the same length"
+        return_dict = {
+            'input_ids': input_ids,
+            'mask': torch.tensor(mask, dtype=torch.int64),
+        }
+
+        return return_dict # dict
+
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         sample = super().__getitem__(idx)
@@ -232,7 +284,7 @@ class RLStreamingDataset(StreamingDataset):
         input_ids = None
         sequence_len = None
         mask = None
-        turn_data: list[dict[str, Any]] = []
+        turn_data = None # list[dict[str, Any]] = []
 
         # case 0: just contains prompt. This is for online RL setting
         if 'prompt' in sample and 'response' not in sample:
@@ -240,6 +292,13 @@ class RLStreamingDataset(StreamingDataset):
             prompt = torch.from_numpy(sample['prompt'])
             prompt_id = idx
             prompt_len = len(prompt)
+
+            # return dict for case 0:
+            return_dict = {
+                'prompt': prompt,
+                'prompt_id': prompt_id,
+                'prompt_len': torch.tensor([prompt_len], dtype=torch.int64),
+            }
 
         # case 1: prompt + response, we assume both are tokenized ndarray; this is for standard single turn offline rl
         elif 'prompt' in sample and 'response' in sample: 
@@ -249,6 +308,13 @@ class RLStreamingDataset(StreamingDataset):
             input_ids = torch.from_numpy(input_ids[:self.max_seq_len]) 
             prompt_len = len(torch.from_numpy(sample['prompt']))
             sequence_len = len(input_ids)
+
+            # return dict for case 1:
+            return_dict = {
+                'input_ids': input_ids,
+                'prompt_len': torch.tensor([prompt_len], dtype=torch.int64),
+                'sequence_len': torch.tensor([sequence_len], dtype=torch.int64),
+            }
 
         # case 2: input + mask, this is can be for single turn or multi-turn offline RL. mask is used to mask out non-assistant turns
         elif 'input' in sample and 'mask' in sample:
@@ -260,61 +326,46 @@ class RLStreamingDataset(StreamingDataset):
 
             prompt_len = 0
             sequence_len = len(input_ids)
+
+            # return dict for case 2:
+            return_dict = {
+                'input_ids': input_ids,
+                'mask': mask,
+                'prompt_len': torch.tensor([prompt_len], dtype=torch.int64),
+                'sequence_len': torch.tensor([sequence_len], dtype=torch.int64),
+            }
         
         # case 3: for multi-turn data, and sample['messages] contains a list of messages in text
         elif 'messages' in sample:
             messages = sample['messages']
-            assert isinstance(messages, list), f"Messages must be a list, but got {type(messages)}"
-                     
-            for i in range(len(messages)):
-                message = messages[i]
-                assert isinstance(message, dict), f"Message must be a dictionary, but got {type(message)}"
-                if message['role'] == 'assistant':
-                    try:
-                        history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, tools=self.tools, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
-                    except Exception as e:
-                        print(f"Error in history template: {e}")
-                        print(f"Problematic messages slice: {messages[:i]}")
-                        raise e
-                    
-                    try:
-                        history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=self.tools, add_generation_prompt=False, return_tensors='pt')[0]
-                        history_assistan_text = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=False, tools=self.tools, add_generation_prompt=False, return_tensors='pt')
-                    except Exception as e:
-                        print(f"Error in history_assistant template: {e}")
-                        print(f"Problematic messages slice: {messages[:i+1]}")
-                        raise e
+            if self.flatten_messages is False:
+                turn_data = self._convert_messages_to_turn_wise_data(messages) # list of dict, one dict per assistant turn
+                # return dict for case 3.a:
+                return_dict = {
+                    'turn_data': turn_data,
+                }
+            else:
+                traj_data = self._convert_messages_to_traj_wise_data(messages) # dict, flatten the message into a single trajectory
+                input_ids = traj_data['input_ids']
+                mask = traj_data['mask']
+                prompt_len = 0
+                sequence_len = len(input_ids)
+                # return dict for case 3.b:
+                return_dict = {
+                    'input_ids': input_ids,
+                    'mask': mask,  # Already converted to tensor in _convert_messages_to_traj_wise_data
+                    'prompt_len': torch.tensor([prompt_len], dtype=torch.int64),
+                    'sequence_len': torch.tensor([sequence_len], dtype=torch.int64),
+                }
 
-                    assert torch.allclose(history_assistant[:len(history)], history, atol=1e-5), f"History assistant must be the same as history"  # pyright: ignore[reportIndexIssue]
-                    input_ids = history_assistant
-                    prompt_len = len(history)
-                    sequence_len = len(input_ids)
-                    
+                print("#### test: print assistant tokens ####")
+                print(self.tokenizer.decode(input_ids[mask.bool()]))
+                print("#### test: done printing assistant tokens ####")
 
-                    turn_data.append({
-                        'input_ids': input_ids,
-                        'prompt_len': prompt_len,
-                        'sequence_len': sequence_len,
-                    })
-        
         else:
             raise ValueError(f"Sample must contain 'prompt', 'prompt'+'response', 'input'+'mask', or 'messages', but got keys: {list(sample.keys())}")
 
-        if len(turn_data) > 0:
-            return_dict['turn_data'] = turn_data
-        if prompt_id is not None:
-            return_dict['prompt_id'] = prompt_id
-        if prompt is not None:
-            return_dict['prompt'] = prompt
-        if prompt_len is not None:
-            return_dict['prompt_len'] = torch.tensor([prompt_len], dtype=torch.int64)
-        if input_ids is not None:
-            return_dict['input_ids'] = input_ids
-        if sequence_len is not None:
-            return_dict['sequence_len'] = torch.tensor([sequence_len], dtype=torch.int64)
-        if mask is not None:
-            return_dict['mask'] = mask
-        
+        # now add additional keys
         if 'reward' in sample:
             return_dict['reward'] = torch.tensor([sample['reward']])
         if 'bonus' in sample:

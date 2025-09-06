@@ -116,6 +116,7 @@ parameters:
       #dbfs:/Volumes/datasets/jchang/data/offline_apo/apo_openr1/DeepSeek-R1-Distill-Qwen-7B/v1_0.5/
       shuffle: true
       max_seq_len: ${max_seq_len}
+      flatten_messages: true  # Enable trajectory-wise flattened processing for messages
       tools_path: ../../../compose-rl/example_tools.jsonl
       shuffle_seed: 7338
       download_retry: 4
