@@ -269,15 +269,58 @@ class RLStreamingDataset(StreamingDataset):
             print("############# Debug: messages in sample #############")
             messages = sample['messages']
             assert isinstance(messages, list), f"Messages must be a list, but got {type(messages)}"
+            
+            # Clean messages to convert any Undefined objects to proper values
+            cleaned_messages = []
+            for msg in messages:
+                cleaned_msg = {}
+                for key, value in msg.items():
+                    # Convert Undefined objects to None or proper values
+                    if hasattr(value, '__class__') and 'Undefined' in str(value.__class__):
+                        print(f"Found Undefined value in message[{key}]: {value}")
+                        cleaned_msg[key] = None  # Convert Undefined to None
+                    elif str(value) == 'None' and not isinstance(value, type(None)):
+                        # Handle cases where Undefined prints as 'None' but isn't actually None
+                        cleaned_msg[key] = None
+                    else:
+                        cleaned_msg[key] = value
+                cleaned_messages.append(cleaned_msg)
+            
+            messages = cleaned_messages
+            print(f"Using {len(messages)} cleaned messages")
+            
+            # Test that cleaned messages are JSON serializable
+            import json
+            try:
+                json.dumps(messages)
+                print("✅ Cleaned messages are JSON serializable")
+            except (TypeError, ValueError) as e:
+                print(f"❌ Cleaned messages still not JSON serializable: {e}")
+            
             for i in range(len(messages)):
-                print("############# Debug: message in messages #############")
+                print("############# Debug: cleaned message #############")
                 print(messages[i])
-                print("############# Debug: message in messages #############")
+                print("############# Debug: cleaned message #############")
                 message = messages[i]
                 assert isinstance(message, dict), f"Message must be a dictionary, but got {type(message)}"
                 if message['role'] == 'assistant':
-                    history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
-                    history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, add_generation_prompt=False, return_tensors='pt')[0]
+                    try:
+                        print(f"🔄 Applying chat template for history (messages 0 to {i-1})")
+                        history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
+                        print("✅ History template applied successfully")
+                    except Exception as e:
+                        print(f"❌ Error in history template: {e}")
+                        print(f"Problematic messages slice: {messages[:i]}")
+                        raise e
+                    
+                    try:
+                        print(f"🔄 Applying chat template for history_assistant (messages 0 to {i})")
+                        history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, add_generation_prompt=False, return_tensors='pt')[0]
+                        print("✅ History_assistant template applied successfully")
+                    except Exception as e:
+                        print(f"❌ Error in history_assistant template: {e}")
+                        print(f"Problematic messages slice: {messages[:i+1]}")
+                        raise e
 
                     assert torch.allclose(history_assistant[:len(history)], history, atol=1e-5), f"History assistant must be the same as history"  # pyright: ignore[reportIndexIssue]
                     input_ids = history_assistant
