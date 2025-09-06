@@ -267,28 +267,29 @@ class RLStreamingDataset(StreamingDataset):
             messages = sample['messages']
             assert isinstance(messages, list), f"Messages must be a list, but got {type(messages)}"
             
-            # Clean messages to convert any Undefined objects to proper values
+            # Clean messages by doing JSON round-trip - forces all values to be native Python types
             import json
             cleaned_messages = []
-            for msg in messages:
-                cleaned_msg = {}
-                for key, value in msg.items():
-                    # Convert Undefined objects to None or proper values
-                    if hasattr(value, '__class__') and 'Undefined' in str(value.__class__):
-                        print(f"Found Undefined value in message[{key}]: {value}")
-                        cleaned_msg[key] = None  # Convert Undefined to None
-                    elif str(value) == 'None' and not isinstance(value, type(None)):
-                        # Handle cases where Undefined prints as 'None' but isn't actually None
-                        cleaned_msg[key] = None
-                    elif key == 'tool_calls' and isinstance(value, str) and value and value != 'None':
-                        # Keep tool_calls as string to avoid parsing issues
-                        # When we add tools back later, we can parse this properly
-                        print(f"🔧 Keeping tool_calls as string: {value[:100]}...")
-                        cleaned_msg[key] = str(value)  # Ensure it's a plain string
-                        print(f"✅ Preserved tool_calls as string (length: {len(value)})")
-                    else:
-                        cleaned_msg[key] = value
-                cleaned_messages.append(cleaned_msg)
+            for i, msg in enumerate(messages):
+                try:
+                    # Serialize and deserialize to clean all Undefined objects
+                    json_str = json.dumps(msg)
+                    cleaned_msg = json.loads(json_str)
+                    print(f"✅ Message {i} cleaned via JSON round-trip")
+                    cleaned_messages.append(cleaned_msg)
+                except (TypeError, ValueError) as e:
+                    print(f"❌ Message {i} failed JSON round-trip: {e}")
+                    print(f"   Problematic message: {msg}")
+                    # Fallback: create a minimal safe message
+                    safe_msg = {
+                        'role': msg.get('role', 'unknown'),
+                        'content': str(msg.get('content', '')) if msg.get('content') else None,
+                        'tool_calls': None,
+                        'tool_call_id': None,
+                        'name': None
+                    }
+                    print(f"   Using fallback safe message: {safe_msg}")
+                    cleaned_messages.append(safe_msg)
             
             messages = cleaned_messages
             print(f"Using {len(messages)} cleaned messages")
