@@ -116,7 +116,7 @@ parameters:
       #dbfs:/Volumes/datasets/jchang/data/offline_apo/apo_openr1/DeepSeek-R1-Distill-Qwen-7B/v1_0.5/
       shuffle: true
       max_seq_len: ${max_seq_len}
-      tools_path: ../example_tools.jsonl
+      tools_path: ../../../compose-rl/example_tools.jsonl
       shuffle_seed: 7338
       download_retry: 4
       download_timeout: 600
@@ -153,6 +153,7 @@ integrations:
   git_branch: main
   pip_install: . --no-deps
 - integration_type: git_repo
+  path: compose-rl
   git_repo: databricks/Compose-RL
   git_branch: wensun/offline_apo
   pip_install: .[gpu] --no-deps
@@ -164,5 +165,5 @@ command: |-
   #mkdir -p /tmp/local_qwen
   #s5cmd --numworkers 32  cp s3://data-force-one-datasets/mosaicml-internal-checkpoints/wensun/models/offline_apo_tool_call-1-1.0-0.01-1e-06-4-256-4b_f_t/huggingface/ba689/* /tmp/local_qwen
 
-  cd llm-foundry/scripts/train/
+  cd custom-llm-foundry/scripts/train/
   composer train.py /mnt/config/parameters.yaml
