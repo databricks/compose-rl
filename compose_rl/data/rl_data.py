@@ -211,16 +211,32 @@ class RLStreamingDataset(StreamingDataset):
             if not isinstance(tools, list):
                 raise ValueError(f"Tools must be a list, but got {type(tools)}")
             
+            # Clean and validate tools to remove any Undefined objects
+            self.tools = []
             for i, tool in enumerate(tools):
                 if not isinstance(tool, dict):
                     raise ValueError(f"Tool {i} must be a dictionary, but got {type(tool)}")
+                
+                try:
+                    cleaned_tool = self._clean_tool_structure(tool)
+                    self.tools.append(cleaned_tool)
+                except Exception as e:
+                    log.error(f"Failed to clean tool {i}: {e}")
+                    print(f"############# Debug: Problematic tool {i} #############")
+                    print(f"Tool type: {type(tool)}")
+                    print(f"Tool content: {tool}")
+                    print("############# End Debug #############")
+                    raise ValueError(f"Tool {i} contains invalid data: {e}")
             
-            self.tools = tools
-            log.info(f"Using {len(self.tools)} tools provided directly")
+            print("############# Debug: Cleaned tools #############")
+            print(f"Tools type: {type(self.tools)}")
+            print(f"Number of tools: {len(self.tools)}")
+            if self.tools:
+                print(f"First tool: {self.tools[0]}")
+            print("############# End Debug #############")
+            log.info(f"Using {len(self.tools)} cleaned tools provided directly")
             
-        print("############# Debug: tools #############")
-        print(self.tools)
-        print("############# Debug: tools #############")
+        
 
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
