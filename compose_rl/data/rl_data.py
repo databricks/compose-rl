@@ -279,7 +279,7 @@ class RLStreamingDataset(StreamingDataset):
                     
                     try:
                         history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=self.tools, add_generation_prompt=False, return_tensors='pt')[0]
-                        history_assistan_text = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=False, tools=self.tools, add_generation_prompt=False, return_tensors='pt')[0]
+                        history_assistan_text = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=False, tools=self.tools, add_generation_prompt=False, return_tensors='pt')
                     except Exception as e:
                         print(f"Error in history_assistant template: {e}")
                         print(f"Problematic messages slice: {messages[:i+1]}")
