@@ -220,9 +220,6 @@ class RLStreamingDataset(StreamingDataset):
             
             self.tools = tools
             log.info(f"Using {len(self.tools)} tools provided directly")
-            
-        
-
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         sample = super().__getitem__(idx)
@@ -284,15 +281,11 @@ class RLStreamingDataset(StreamingDataset):
                         # Handle cases where Undefined prints as 'None' but isn't actually None
                         cleaned_msg[key] = None
                     elif key == 'tool_calls' and isinstance(value, str) and value and value != 'None':
-                        # Parse tool_calls JSON string into proper Python objects
-                        try:
-                            print(f"🔧 Parsing tool_calls JSON: {value}")
-                            parsed_tool_calls = json.loads(value)
-                            cleaned_msg[key] = parsed_tool_calls
-                            print(f"✅ Successfully parsed tool_calls: {parsed_tool_calls}")
-                        except json.JSONDecodeError as e:
-                            print(f"❌ Failed to parse tool_calls JSON: {e}")
-                            cleaned_msg[key] = None  # Fallback to None if parsing fails
+                        # Keep tool_calls as string to avoid parsing issues
+                        # When we add tools back later, we can parse this properly
+                        print(f"🔧 Keeping tool_calls as string: {value[:100]}...")
+                        cleaned_msg[key] = str(value)  # Ensure it's a plain string
+                        print(f"✅ Preserved tool_calls as string (length: {len(value)})")
                     else:
                         cleaned_msg[key] = value
                 cleaned_messages.append(cleaned_msg)
@@ -317,7 +310,7 @@ class RLStreamingDataset(StreamingDataset):
                 if message['role'] == 'assistant':
                     try:
                         print(f"🔄 Applying chat template for history (messages 0 to {i-1})")
-                        history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, tools=None, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
+                        history = self.tokenizer.apply_chat_template(messages[:i], tokenize=True, tools=self.tools, add_generation_prompt=True, return_tensors='pt')[0] # this makes sure that it ends with special generation token
                         print("✅ History template applied successfully")
                     except Exception as e:
                         print(f"❌ Error in history template: {e}")
@@ -326,7 +319,7 @@ class RLStreamingDataset(StreamingDataset):
                     
                     try:
                         print(f"🔄 Applying chat template for history_assistant (messages 0 to {i})")
-                        history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=None, add_generation_prompt=False, return_tensors='pt')[0]
+                        history_assistant = self.tokenizer.apply_chat_template(messages[:i+1], tokenize=True, tools=self.tools, add_generation_prompt=False, return_tensors='pt')[0]
                         print("✅ History_assistant template applied successfully")
                     except Exception as e:
                         print(f"❌ Error in history_assistant template: {e}")
