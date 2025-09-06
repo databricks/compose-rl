@@ -289,7 +289,7 @@ class RLStreamingDataset(StreamingDataset):
                     input_ids = history_assistant
                     prompt_len = len(history)
                     sequence_len = len(input_ids)
-                    print(f"History assistant: {history_assistan_text}")
+                    
 
                     turn_data.append({
                         'input_ids': input_ids,
