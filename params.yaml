@@ -4,7 +4,7 @@ model:
   beta1: 1
   beta2: 0.01
   eta: 0
-  loss_type: apo
+  loss_type: value_learning
   pretrained: true
   init_device: mixed
   use_auth_token: true
