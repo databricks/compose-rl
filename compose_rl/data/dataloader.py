@@ -16,6 +16,11 @@ from compose_rl.data.messages_data import (
     MessagesStreamingDataset,
     messages_dataset_collate_fn,
 )
+from compose_rl.data.offline_data import (
+    OfflineStreamingDataset,
+    offline_dataset_collate_fn,
+    offline_dataset_collate_fn_test,
+)
 from compose_rl.data.preference_data import (
     FinegrainedPreferenceStreamingDataset,
     PairwisePreferenceStreamingDataset,
@@ -32,6 +37,7 @@ __all__ = [
     'build_pairwise_preference_dataloader',
     'build_prompt_dataloader',
     'build_messages_dataloader',
+    'build_offline_dataloader',
 ]
 
 log = logging.getLogger(__name__)
@@ -161,4 +167,9 @@ build_messages_dataloader = generate_dataloader_builder(
     MessagesStreamingDataset,
     messages_dataset_collate_fn,
     get_num_tokens_in_batch_online,
+)
+
+build_offline_dataloader = generate_dataloader_builder(
+    OfflineStreamingDataset,
+    offline_dataset_collate_fn_test,
 )

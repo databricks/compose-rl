@@ -50,6 +50,9 @@ def prompt_dataset_collate_fn(
         if key in ['prompt_id', 'vstar']:
             collated_batch[key] = torch.tensor(cur_values)
             continue
+        if key == 'vstar':
+            collated_batch[key] = torch.tensor(cur_values)
+            continue
         if key in ['verified_answer']:
             collated_batch[key] = list(  # pyright: ignore[reportGeneralTypeIssues]
                 utils.flatten(cur_values),

@@ -33,12 +33,17 @@ class ReferencePolicyCallback(CallbackWithConfig):
         self.reference_model = None
 
     def after_load(self, state: State, logger: Logger) -> None:
-        model_config = self.train_config['model']
+        #model_config = self.train_config['model']
+        model_config = self.train_config['variables']['reference_model']
         init_context = process_init_device(
             model_config,
             self.train_config.get('fsdp_config'),
         )
         name = model_config.pop('name')
+        print("################################################")
+        print("reference model config:")
+        print(model_config)
+        print("################################################")
         self.reference_model = build_composer_model(
             name=name,
             cfg=model_config,
@@ -74,6 +79,25 @@ class ReferencePolicyCallback(CallbackWithConfig):
             load_path=original_load_path,
             callbacks=load_checkpoint_callbacks,
         )
+
+    def before_forward(self, state: State, logger: Logger) -> Optional[int]:
+        # Before every batch we need to do a forwards pass over the reference model
+        with get_precision_context(state.precision):
+            with torch.no_grad():
+                assert self.reference_model is not None
+                reference_outputs = self.reference_model(state.batch)
+                state.batch.update({
+                    'ref_logp': reference_outputs['policy_logp'],
+                })
+
+
+class PairwiseReferencePolicyCallback(ReferencePolicyCallback):
+    """Callback to run reference policy in pairwise offline RL.
+
+    Args:
+        train_config (dict): Training config passed to callback via foundry train.py as
+            callback is registered under callbacks_with_config registry.
+    """
 
     def before_forward(self, state: State, logger: Logger) -> Optional[int]:
         # Before every batch we need to do a forwards pass over the reference model
