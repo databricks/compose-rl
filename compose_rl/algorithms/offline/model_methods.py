@@ -128,7 +128,7 @@ def offline_forward(
 
     outputs: dict[str, torch.Tensor] = {
         'policy_logp': logps,
-        'policy_logits': output_logits[:,:-1],
+        'policy_logits': output_logits,
         'sequence_entropies': sequence_entropies,
     }
 
@@ -209,17 +209,9 @@ def offline_loss(
         assert batch['reward'] is not None, "reward must be in the batch. called from offline_loss fn"
 
         losses = (policy_logits[:, :, 0] - batch['reward']) ** 2
-        
-        # print all the shapes
-        print(f"losses shape: {losses.shape}")
-        print(f"policy_logits[:, :, 0] shape: {policy_logits[:, :, 0].shape}")
-        print(f"batch['mask'][:,1:] shape: {batch['mask'][:,1:].shape}")
-        print(f"batch['attention_mask'][:,1:] shape: {batch['attention_mask'][:,1:].shape}")
-
-        
-        losses *= batch['mask'][:,1:] 
-        losses *= batch['attention_mask'][:,1:]
-
+        losses *= batch['mask']
+        losses *= batch['attention_mask']
+        # note in this case, you don't need to mask based on the next one, just the true tokens should get a value.
 
 
 
