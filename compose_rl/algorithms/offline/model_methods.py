@@ -219,6 +219,10 @@ def offline_loss(
         else: # (distributional_value_learning == True):
             first_n_logits = policy_logits[:, :, :top_n_logits]
             
+            print("first_n_logits.shape", first_n_logits.shape)
+            print("batch['reward'].shape", batch['reward'].shape)
+            print("torch.linspace(0, 1, top_n_logits).to(batch['reward'].device).shape", torch.linspace(0, 1, top_n_logits).to(batch['reward'].device).shape)
+
             bucketized_reward = torch.bucketize(batch['reward'], torch.linspace(0, 1, top_n_logits).to(batch['reward'].device)).to(batch['reward'].device)
             losses = F.cross_entropy(first_n_logits, bucketized_reward, reduction='none')
             
