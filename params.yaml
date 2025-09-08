@@ -78,7 +78,7 @@ fsdp_config:
   activation_checkpointing: true
   activation_checkpointing_reentrant: false
 
-max_seq_len: 35000 #65536 #35000 #16384 #65K does not work due to oom.
+max_seq_len: 5000 #65536 #35000 #16384 #65K does not work due to oom.
 dist_timeout: 3600
 max_duration: 4ep
 autoresume: true
