@@ -216,33 +216,20 @@ def offline_loss(
             losses *= batch['mask']
             losses *= batch['attention_mask']
         
+        # option 2: distributional value learning. given n logits, we predict and the do softmax to get a distribution.
         else: # (distributional_value_learning == True):
             first_n_logits = policy_logits[:, :, :top_n_logits]
+            bucketized_reward = torch.bucketize(batch['reward'], torch.linspace(0, 1, top_n_logits))
+
+            input = first_n_logits.reshape(-1, first_n_logits.size(-1))
+            target = bucketized_reward.repeat_interleave(first_n_logits.size(1))
             
-            print("first_n_logits.shape", first_n_logits.shape)
-            print("batch['reward'].shape", batch['reward'].shape)
-            print("torch.linspace(0, 1, top_n_logits).to(batch['reward'].device).shape", torch.linspace(0, 1, top_n_logits).to(batch['reward'].device).shape)
+            losses = F.cross_entropy(input, target, reduction='none')
 
-            bucketized_reward = torch.bucketize(batch['reward'], torch.linspace(0, 1, top_n_logits).to(batch['reward'].device)).to(batch['reward'].device)
-            losses = F.cross_entropy(first_n_logits, bucketized_reward, reduction='none')
-            
-            losses *= batch['mask']
-            losses *= batch['attention_mask']
+            # reshape masks
+            losses *= batch['mask'].view(-1, first_n_logits.size(1))
+            losses *= batch['attention_mask'].view(-1, first_n_logits.size(1))
 
-            print("losses.mean()", losses.mean())
-            # try 1 just for safety
-
-            bucketized_reward = torch.bucketize(torch.tensor([1.0]), torch.linspace(0, 1, top_n_logits))
-            losses = F.cross_entropy(first_n_logits, bucketized_reward, reduction='none')
-            
-            print("losses.mean() with 1", losses.mean())
-
-            exit()
-
-            # cross entropy loss between first_n_logits and bucketized reward
-
-        # option 2: distributional value learning. given n logits, we predict and the do softmax to get a distribution.
-        
 
 
 
