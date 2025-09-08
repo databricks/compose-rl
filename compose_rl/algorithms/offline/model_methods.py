@@ -226,9 +226,9 @@ def offline_loss(
             
             losses = F.cross_entropy(input, target, reduction='none')
 
-            # reshape masks
-            losses *= batch['mask'].view(-1, first_n_logits.size(1))
-            losses *= batch['attention_mask'].view(-1, first_n_logits.size(1))
+            # reshape masks to match flattened losses
+            losses *= batch['mask'].view(-1)
+            losses *= batch['attention_mask'].view(-1)
 
 
 
