@@ -219,7 +219,7 @@ def offline_loss(
         # option 2: distributional value learning. given n logits, we predict and the do softmax to get a distribution.
         else: # (distributional_value_learning == True):
             first_n_logits = policy_logits[:, :, :top_n_logits]
-            bucketized_reward = torch.bucketize(batch['reward'], torch.linspace(0, 1, top_n_logits))
+            bucketized_reward = torch.bucketize(batch['reward'], torch.linspace(0, 1, top_n_logits).to(batch['reward'].device)).to(batch['reward'].device)
 
             input = first_n_logits.reshape(-1, first_n_logits.size(-1))
             target = bucketized_reward.repeat_interleave(first_n_logits.size(1))
@@ -229,7 +229,6 @@ def offline_loss(
             # reshape masks
             losses *= batch['mask'].view(-1, first_n_logits.size(1))
             losses *= batch['attention_mask'].view(-1, first_n_logits.size(1))
-
 
 
 
