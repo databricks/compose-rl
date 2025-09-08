@@ -152,6 +152,8 @@ def offline_loss(
     eta: float,
     multistep: bool = False,
     bce: bool = False, 
+    distributional_value_learning: bool = True,
+    top_n_logits: int = 10,
 ):
     # eta: r + eta * bonus (bonus can be used to model things like tool use)
     
@@ -208,11 +210,41 @@ def offline_loss(
         
         assert batch['reward'] is not None, "reward must be in the batch. called from offline_loss fn"
 
-        losses = (policy_logits[:, :, 0] - batch['reward']) ** 2
-        losses *= batch['mask']
-        losses *= batch['attention_mask']
-        # note in this case, you don't need to mask based on the next one, just the true tokens should get a value.
+        # option 1: single value learning. regress directly to the value.
+        if distributional_value_learning == False:    
+            losses = (policy_logits[:, :, 0] - batch['reward']) ** 2
+            losses *= batch['mask']
+            losses *= batch['attention_mask']
+        
+        else: # (distributional_value_learning == True):
+            first_n_logits = policy_logits[:, :, :top_n_logits]
+            
+            bucketized_reward = torch.bucketize(batch['reward'], torch.linspace(0, 1, top_n_logits))
+            losses = F.cross_entropy(first_n_logits, bucketized_reward, reduction='none')
+            
+            losses *= batch['mask']
+            losses *= batch['attention_mask']
 
+            print("losses.mean()", losses.mean())
+            # try 1 just for safety
+
+            bucketized_reward = torch.bucketize(torch.tensor([1.0]), torch.linspace(0, 1, top_n_logits))
+            losses = F.cross_entropy(first_n_logits, bucketized_reward, reduction='none')
+            
+            print("losses.mean() with 1", losses.mean())
+
+            exit()
+
+            # cross entropy loss between first_n_logits and bucketized reward
+
+        # option 2: distributional value learning. given n logits, we predict and the do softmax to get a distribution.
+        
+
+
+
+
+
+        # note in this case, you don't need to mask based on the next one, just the true tokens should get a value.
 
 
     elif loss_type == RegressionOfflineEnum.QRPO:
