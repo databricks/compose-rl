@@ -33,6 +33,7 @@ from compose_rl.utils import (
 class RegressionOfflineEnum(Enum):
     APO = 'apo'
     QRPO = 'qrpo'
+    VALUE_LEARNING = 'value_learning'
 
 
 class PairwiseOfflineEnum(Enum):
@@ -115,6 +116,7 @@ def offline_forward(
         # apply attention_mask and mask explicitly
         token_policy_logps *= batch['attention_mask'][:,1:]
         token_policy_logps *= batch['mask'][:,1:]
+
         logps = torch.sum(token_policy_logps, dim = -1)  # (bs, )
         # Calculate sequence entropies
         # TODO: confirm with JC and Adyasha if this is correct
@@ -126,6 +128,7 @@ def offline_forward(
 
     outputs: dict[str, torch.Tensor] = {
         'policy_logp': logps,
+        'policy_logits': output_logits,
         'sequence_entropies': sequence_entropies,
     }
 
@@ -153,6 +156,7 @@ def offline_loss(
     # eta: r + eta * bonus (bonus can be used to model things like tool use)
     
     policy_logp = outputs['policy_logp']  # (batch_size, )
+    policy_logits = outputs['policy_logits']    # (batch_size, gen_len, vocab_size)
 
     ref_logp = batch.get(
         'ref_logp',
@@ -195,6 +199,23 @@ def offline_loss(
             losses = -(actual_prob * torch.log(predicted_prob) 
                         +   (1.-actual_prob)*torch.log(1.-predicted_prob)
                     )
+
+    elif loss_type == RegressionOfflineEnum.VALUE_LEARNING:
+        # loss for VALUE_LEARNING is just regressing the first logit in the batch to the value of batch['reward']
+        # shape of policy_logits: (batch_size, gen_len, 0)
+        # shape of batch['reward']: (batch_size, )
+        # and then the subtraction will broadcast.
+        
+        assert batch['reward'] is not None, "reward must be in the batch. called from offline_loss fn"
+
+        losses = (policy_logits[:, :, 0] - batch['reward']) ** 2
+        
+        losses *= batch['mask'][:,1:] 
+        losses *= batch['attention_mask'][:,1:]
+
+
+
+
     elif loss_type == RegressionOfflineEnum.QRPO:
         vstar_rewards = batch.get('vstar_rewards', None)
         assert vstar_rewards is not None
