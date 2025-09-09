@@ -132,6 +132,9 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
     ) -> dict[str, torch.Tensor]:
         print("entered eval_forward")
         loss = self.loss(outputs, batch)
+        for key, value in loss.items():
+            loss["test/" + key] = value
+            del loss[key]
         return loss
 
     def loss(self, outputs: CausalLMOutputWithPast,
