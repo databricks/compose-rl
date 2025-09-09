@@ -118,8 +118,8 @@ class TestEstimatedRewardLossMetric(Metric):
         )
     
     def update(self, batch: dict, output_logits: torch.Tensor):
-        print("keys in batch: ", batch.keys())
-        print("updating in estimated reward loss metric")
+        # print("keys in batch: ", batch.keys())
+        # print("updating in estimated reward loss metric")
         if 'estimated_reward' in batch:
             self.loss_sum += batch['estimated_reward'].detach().cpu().item()
             self.count += 1
