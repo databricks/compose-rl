@@ -37,6 +37,8 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
         beta2: float = 0.1,
         eta: float = 0.5, 
         multistep: bool = False,
+        distributional_value_learning: bool = True,
+        top_n_logits: int = 10,
         average_log_prob: bool = False,
         temperature: float = 1.0,
         **kwargs: Any,
@@ -45,6 +47,8 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
         self.beta1 = beta1
         self.beta2 = beta2
         self.eta = eta
+        self.distributional_value_learning = distributional_value_learning
+        self.top_n_logits = top_n_logits
         self.multistep = multistep
         self.average_log_prob = average_log_prob
         self.temperature = temperature
@@ -78,6 +82,8 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
             beta2 = self.beta2,
             eta = self.eta, 
             multistep = self.multistep,
+            distributional_value_learning = self.distributional_value_learning,
+            top_n_logits = self.top_n_logits,
         )
 
 
@@ -91,6 +97,8 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         beta2: float = 0.1,
         eta: float = 0.5, 
         multistep: bool = False,
+        distributional_value_learning: bool = True,
+        top_n_logits: int = 10,
         average_log_prob: bool = False,
         temperature: float = 1.0,
         **kwargs: Any,
@@ -100,6 +108,8 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         self.beta2 = beta2
         self.eta = eta
         self.multistep = multistep
+        self.distributional_value_learning = distributional_value_learning
+        self.top_n_logits = top_n_logits
         self.average_log_prob = average_log_prob
         self.temperature = temperature
 
@@ -132,6 +142,8 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
             beta2 = self.beta2,
             eta = self.eta,
             multistep = self.multistep,
+            distributional_value_learning = self.distributional_value_learning,
+            top_n_logits = self.top_n_logits,
         )
 
 
