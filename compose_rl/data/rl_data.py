@@ -323,6 +323,8 @@ class RLStreamingDataset(StreamingDataset):
 
         # case 2: input + mask, this is can be for single turn or multi-turn offline RL. mask is used to mask out non-assistant turns
         elif 'input' in sample and 'mask' in sample:
+            print('------case 2: input + mask------')
+            
             assert isinstance(sample['input'], np.ndarray), f"Input must be a numpy array, but got {type(sample['input'])}"
             assert isinstance(sample['mask'], np.ndarray), f"Mask must be a numpy array, but got {type(sample['mask'])}"
 

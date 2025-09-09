@@ -272,6 +272,9 @@ def offline_loss(
         vstar_rewards = batch.get('vstar_rewards', None)
         assert vstar_rewards is not None, 'vstar_rewards must be present in batch for APO_CRITIC'
         
+        # for debugging purpose, let's compute vstar here
+        advantages = rewards - beta1*torch.log(torch.mean(torch.exp(vstar_rewards/beta1), dim = -1))
+
         # define value bin values: 0, 1/num_bins, 2/num_bins, ..., (num_bins-1)/num_bins
         bin_values = torch.arange(num_bins, device=device, dtype=torch.float32)*1.0 / num_bins
         for i in range(bs):
@@ -290,19 +293,26 @@ def offline_loss(
                 vstar_end = rewards[i]
                 vstar_start = beta1*torch.log(torch.mean(torch.exp(vstar_rewards[i]/beta1)))
 
+                # for debugging purpose, let's do traj-wise APO actually here:
+                segment_logp_diff = seg_logp - seg_ref_logp
+                segment_losses.append(segment_logp_diff)
+
                 # use pre-computed arange tensor
                 #vstar_start = beta1*torch.log(torch.softmax(logits_start,dim=0).dot(torch.exp(bin_values/beta1)))
                 #vstar_end = beta1*torch.log(torch.softmax(logits_end,dim=0).dot(torch.exp(bin_values/beta1)))
                 #vstar_start = beta1*torch.log(torch.sum(torch.softmax(logits_start,dim=0)*torch.exp(bin_values/beta1)))
                 #vstar_end = beta1*torch.log(torch.sum(torch.softmax(logits_end,dim=0)*torch.exp(bin_values/beta1)))
-                
-                segment_loss = (beta2 * (seg_logp - seg_ref_logp) - (vstar_end - vstar_start))**2
-                segment_losses.append(segment_loss)
-                advantages[i] += (vstar_end - vstar_start).detach()
+                #segment_loss = (beta2 * (seg_logp - seg_ref_logp) - (vstar_end - vstar_start))**2
+                #segment_losses.append(segment_loss)
+                #advantages[i] += (vstar_end - vstar_start).detach()
+            
+            
             
             # Accumulate losses across segments for this batch item
             if segment_losses:
-                losses[i] = torch.stack(segment_losses).mean()  # Average loss across segments
+                #losses[i] = torch.stack(segment_losses).mean()  # Average loss across segments
+                # debugging purpose:
+                losses[i] = ((beta2 *torch.stack(segment_losses).sum()) - advantages[i])**2
             else:
                 print('------no valid segments------')
                 losses[i] = torch.tensor(0.0, device=device)  # No valid segments
