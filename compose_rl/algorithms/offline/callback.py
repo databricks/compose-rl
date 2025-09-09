@@ -31,6 +31,7 @@ class ReferencePolicyCallback(CallbackWithConfig):
     ):
         self.train_config = copy.deepcopy(train_config)
         self.reference_model = None
+        self.auxiliary_model = None  # Add auxiliary model
 
     def after_load(self, state: State, logger: Logger) -> None:
         #model_config = self.train_config['model']
@@ -80,6 +81,37 @@ class ReferencePolicyCallback(CallbackWithConfig):
             callbacks=load_checkpoint_callbacks,
         )
 
+        # Load auxiliary model following the same pattern
+        if 'auxiliary_model' in self.train_config.get('variables', {}):
+            aux_model_config = self.train_config['variables']['auxiliary_model']
+            aux_init_context = process_init_device(
+                aux_model_config,
+                self.train_config.get('fsdp_config'),
+            )
+            aux_name = aux_model_config.pop('name')
+            print("################################################")
+            print("auxiliary model config:")
+            print(aux_model_config)
+            print("################################################")
+            self.auxiliary_model = build_composer_model(
+                name=aux_name,
+                cfg=aux_model_config,
+                tokenizer=state.model.tokenizer, # type: ignore
+                init_context=aux_init_context,
+                master_weights_dtype=aux_model_config.get('master_weights_dtype', None),
+            )
+
+            # Load auxiliary model with same checkpoint loading procedure
+            _ = Trainer(
+                model=self.auxiliary_model,
+                parallelism_config={'fsdp': state.fsdp_config},
+                precision=state.precision,
+                load_weights_only=True,
+                load_strict_model_weights=False,
+                load_path=original_load_path,
+                callbacks=load_checkpoint_callbacks,
+            )
+
     def before_forward(self, state: State, logger: Logger) -> Optional[int]:
         # Before every batch we need to do a forwards pass over the reference model
         with get_precision_context(state.precision):
@@ -88,7 +120,15 @@ class ReferencePolicyCallback(CallbackWithConfig):
                 reference_outputs = self.reference_model(state.batch)
                 state.batch.update({
                     'ref_logp': reference_outputs['policy_logp'],
+                    'ref_token_policy_logps': reference_outputs['token_policy_logps'],
                 })
+                
+                # Add auxiliary model forward pass if available
+                if self.auxiliary_model is not None:
+                    auxiliary_outputs = self.auxiliary_model(state.batch)
+                    state.batch.update({
+                        'aux_first_num_bins_logits': auxiliary_outputs['first_num_bins_logits'],
+                    })
 
 
 class PairwiseReferencePolicyCallback(ReferencePolicyCallback):

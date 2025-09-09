@@ -22,7 +22,7 @@ parameters:
     beta1: 1
     beta2: 0.01
     eta: 0.5
-    loss_type: apo
+    loss_type: apo_critic #apo
     pretrained: true
     init_device: mixed
     use_auth_token: true
@@ -146,6 +146,15 @@ parameters:
       use_auth_token: true
       use_flash_attention_2: true
       pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    
+    auxiliary_model:  # Add your second model here
+      name: hf_offline_lm
+      pretrained: true
+      init_device: mixed
+      use_auth_token: true
+      use_flash_attention_2: true
+      pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B  # Different model or same
+      num_bins: 32  # Number of bins for distributional value function
 
 integrations:
 - integration_type: git_repo
