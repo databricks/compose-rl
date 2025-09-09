@@ -104,9 +104,6 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         self.average_log_prob = average_log_prob
         self.temperature = temperature
         self.num_bins = num_bins  # Store num_bins
-        
-        # Debug print to verify loss_type
-        print(f"🚨 DEBUG: Model initialized with loss_type = {self.loss_type} (value: {self.loss_type.value})")
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
