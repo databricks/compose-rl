@@ -134,7 +134,12 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         with torch.no_grad():
             fwd = self.forward(batch)
             loss = self.loss(fwd, batch)
+        
+        loss.update(fwd)
+
+        loss['logits'] = fwd['policy_logits']
         print("keys in loss: ", loss.keys())
+
         return loss
 
 
