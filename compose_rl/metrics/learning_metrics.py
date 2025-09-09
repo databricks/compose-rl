@@ -28,7 +28,7 @@ class TestTotalLossMetric(Metric):
     def update(self, batch: dict, output_logits: torch.Tensor):
         
         if 'total' in batch:
-            self.loss_sum += batch['total'].detach().cpu()
+            self.loss_sum += batch['total'].detach().cpu().item()
             self.count += 1
     
     def compute(self):
@@ -56,7 +56,7 @@ class TestImplicitRewardsLossMetric(Metric):
     def update(self, batch: dict, output_logits: torch.Tensor):
         
         if 'implicit_rewards' in batch:
-            self.loss_sum += batch['implicit_rewards'].detach().cpu()
+            self.loss_sum += batch['implicit_rewards'].detach().cpu().item()
             self.count += 1
     
     def compute(self):
@@ -92,7 +92,7 @@ class TestKLDivergenceLossMetric(Metric):
     def update(self, batch: dict, output_logits: torch.Tensor):
         
         if self.loss_key in batch:
-            self.loss_sum += batch[self.loss_key].detach().cpu()
+            self.loss_sum += batch[self.loss_key].detach().cpu().item()
             self.count += 1
     
     def compute(self):
@@ -121,7 +121,7 @@ class TestEstimatedRewardLossMetric(Metric):
         print("keys in batch: ", batch.keys())
         print("updating in estimated reward loss metric")
         if 'estimated_reward' in batch:
-            self.loss_sum += batch['estimated_reward'].detach().cpu()
+            self.loss_sum += batch['estimated_reward'].detach().cpu().item()
             self.count += 1
     
     def compute(self):
@@ -149,7 +149,7 @@ class TestSequenceEntropiesLossMetric(Metric):
     def update(self, batch: dict, output_logits: torch.Tensor):
         
         if 'sequence_entropies' in batch:
-            self.loss_sum += batch['sequence_entropies'].detach().cpu()
+            self.loss_sum += batch['sequence_entropies'].detach().cpu().item()
             self.count += 1
     
     def compute(self):
