@@ -245,7 +245,6 @@ def offline_loss(
     
     elif loss_type == RegressionOfflineEnum.APO_CRITIC:
         # grab necessaryinformation for this actor-critic style APO loss:
-        print('🎯 ------USING APO_CRITIC LOSS: grabbing necessary information from the batch------')
         first_num_bins_logits = batch.get('aux_first_num_bins_logits', None) # from the auxiliary distributional value function model
         assert first_num_bins_logits is not None, 'must have a value model that returns the first num_bins logits'
         num_bins = first_num_bins_logits.shape[2]
@@ -265,17 +264,8 @@ def offline_loss(
         device = first_num_bins_logits.device
         losses = torch.zeros(bs, device=device)
         advantages = torch.zeros(bs, device=device)
-
-        # for debugging purpose, let's grab reward and vstar_rewards here
-        rewards = batch.get('reward', None)
-        assert rewards is not None, 'reward must be present in batch for APO_CRITIC'
-        vstar_rewards = batch.get('vstar_rewards', None)
-        assert vstar_rewards is not None, 'vstar_rewards must be present in batch for APO_CRITIC'
         
-        # for debugging purpose, let's compute vstar here
-        advantages = rewards - beta1*torch.log(torch.mean(torch.exp(vstar_rewards/beta1), dim = -1))
-
-        # define value bin values: 0, 1/num_bins, 2/num_bins, ..., (num_bins-1)/num_bins
+        # define value bin values: 0, 1/num_bins, 2/num_bins, ..., (num_bins-1)/num_bins -- using left end points of bins
         bin_values = torch.arange(num_bins, device=device, dtype=torch.float32)*1.0 / num_bins
         for i in range(bs):
             combined_mask = mask[i][1:] * attention_mask[i][1:] # mask starts from the second token
@@ -289,33 +279,20 @@ def offline_loss(
                 logits_start = first_num_bins_logits[i, segment[0], :]
                 logits_end = first_num_bins_logits[i, segment[1]+1, :] # TODO: double check if segment[1] or segment[1]+1
                 
-                # for debugging purpose, let's use reward and vstar_rewards here
-                vstar_end = rewards[i]
-                vstar_start = beta1*torch.log(torch.mean(torch.exp(vstar_rewards[i]/beta1)))
-
-                # for debugging purpose, let's do traj-wise APO actually here:
-                segment_logp_diff = seg_logp - seg_ref_logp
-                segment_losses.append(segment_logp_diff)
-
                 # use pre-computed arange tensor
                 # below is the implementation we wanted:
-                #vstar_start = beta1*torch.log(torch.softmax(logits_start,dim=0).dot(torch.exp(bin_values/beta1)))
-                #vstar_end = beta1*torch.log(torch.softmax(logits_end,dim=0).dot(torch.exp(bin_values/beta1)))
+                vstar_start = beta1*torch.log(torch.softmax(logits_start,dim=0).dot(torch.exp(bin_values/beta1)))
+                vstar_end = beta1*torch.log(torch.softmax(logits_end,dim=0).dot(torch.exp(bin_values/beta1)))
                 #vstar_start = beta1*torch.log(torch.sum(torch.softmax(logits_start,dim=0)*torch.exp(bin_values/beta1)))
                 #vstar_end = beta1*torch.log(torch.sum(torch.softmax(logits_end,dim=0)*torch.exp(bin_values/beta1)))
-                #segment_loss = (beta2 * (seg_logp - seg_ref_logp) - (vstar_end - vstar_start))**2
-                #segment_losses.append(segment_loss)
-                #advantages[i] += (vstar_end - vstar_start).detach()
+                segment_loss = (beta2 * (seg_logp - seg_ref_logp) - (vstar_end - vstar_start))**2
+                segment_losses.append(segment_loss)
+                advantages[i] += (vstar_end - vstar_start).detach()
             
-            
-            
-            # Accumulate losses across segments for this batch item
+            # Accumulate losses across segments for this batch item and average advantage
             if segment_losses:
-                #losses[i] = torch.stack(segment_losses).mean()  # Average loss across segments
-                # debugging purpose:
-                print(segment_losses[0])
-                print(len(segment_losses))
-                losses[i] = ((beta2 *torch.stack(segment_losses).sum()) - advantages[i])**2
+                losses[i] = torch.stack(segment_losses).mean()  # Average loss across segments
+                advantages[i] = advantages[i]/len(segment_losses) # average advantage across segments
             else:
                 print('------no valid segments------')
                 losses[i] = torch.tensor(0.0, device=device)  # No valid segments
