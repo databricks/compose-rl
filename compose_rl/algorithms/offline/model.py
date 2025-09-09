@@ -21,6 +21,7 @@ from compose_rl.algorithms.offline.model_methods import (
     pairwise_offline_forward,
     pairwise_offline_loss,
 )
+from compose_rl.metrics.learning_metrics import TestLossMetric
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
@@ -54,7 +55,9 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
         self.temperature = temperature
 
         super().__init__(**kwargs)
+
         self.train_metrics = None  # DPOLM does not support eval_forward
+        self.eval_metrics = [TestLossMetric()]
 
     def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
         assert self.tokenizer is not None
@@ -135,11 +138,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
             fwd = self.forward(batch)
             loss = self.loss(fwd, batch)
         
-        loss.update(fwd)
-
-        loss['logits'] = fwd['policy_logits']
-        print("keys in loss: ", loss.keys())
-
+        loss.update(fwd)    
         return loss
 
 
