@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import argparse
 import os
 import signal
 import subprocess
@@ -69,8 +70,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
 async def test_distributed_ray_actors(
     model_name: str,
-    gen_tp_size: int = 1,
-    num_vllm_servers: int = 1,
+    gen_tp_size: int,
+    num_vllm_servers: int,
 ):
     """Test basic single contrller with Ray."""
 
@@ -80,17 +81,21 @@ async def test_distributed_ray_actors(
         'is Louvre Museum located in it?'
     ]
 
-
     with start_ray_server() as address:
         if dist.get_rank() == 0:
             # Set environment variable for CUDA device visibility
             env = os.environ.copy()
-            env['CUDA_VISIBLE_DEVICES'] = str(dist.get_world_size())
+            training_world_size = dist.get_world_size()
+            inference_gpus = range(training_world_size, training_world_size + gen_tp_size)
+            print(f'training_world_size: {training_world_size}, gen_tp_size: {gen_tp_size}')
+            env['CUDA_VISIBLE_DEVICES'] = ','.join(map(str, inference_gpus))
             
             vllm_server_process = subprocess.Popen([
                 'orl-vllm-server',
                 '--model', model_name,
-                '--worker-extension-cls', WORKER_WRAP
+                '--worker-extension-cls', WORKER_WRAP,
+                '--tensor-parallel-size', str(gen_tp_size),
+                '--disable-custom-all-reduce'
             ], env=env)
             vllm_addresses = [f"localhost:{8000}"]
             _wait_for_server_ready()
@@ -184,7 +189,7 @@ async def test_distributed_ray_actors(
                     master_actor.add_process_group.remote(  # type: ignore
                         master_addr=master_addr,
                         master_port=new_port,
-                        world_size=num_vllm_servers + 1,  # vLLM servers + trainer
+                        world_size=num_vllm_servers * gen_tp_size + 1,  # vLLM servers + trainer
                         rank=0,
                         # group_name='vllm_weight_update',
                     ),
@@ -325,4 +330,8 @@ async def test_distributed_ray_actors(
 
 
 if __name__ == "__main__":
-    asyncio.run(test_distributed_ray_actors("Qwen/Qwen2.5-0.5B-Instruct"))
+    args = argparse.ArgumentParser()
+    args.add_argument('--gen-tp-size', '-tp', type=int, default=1)
+    args.add_argument('--num_vllm_servers', type=int, default=1)
+    args = args.parse_args()
+    asyncio.run(test_distributed_ray_actors("Qwen/Qwen2.5-0.5B-Instruct", args.gen_tp_size, args.num_vllm_servers))
