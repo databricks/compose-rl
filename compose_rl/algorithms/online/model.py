@@ -280,6 +280,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         kl_estimator: str = 'k3',
         kl_clip_range: float = 40.0,
         temperature: float = 1.0,
+        importance_weighting: bool = True,
         **kwargs: Any,
     ):
         """Initialize the ComposerHFCriticFreePolicyModel.
@@ -297,6 +298,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             kl_clip_range (float): The KL clip range. Default: ``40.0``.
             beta (float): pi_ref KL hyperparameter for APO. Default: ``1e-3``
             temperature (float): Sampling temperature used for generations to properly scale logits.
+            importance_weighting (bool): Whether to apply importance weighting for off-policy rollouts. Default: ``True``.
         """
         super().__init__(**kwargs)
         self.policy_kl = []
@@ -312,6 +314,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
         self.kl_clip_range = kl_clip_range
         self.entropy_loss_weight = entropy_loss_weight
         self.temperature = temperature
+        self.importance_weighting = importance_weighting
 
     def forward(self, batch: MutableMapping):
         ret_val = composer_online_rl_forward(
@@ -340,6 +343,7 @@ class ComposerHFCriticFreePolicyLM(ComposerHFCausalLM):
             kl_estimator=self.kl_estimator,
             kl_clip_range=self.kl_clip_range,
             entropy_loss_weight=self.entropy_loss_weight,
+            importance_weighting=self.importance_weighting,
         )
 
         self.policy_kl.append(return_dict['kl/policy_kl'])

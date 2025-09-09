@@ -55,7 +55,6 @@ from compose_rl.utils import (
     add_right_padding,
     compute_advantages,
     dist_compute_masked_mean_and_var,
-    flatten,
     get_decoded_sequence,
     get_entropies,
     get_log_probs,
@@ -64,6 +63,7 @@ from compose_rl.utils import (
     masked_sum,
     switch_left_to_right_padding,
 )
+from compose_rl.algorithms.online.callback_utils import preprocess_batches
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 Policy = Union[ComposerHFPolicyLM, ComposerMPTPolicyLM]
@@ -557,16 +557,17 @@ class OnPolicyCallback(CallbackWithConfig):
         if hasattr(self.actor_critic, 'compute_kl_loss'):
             kl_penalty_in_reward = not self.actor_critic.compute_kl_loss
 
-        self.reward_manager = RewardManager(
-            config=self.reward_cfg,
-            ref_config=self.ref_config,
-            tokenizer=self.actor_critic.tokenizer, # type: ignore
-            max_seq_len=self.max_seq_len,
-            fsdp_config=self.non_train_fsdp_config,
-            precision=state.precision,
-            kl_penalty_in_reward=kl_penalty_in_reward,
-            temperature=self.generation_kwargs['temperature'],
-        )
+        self.reward_manager = None
+        #self.reward_manager = RewardManager(
+        #    config=self.reward_cfg,
+        #    ref_config=self.ref_config,
+        #    tokenizer=self.actor_critic.tokenizer, # type: ignore
+        #    max_seq_len=self.max_seq_len,
+        #    fsdp_config=self.non_train_fsdp_config,
+        #    precision=state.precision,
+        #    kl_penalty_in_reward=kl_penalty_in_reward,
+        #    temperature=self.generation_kwargs['temperature'],
+        #)
 
         # This is needed to ensure PyTorch 2.4 checkpointing doesn't break
         self.actor_critic.tokenizer.batch_encode_plus( # type: ignore
@@ -620,10 +621,9 @@ class OnPolicyCallback(CallbackWithConfig):
 
         batch = self._get_next_iter_prompts()
 
-        batch = state.device.batch_to_device(batch)
-
         if self.vllm_engines is not None:
-            self._update_inference_model(batch)
+            device = state.device._device
+            self._update_inference_model(device)
 
         self._interact_with_env(batch)
         # Reset and initialize state train dataloader
@@ -666,59 +666,7 @@ class OnPolicyCallback(CallbackWithConfig):
             self._get_single_batch_prompts() for _ in range(n_unique_batches)
         ]
 
-        ret_batch = {}
-        for key in batches[0].keys():
-            curr_values = []
-
-            max_len = 0
-            if isinstance(batches[0][key], torch.Tensor):
-                max_len = max([batch[key].shape[-1] for batch in batches])
-
-            padding_key = None
-            for batch in batches:
-                # Explode the batch into multiple batches for each generation
-                for _ in range(self.generations_per_prompt):
-                    # For keys that do not require additional processing
-                    if key in [
-                        'prompt_len',
-                        'verified_answer',
-                        'prompt_id',
-                        'vstar',
-                        'messages',
-                    ]:
-                        curr_values.append(batch[key])
-                        continue
-
-                    bs, seq_len = batch[key].shape
-
-                    if key == 'prompt':
-                        padding_key = self.pad_token_idx
-                        if (batch[key][:, -1] == padding_key).any():
-                            raise ValueError(
-                                'The last token in the prompt should not be the pad token. Please double '
-                                +
-                                'check the dataloader and prompt and dataloader.',
-                            )
-                    elif key == 'prompt_attention_mask':
-                        padding_key = False
-
-                    # Compute the required padding and concatenate with the batch tensor
-                    pad = torch.ones(
-                        (bs, max_len - seq_len),
-                        dtype=batch[key].dtype,
-                    ) * padding_key  # type: ignore
-                    curr_values.append(torch.cat([pad, batch[key]], dim=-1))
-
-            # For tensor fields, use torch.cat to combine the values; for string fields, just use the list
-            if isinstance(curr_values[0], torch.Tensor):
-                ret_batch[key] = torch.cat(curr_values)
-            else:
-                if key in ['verified_answer', 'vstar']:
-                    ret_batch[key] = list(flatten(curr_values))
-                else:
-                    ret_batch[key] = curr_values
-
-        return ret_batch
+        return preprocess_batches(batches, self.generations_per_prompt, self.pad_token_idx)
 
     def _get_single_batch_prompts(self):
         """Gets a single batch of prompts from the dataloader."""
@@ -1153,7 +1101,7 @@ class OnPolicyCallback(CallbackWithConfig):
         dist.barrier()
         log.info('All ranks have completed the vLLM engine create function.')
 
-    def _update_inference_model(self, batch: dict[str, torch.Tensor]):
+    def _update_inference_model(self, device: torch.device):
         start_time = time.time()
         log.info('Before broadcast to vLLM')
         assert self.vllm_engines is not None
@@ -1161,7 +1109,7 @@ class OnPolicyCallback(CallbackWithConfig):
             model=self.actor_critic,
             vllm_engines=self.vllm_engines,
             model_update_group=self.model_update_group,
-            device=batch['prompt'].device,
+            device=device,
             loss_type=self.actor_critic.loss_type,  # type: ignore
             enable_prefix_caching=self.vllm_enable_prefix_caching,
         )
@@ -1173,11 +1121,8 @@ class OnPolicyCallback(CallbackWithConfig):
         return {
             'KL_ctl_state_dict': self.kl_ctl.state_dict(),
             'iter_num': self.iter_num,
-            'train_prompt_loader':
-                self.train_prompt_loader.state_dict(),  # pyright: ignore
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]):
         self.kl_ctl.load_state_dict(state_dict['KL_ctl_state_dict'])
         self.iter_num = state_dict['iter_num']
-        self.train_prompt_loader_state_dict = state_dict['train_prompt_loader']

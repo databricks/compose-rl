@@ -18,8 +18,10 @@ from transformers import (
 from compose_rl.algorithms.online.generation_utils import (
     create_vllm_engines,
 )
+from compose_rl.controllers import BaseDistributedGPUActor
 from compose_rl.utils.ray_utils import start_ray_server
-from tests.common import BaseDistributedGPUActor, world_size
+from tests.common import world_size
+
 
 # Set up logging
 logger = logging.getLogger(__name__)

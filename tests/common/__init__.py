@@ -1,7 +1,6 @@
 # Copyright 2024 MosaicML ComposeRL authors
 # SPDX-License-Identifier: Apache-2.0
 
-from tests.common.actor import BaseDistributedGPUActor
 from tests.common.datasets import (
     FineGrainedPreference,
     PairwisePreference,
@@ -12,7 +11,6 @@ from tests.common.datasets import (
 from tests.common.markers import device, world_size
 
 __all__ = [
-    'BaseDistributedGPUActor',
     'PairwisePreference',
     'FineGrainedPreference',
     'PromptDataset',
