@@ -21,7 +21,7 @@ from compose_rl.algorithms.offline.model_methods import (
     pairwise_offline_forward,
     pairwise_offline_loss,
 )
-from compose_rl.metrics.learning_metrics import TestLossMetric
+from compose_rl.metrics.learning_metrics import TestEstimatedRewardLossMetric, TestImplicitRewardsLossMetric, TestKLDivergenceLossMetric, TestSequenceEntropiesLossMetric, TestTotalLossMetric
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
@@ -57,7 +57,7 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
         super().__init__(**kwargs)
 
         self.train_metrics = None  # DPOLM does not support eval_forward
-        self.val_metrics = {metric.__class__.__name__ : metric for metric in [TestLossMetric()]}
+        self.val_metrics = {metric.__class__.__name__ : metric for metric in [TestEstimatedRewardLossMetric(), TestImplicitRewardsLossMetric(), TestKLDivergenceLossMetric(), TestSequenceEntropiesLossMetric(), TestTotalLossMetric()]}
 
     def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
         assert self.tokenizer is not None
@@ -118,8 +118,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
-        print("initializing eval_metrics to be only TestLossMetric")
-        self.val_metrics = {metric.__class__.__name__ : metric for metric in [TestLossMetric()]}
+        self.val_metrics = {metric.__class__.__name__ : metric for metric in [TestTotalLossMetric()]}
 
 
     def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
