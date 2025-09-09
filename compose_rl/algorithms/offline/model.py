@@ -132,11 +132,21 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
     ) -> dict[str, torch.Tensor]:
         print("entered eval_forward")
         with torch.no_grad():
-            loss = self.loss(self.forward(batch), batch)
-        new_loss = {}
+            outputs = self.forward(batch)
+            loss = self.loss(outputs, batch)
+        
+        # Create the result dictionary with logits for metrics computation
+        result = {}
+        
+        # Add logits for evaluation metrics
+        if 'policy_logits' in outputs:
+            result['logits'] = outputs['policy_logits']
+        
+        # Add loss metrics with test/ prefix
         for key, value in loss.items():
-            new_loss["test/" + key] = value
-        return new_loss
+            result["test/" + key] = value
+            
+        return result
 
     def loss(self, outputs: CausalLMOutputWithPast,
              batch: Mapping) -> dict[str, torch.Tensor]:
