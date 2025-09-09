@@ -22,7 +22,7 @@ parameters:
     beta1: 1
     beta2: 0.01
     eta: 0.5
-    loss_type: apo_critic #apo
+    loss_type: apo_critic
     pretrained: true
     init_device: mixed
     use_auth_token: true

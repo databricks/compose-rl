@@ -199,6 +199,8 @@ def offline_loss(
     advantages = None
 
     if loss_type == RegressionOfflineEnum.APO:
+        print('📊 ------USING REGULAR APO LOSS (not apo_critic)------')
+        print(f'📊 loss_type = {loss_type}, loss_type.value = {loss_type.value}')
         # Reproducing the APO loss from APO paper: https://arxiv.org/pdf/2505.20686 on page 3
         # APO is not a pair-wise loss function.
         # Similar to REBEL, we assume each response has a reward in the batch.
@@ -247,7 +249,8 @@ def offline_loss(
     
     elif loss_type == RegressionOfflineEnum.APO_CRITIC:
         # grab necessaryinformation for this actor-critic style APO loss:
-        print('------using APO_CRITIC loss: grabbing necessary information from the batch------')
+        print('🎯 ------USING APO_CRITIC LOSS: grabbing necessary information from the batch------')
+        print(f'🎯 loss_type = {loss_type}, loss_type.value = {loss_type.value}')
         first_num_bins_logits = batch.get('aux_first_num_bins_logits', None) # from the auxiliary distributional value function model
         assert first_num_bins_logits is not None, 'must have a value model that returns the first num_bins logits'
         num_bins = first_num_bins_logits.shape[2]
