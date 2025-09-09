@@ -132,7 +132,10 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
     ) -> dict[str, torch.Tensor]:
         print("entered eval_forward")
         with torch.no_grad():
-            return outputs if outputs is not None else self.forward(batch)
+            fwd = self.forward(batch)
+            loss = self.loss(fwd, batch)
+        print("keys in loss: ", loss.keys())
+        return loss
 
 
     def loss(self, outputs: CausalLMOutputWithPast,
