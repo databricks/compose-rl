@@ -191,6 +191,8 @@ def offline_loss(
         'ref_logp',
         torch.zeros_like(policy_logp),
     )
+
+    print('------using loss type------: ', loss_type)
     
     # Initialize vstar to avoid "possibly unbound" warning
     vstar = None
