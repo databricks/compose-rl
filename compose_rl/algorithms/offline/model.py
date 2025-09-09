@@ -129,8 +129,10 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         self,
         batch: MutableMapping,
         outputs: CausalLMOutputWithPast,
-    ) -> None:
-        raise ValueError('Eval forward is not implemented for ComposerHFDPOLM.')
+    ) -> dict[str, torch.Tensor]:
+        print("entered eval_forward")
+        loss = self.loss(outputs, batch)
+        return loss
 
     def loss(self, outputs: CausalLMOutputWithPast,
              batch: Mapping) -> dict[str, torch.Tensor]:
