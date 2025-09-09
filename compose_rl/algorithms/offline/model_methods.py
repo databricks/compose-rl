@@ -313,7 +313,8 @@ def offline_loss(
             if segment_losses:
                 #losses[i] = torch.stack(segment_losses).mean()  # Average loss across segments
                 # debugging purpose:
-                print(segment_losses)
+                print(segment_losses[0])
+                print(len(segment_losses))
                 losses[i] = ((beta2 *torch.stack(segment_losses).sum()) - advantages[i])**2
             else:
                 print('------no valid segments------')
