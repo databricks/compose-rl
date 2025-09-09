@@ -265,6 +265,12 @@ def offline_loss(
         device = first_num_bins_logits.device
         losses = torch.zeros(bs, device=device)
         advantages = torch.zeros(bs, device=device)
+
+        # for debugging purpose, let's grab reward and vstar_rewards here
+        rewards = batch.get('reward', None)
+        assert rewards is not None, 'reward must be present in batch for APO_CRITIC'
+        vstar_rewards = batch.get('vstar_rewards', None)
+        assert vstar_rewards is not None, 'vstar_rewards must be present in batch for APO_CRITIC'
         
         # define value bin values: 0, 1/num_bins, 2/num_bins, ..., (num_bins-1)/num_bins
         bin_values = torch.arange(num_bins, device=device, dtype=torch.float32)*1.0 / num_bins
@@ -280,9 +286,15 @@ def offline_loss(
                 logits_start = first_num_bins_logits[i, segment[0], :]
                 logits_end = first_num_bins_logits[i, segment[1]+1, :] # TODO: double check if segment[1] or segment[1]+1
                 
+                # for debugging purpose, let's use reward and vstar_rewards here
+                vstar_end = rewards[i]
+                vstar_start = beta1*torch.log(torch.mean(torch.exp(vstar_rewards[i]/beta1)))
+
                 # use pre-computed arange tensor
-                vstar_start = beta1*torch.log(torch.sum(torch.softmax(logits_start,dim=0)*torch.exp(bin_values/beta1)))
-                vstar_end = beta1*torch.log(torch.sum(torch.softmax(logits_end,dim=0)*torch.exp(bin_values/beta1)))
+                #vstar_start = beta1*torch.log(torch.softmax(logits_start,dim=0).dot(torch.exp(bin_values/beta1)))
+                #vstar_end = beta1*torch.log(torch.softmax(logits_end,dim=0).dot(torch.exp(bin_values/beta1)))
+                #vstar_start = beta1*torch.log(torch.sum(torch.softmax(logits_start,dim=0)*torch.exp(bin_values/beta1)))
+                #vstar_end = beta1*torch.log(torch.sum(torch.softmax(logits_end,dim=0)*torch.exp(bin_values/beta1)))
                 
                 segment_loss = (beta2 * (seg_logp - seg_ref_logp) - (vstar_end - vstar_start))**2
                 segment_losses.append(segment_loss)
