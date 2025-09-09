@@ -118,8 +118,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
-        self.val_metrics = {metric.__class__.__name__ : metric for metric in [TestTotalLossMetric()]}
-
+        self.val_metrics = {metric.__class__.__name__ : metric for metric in [TestEstimatedRewardLossMetric(), TestImplicitRewardsLossMetric(), TestKLDivergenceLossMetric(), TestSequenceEntropiesLossMetric(), TestTotalLossMetric()]}
 
     def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
         assert self.tokenizer is not None
@@ -141,7 +140,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
             fwd = self.forward(batch)
             loss = self.loss(fwd, batch)
         
-        loss.update(fwd)    
+        print("keys in loss: ", loss.keys())    
         return loss
 
 

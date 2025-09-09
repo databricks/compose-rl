@@ -148,7 +148,7 @@ class TestTotalLossMetric(Metric):
     def update(self, batch: dict, output_logits: torch.Tensor):
         del output_logits
         if 'total_loss' in batch:
-            self.loss_sum += batch['total_loss'].detach().cpu()
+            self.loss_sum += batch['total'].detach().cpu()
             self.count += 1
     
     def compute(self):
