@@ -57,7 +57,7 @@ class ComposerMPTOfflinePolicyLM(ComposerMPTCausalLM):
         super().__init__(**kwargs)
 
         self.train_metrics = None  # DPOLM does not support eval_forward
-        self.val_metrics = [TestLossMetric()]
+        self.val_metrics = {metric.__class__.__name__ : metric for metric in [TestLossMetric()]}
 
     def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
         assert self.tokenizer is not None
@@ -119,7 +119,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
         print("initializing eval_metrics to be only TestLossMetric")
-        self.val_metrics = [TestLossMetric()]
+        self.val_metrics = {metric.__class__.__name__ : metric for metric in [TestLossMetric()]}
 
 
     def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
@@ -136,7 +136,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         batch: MutableMapping,
         outputs: CausalLMOutputWithPast | None = None,
     ) -> dict[str, torch.Tensor]:
-        print("eval metrics: ", self.eval_metrics)
+        print("eval metrics: ", self.val_metrics)
         print("entered eval_forward")
         with torch.no_grad():
             fwd = self.forward(batch)
