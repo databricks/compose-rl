@@ -298,6 +298,7 @@ def offline_loss(
                 segment_losses.append(segment_logp_diff)
 
                 # use pre-computed arange tensor
+                # below is the implementation we wanted:
                 #vstar_start = beta1*torch.log(torch.softmax(logits_start,dim=0).dot(torch.exp(bin_values/beta1)))
                 #vstar_end = beta1*torch.log(torch.softmax(logits_end,dim=0).dot(torch.exp(bin_values/beta1)))
                 #vstar_start = beta1*torch.log(torch.sum(torch.softmax(logits_start,dim=0)*torch.exp(bin_values/beta1)))
@@ -312,6 +313,7 @@ def offline_loss(
             if segment_losses:
                 #losses[i] = torch.stack(segment_losses).mean()  # Average loss across segments
                 # debugging purpose:
+                print(segment_losses)
                 losses[i] = ((beta2 *torch.stack(segment_losses).sum()) - advantages[i])**2
             else:
                 print('------no valid segments------')
