@@ -194,6 +194,7 @@ def offline_loss(
     
     # Initialize vstar to avoid "possibly unbound" warning
     vstar = None
+    advantages = None
 
     if loss_type == RegressionOfflineEnum.APO:
         # Reproducing the APO loss from APO paper: https://arxiv.org/pdf/2505.20686 on page 3
@@ -220,6 +221,7 @@ def offline_loss(
 
         bonuses = batch.get('bonus', torch.zeros_like(batch['reward']))
         added_bonuses = bonuses * batch['reward']  # true added bonus = 1 if both bonus = 1 and reward = 1
+        advantages = batch['reward'] + eta * added_bonuses - vstar
         if bce == False:
             losses = (
                 beta2 * (policy_logp - ref_logp) -
@@ -243,15 +245,18 @@ def offline_loss(
     
     elif loss_type == RegressionOfflineEnum.APO_CRITIC:
         # grab necessaryinformation for this actor-critic style APO loss:
+        print('------using APO_CRITIC loss: grabbing necessary information from the batch------')
         first_num_bins_logits = batch.get('aux_first_num_bins_logits', None) # from the auxiliary distributional value function model
         assert first_num_bins_logits is not None, 'must have a value model that returns the first num_bins logits'
         num_bins = first_num_bins_logits.shape[2]
+        
         mask = batch.get('mask', None)
-        assert mask is not None, 'must have a mask when using APO_CRITIC'
+        assert mask is not None, 'must have a mask when using APO_CRITIC -- we use musk to grab the value function information at the right token positions'
         attention_mask = batch.get('attention_mask', None)
         assert attention_mask is not None, 'must have an attention mask'
+        
         token_policy_logps = outputs.get('token_policy_logps', None) # (batch_size, seq_len-1)
-        assert token_policy_logps is not None, 'must have a token policy logps'
+        assert token_policy_logps is not None, 'must have a token policy logps -- we need to calculate sum of logps explicitly here based on mask'
         ref_token_policy_logps = batch.get('ref_token_policy_logps', None)
         assert ref_token_policy_logps is not None, 'must have a reference token policy logps'
         assert ref_token_policy_logps.shape == token_policy_logps.shape, 'must have the same shape for token policy logps and reference token policy logps'
@@ -259,10 +264,10 @@ def offline_loss(
         bs = first_num_bins_logits.shape[0]
         device = first_num_bins_logits.device
         losses = torch.zeros(bs, device=device)
+        advantages = torch.zeros(bs, device=device)
         
-        # Create arange tensor on correct device
-        arange_tensor = torch.arange(num_bins, device=device, dtype=torch.float32)
-        
+        # define value bin values: 0, 1/num_bins, 2/num_bins, ..., (num_bins-1)/num_bins
+        bin_values = torch.arange(num_bins, device=device, dtype=torch.float32)*1.0 / num_bins
         for i in range(bs):
             combined_mask = mask[i][1:] * attention_mask[i][1:] # mask starts from the second token
             # scan through combined_mask, and compute loss per at each turn
@@ -275,17 +280,19 @@ def offline_loss(
                 logits_start = first_num_bins_logits[i, segment[0], :]
                 logits_end = first_num_bins_logits[i, segment[1], :]
                 
-                # Fix device issues and use pre-computed arange tensor
-                vstar_start = beta1*torch.log(torch.sum(torch.softmax(logits_start,dim=0)*torch.exp((arange_tensor/num_bins)*1.0/beta1)))
-                vstar_end = beta1*torch.log(torch.sum(torch.softmax(logits_end,dim=0)*torch.exp((arange_tensor/num_bins)*1.0/beta1)))
+                # use pre-computed arange tensor
+                vstar_start = beta1*torch.log(torch.sum(torch.softmax(logits_start,dim=0)*torch.exp(bin_values/beta1)))
+                vstar_end = beta1*torch.log(torch.sum(torch.softmax(logits_end,dim=0)*torch.exp(bin_values/beta1)))
                 
                 segment_loss = (beta2 * (seg_logp - seg_ref_logp) - (vstar_end - vstar_start))**2
                 segment_losses.append(segment_loss)
+                advantages[i] += (vstar_end - vstar_start).detach()
             
             # Accumulate losses across segments for this batch item
             if segment_losses:
                 losses[i] = torch.stack(segment_losses).mean()  # Average loss across segments
             else:
+                print('------no valid segments------')
                 losses[i] = torch.tensor(0.0, device=device)  # No valid segments
         
        
@@ -300,21 +307,22 @@ def offline_loss(
 
     losses = losses.mean()
 
-    implicit_rewards = beta2 * (policy_logp - ref_logp).detach()
+    #implicit_rewards = beta2 * (policy_logp - ref_logp).detach()
 
     # Logging KL margins for comparing different methods
-    reverse_kl = (policy_logp - ref_logp).detach()
     forward_kl = (ref_logp - policy_logp).detach()
     loss_dict = {
-        'implicit_rewards': implicit_rewards,
-        'reverse_kl': reverse_kl,
+        #'implicit_rewards': implicit_rewards,
         'forward_kl': forward_kl,
         'estimated_reward': estimated_reward,
         'sequence_entropies': outputs['sequence_entropies'], # Track detached sequence entropies in the loss dict
     }
-    if loss_type == RegressionOfflineEnum.APO and vstar is not None:
+    
+    #if loss_type == RegressionOfflineEnum.APO and vstar is not None:
+    if advantages is not None:
         loss_dict['batch_advantage'] = torch.mean(
-            batch['reward'] - vstar,
+            #batch['reward'] - vstar,
+            advantages,
         )
 
     if 'lbl' in outputs:
