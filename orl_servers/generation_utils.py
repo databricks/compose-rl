@@ -150,12 +150,10 @@ async def setup_process_groups(
     await asyncio.gather(
         vllm_engine.ainit_weight_update_group(meta),
         master_actor.add_process_group.remote(  # type: ignore
-            backend='nccl',
             master_addr=master_addr,
             master_port=new_port,
             world_size=num_vllm_servers * gen_tp_size + 1,
             rank=0,
-            group_name='vllm_weight_update',
         ),
     )
 

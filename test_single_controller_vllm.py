@@ -152,28 +152,28 @@ async def test_distributed_ray_actors(
                 
                 print(f'vLLM server addresses: {vllm_addresses}')
                 
-                # Create SGLang engine configuration
+                # Create vLLM engine configuration
                 inference_config = InferenceEngineConfig(
                     setup_timeout=60.0,
                     request_timeout=300.0,
                     request_retries=3
                 )
                 
-                # Create RemoteSGLangEngine
+                # Create RemotevLLMEngine
                 vllm_engine = RemoteVLLMEngine(
                     config=inference_config,
                     addresses=vllm_addresses
                 )
                 
-                # Initialize SGLang engine (wait for servers to be ready)
+                # Initialize vLLM engine (wait for servers to be ready)
                 vllm_engine.initialize()
 
                 new_port = ray.get(
                     master_actor.get_free_port.remote(),  # type: ignore
                 )
-                print(f'new_port to init SGLang distributed group: {new_port}')
+                print(f'new_port to init vLLM distributed group: {new_port}')
                 
-                # Setup distributed group for weight updates with SGLang
+                # Setup distributed group for weight updates with vLLM
                 # Create weight update metadata for distributed group initialization
                 weight_update_meta = WeightUpdateMeta(
                     nccl_master_address=master_addr,
@@ -182,7 +182,7 @@ async def test_distributed_ray_actors(
                     gen_world_size=num_vllm_servers * gen_tp_size
                 )
                 
-                # Initialize distributed group on SGLang servers
+                # Initialize distributed group on vLLM servers
                 await asyncio.gather(
                     vllm_engine.ainit_weight_update_group(weight_update_meta),
                     # Initialize process group on the training side

@@ -99,17 +99,10 @@ class BaseDistributedGPUActor:
         rank: int,
     ):
         """Initialize vLLM stateless NCCL communicator between trainer and vLLM workers.
-
-        Note: backend and group_name are accepted for backward-compatibility but ignored.
         """
         self.model_update_group = stateless_init_process_group(
-            master_addr,
-            master_port,
-            rank,
-            world_size,
-            torch.cuda.current_device(),
+            master_addr, master_port, rank, world_size, torch.cuda.current_device()
         )
-        return self.model_update_group
     
     def execute(self, func: Callable[['BaseDistributedGPUActor'], Any]):
         """Dispatch a serializable function to this actor."""

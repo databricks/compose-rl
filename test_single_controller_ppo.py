@@ -958,6 +958,7 @@ class InferenceServer:
     """Remote vLLM HTTP server manager + client."""
 
     def __init__(self, pretrain_model_name: str, vllm_tensor_parallel_size: int, num_vllm_servers: int = 1):
+        assert num_vllm_servers == 1, f"only support single vLLM server for now, got {num_vllm_servers}"
         self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
         self.num_vllm_servers = num_vllm_servers
         self._processes: list[subprocess.Popen] = []
@@ -1085,6 +1086,7 @@ class ParameterBuffer(Buffer):
         # TODO (infra) instead of direcly broadcasting to vllm, we should
         # push the model parameters to a parameter buffer manager and have
         # the buffer manager initiate broadcast of parameters to vllm engines
+        # TODO fix this monkey patching
         actor.ppo_callback.actor_critic.model_update_group = actor.model_update_group
         run_async_sync(broadcast_to_vllm(
             model=actor.ppo_callback.actor_critic,
@@ -1720,68 +1722,72 @@ def _run_single_controller_ppo(
     with start_ray_server() as _address:
         # only rank 0 is the master controller
         if dist.get_rank() == 0:
-            world_size = getattr(config, "world_size", 0)
-            if world_size == 0:
-                world_size = dist.get_world_size()
+            try:
+                world_size = getattr(config, "world_size", 0)
+                if world_size == 0:
+                    world_size = dist.get_world_size()
 
-            # Create buffers for the parameter and experience buffers
-            # first since they don't have external dependencies
-            parameter_buffer = ParameterBuffer(config)
-            experience_buffer = ExperienceBuffer()
+                # Create buffers for the parameter and experience buffers
+                # first since they don't have external dependencies
+                parameter_buffer = ParameterBuffer(config)
+                experience_buffer = ExperienceBuffer()
 
-            # create SPMD training actors of the system
-            num_train_actors = world_size // 2
-            train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
+                # Create vLLM engines (or inference actors)
+                num_train_actors = world_size // 2
+                vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
+                # num_vllm_servers = (
+                #     world_size - num_train_actors
+                # ) // vllm_tensor_parallel_size
+                num_vllm_servers = 1
+                # TODO: Encapsulate this into a inference server manager class
+                inference_server = InferenceServer(
+                    pretrain_model_name=config.model.pretrained_model_name_or_path,
+                    vllm_tensor_parallel_size=vllm_tensor_parallel_size,
+                    num_vllm_servers=num_vllm_servers,
+                )
 
-            # Create vLLM engines (or inference actors)
-            vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
-            num_vllm_servers = (
-                world_size - num_train_actors
-            ) // vllm_tensor_parallel_size
-            # TODO: Encapsulate this into a inference server manager class
-            inference_server = InferenceServer(
-                pretrain_model_name=config.model.pretrained_model_name_or_path,
-                vllm_tensor_parallel_size=vllm_tensor_parallel_size,
-                num_vllm_servers=num_vllm_servers,
-            )
+                # create SPMD training actors of the system
+                train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
 
-            num_prompts_per_iteration = get_and_validate_num_prompts_per_iteration(config)
-            assert num_prompts_per_iteration % num_train_actors == 0, "Number of prompts per iteration must be divisible by number of train actors to ensure accurate advantage calculations."
+                num_prompts_per_iteration = get_and_validate_num_prompts_per_iteration(config)
+                assert num_prompts_per_iteration % num_train_actors == 0, "Number of prompts per iteration must be divisible by number of train actors to ensure accurate advantage calculations."
 
-            # We are using a CPU worker for the StreamingActor
-            # and this involves a super hacky workaround by
-            # uninstalling megablocks if it exists. Better solutions
-            # would include:
-            # 1) decouple StreamingActor from llm-foundry altogether
-            # 2) don't broadly import llm-foundry in compose-rl (only
-            # import it into codepaths/files that will only be used by
-            # GPUActors as opposed to CPUActors)
-            # 3) Setting up ray actors with correct environments (which
-            # would involve creating a BaseDistributedActor instead of a
-            # BaseDistributedGPUActor so that we can use CPUs)
-            # We uninstall megablocks after the Train Actors have been
-            # created so that those actors still have megablocks functionality.
-            uninstall_megablocks_if_exists()
-            streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote(config)
-            reward_actor = ray.remote(num_gpus=0)(RewardActor).remote(config)
-            rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, reward_actor, config)
+                # We are using a CPU worker for the StreamingActor
+                # and this involves a super hacky workaround by
+                # uninstalling megablocks if it exists. Better solutions
+                # would include:
+                # 1) decouple StreamingActor from llm-foundry altogether
+                # 2) don't broadly import llm-foundry in compose-rl (only
+                # import it into codepaths/files that will only be used by
+                # GPUActors as opposed to CPUActors)
+                # 3) Setting up ray actors with correct environments (which
+                # would involve creating a BaseDistributedActor instead of a
+                # BaseDistributedGPUActor so that we can use CPUs)
+                # We uninstall megablocks after the Train Actors have been
+                # created so that those actors still have megablocks functionality.
+                uninstall_megablocks_if_exists()
+                streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote(config)
+                reward_actor = ray.remote(num_gpus=0)(RewardActor).remote(config)
+                rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, reward_actor, config)
 
-            
+                
 
-            # EvalAgent doesn't need to be a Ray actor since we don't need to
-            # set a world_size or use GPUs for this process.
-            # eval_agent = EvalAgent([], config)
+                # EvalAgent doesn't need to be a Ray actor since we don't need to
+                # set a world_size or use GPUs for this process.
+                # eval_agent = EvalAgent([], config)
 
-            ppo_controller = PPOController(
-                train_actor,
-                inference_server,
-                rollout_agent,
-                parameter_buffer,
-                experience_buffer,
-                # eval_agent,
-                config,
-            )
-            asyncio.run(ppo_controller.train_async(config.max_duration))
+                ppo_controller = PPOController(
+                    train_actor,
+                    inference_server,
+                    rollout_agent,
+                    parameter_buffer,
+                    experience_buffer,
+                    # eval_agent,
+                    config,
+                )
+                asyncio.run(ppo_controller.train_async(config.max_duration))
+            finally:
+                inference_server.shutdown()
 
 
 if __name__ == '__main__':

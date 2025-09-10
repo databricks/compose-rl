@@ -33,6 +33,10 @@ class RemoteVLLMEngine:
         self.server_idx = random.randint(0, len(self.addresses) - 1)
 
 
+    @property
+    def num_servers(self) -> int:
+        return len(self.addresses)
+
     def _wait_for_server(self, address: str):
         base_url = f"http://{address}"
         tik = time.time()
