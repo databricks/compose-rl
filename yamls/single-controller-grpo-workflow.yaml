@@ -7,23 +7,22 @@ scheduling:
   preemptible: false
 compute:
   gpus: 8
-  cluster: r5z2p1
+  cluster: r5z2p3
   instance: oci.bm.gpu.h200.8.oke
 integrations:
 - integration_type: git_repo
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: single-controller-async-api
+  git_branch: boweny/single-controller-async-api
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
   ssh_clone: true
-  git_branch: update-orl-eval
+  git_branch: main
 command: |-
-  python -m uv pip install --system /workspace/research-universe/minieval
-  python -m uv pip install --system /workspace/research-universe/orl_eval
-  python -m uv pip install --system /workspace/compose-rl[servers] --no-deps
+  python /workspace/research-universe/dle/dle.py install --no-deps
+  pip install /workspace/compose-rl[servers] --no-deps
 
   cd /workspace/compose-rl
   composer test_single_controller_ppo.py --file_path /mnt/config/parameters.yaml
@@ -50,7 +49,7 @@ parameters:
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k_server
+        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k_server_async_1
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
@@ -168,7 +167,7 @@ parameters:
   max_seq_len: 10240
   save_folder: /tmp/checkpoints
   dist_timeout: 1800
-  max_duration: 10iter
+  max_duration: 20iter
   progress_bar: false
   train_loader:
     name: prompt
