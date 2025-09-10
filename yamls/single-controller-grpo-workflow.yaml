@@ -14,7 +14,7 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: single-controller-hackathon
+  git_branch: single-controller-async-api
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
@@ -23,7 +23,7 @@ integrations:
 command: |-
   python -m uv pip install --system /workspace/research-universe/minieval
   python -m uv pip install --system /workspace/research-universe/orl_eval
-  python -m uv pip install --system /workspace/compose-rl[gpu] --no-deps
+  python -m uv pip install --system /workspace/compose-rl[servers] --no-deps
 
   cd /workspace/compose-rl
   composer test_single_controller_ppo.py --file_path /mnt/config/parameters.yaml
@@ -46,15 +46,14 @@ parameters:
     normalize_advantage: true
     use_flash_attention_2: true
     length_normalize_policy_loss: true
-    importance_weighting: true
-    pretrained_model_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
+    pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_ppo_temp
+        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k_server
         group: grpo
       tracking_uri: databricks
-      experiment_name: test_single_controller_ppo_temp
+      experiment_name: test_single_controller_ppo
   callbacks:
     ppo: {}
     orl_eval:
@@ -62,10 +61,9 @@ parameters:
       - name: gsm8k
       - name: math_500
       - name: math_hard
-      - name: math_competition
       eval_overrides:
         generation_params:
-          max_tokens: 512
+          max_tokens: 8192
     lr_monitor: {}
     scheduled_gc:
       batch_interval: 1000
@@ -91,13 +89,13 @@ parameters:
     alpha: 1
     t_warmup: 10iter
   tokenizer:
-    name: Qwen/Qwen2.5-0.5B-Instruct
+    name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     kwargs:
       padding: longest
       pad_token: <|finetune_right_pad_id|>
       truncation: true
       padding_side: left
-      model_max_length: 1024
+      model_max_length: 10240
       trust_remote_code: true
   variables:
     gamma: 1
@@ -120,7 +118,7 @@ parameters:
         len_threshold: 10
     lambda_gae: 1
     global_seed: 17
-    max_gen_len: 512
+    max_gen_len: 8192
     eos_token_ids:
     - 128001
     - 128008
@@ -128,7 +126,7 @@ parameters:
     kl_controller:
       kl_ctl_type: fixed
       init_kl_coef: 0
-    tokenizer_name: Qwen/Qwen2.5-0.5B-Instruct
+    tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     num_train_nodes: 1
     reference_model:
       precision: amp_bf16
@@ -138,7 +136,7 @@ parameters:
         pretrained: true
         use_auth_token: true
         use_flash_attention_2: true
-        pretrained_model_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
+        pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
     generation_kwargs:
       top_p: 1
       do_sample: true
@@ -167,7 +165,7 @@ parameters:
     activation_cpu_offload: false
     activation_checkpointing: true
     activation_checkpointing_reentrant: false
-  max_seq_len: 1024
+  max_seq_len: 10240
   save_folder: /tmp/checkpoints
   dist_timeout: 1800
   max_duration: 10iter
@@ -179,8 +177,8 @@ parameters:
       split: train
       remote: dbfs:/Volumes/datasets/ashutoshbaheti/orl_data/open_r1_filtered/dpsk_8b_open_r1_48k/
       shuffle: true
-      max_gen_len: 512
-      max_seq_len: 1024
+      max_gen_len: 8192
+      max_seq_len: 10240
       shuffle_seed: 17
       download_timeout: 1800
     drop_last: true
@@ -196,6 +194,6 @@ parameters:
   global_train_batch_size: 64
   device_train_microbatch_size: 1
   vllm_tensor_parallel_size: 1
-  vllm_enable_prefix_caching: false
+  vllm_enable_prefix_caching: true
   save_num_checkpoints_to_keep: 1
-  max_async_step: 0
+  max_async_step: 1
