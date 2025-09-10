@@ -9,7 +9,6 @@ import ray
 import torch
 import torch.distributed as dist
 
-from orl_servers.vllm_worker_wrap import stateless_init_process_group
 from compose_rl.utils.ray_utils import (
     get_free_port,
     get_node_ip,
@@ -100,6 +99,7 @@ class BaseDistributedGPUActor:
     ):
         """Initialize vLLM stateless NCCL communicator between trainer and vLLM workers.
         """
+        from orl_servers.vllm_worker_wrap import stateless_init_process_group
         self.model_update_group = stateless_init_process_group(
             master_addr, master_port, rank, world_size, torch.cuda.current_device()
         )
