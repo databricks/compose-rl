@@ -44,9 +44,6 @@ class WorkerWrap:
     def update_weight(self, name: str, dtype: torch.dtype, shape: tuple[int, ...] | list[int], empty_cache: bool = False):
 
         """Broadcast weight to all vllm workers from source rank 0 (actor model)"""
-        if torch.distributed.get_rank() == 0:
-            print(f"update weight: {name}, dtype: {dtype}, shape: {shape}")
-
         assert dtype == self.model_config.dtype, f"mismatch dtype: src {dtype}, dst {self.model_config.dtype}"
         weight = torch.empty(shape, dtype=dtype, device="cuda")
         self._model_update_group.broadcast(weight, src=0, stream=torch.cuda.current_stream())

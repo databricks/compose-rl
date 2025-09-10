@@ -941,7 +941,7 @@ class TrainActorGroup(SPMDActorGroup):
         with time_it("training"):
             self.collective_methods.train_1_iter()
 
-    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', inference_server: 'InferenceServer', lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore, eval_semaphore: asyncio.Semaphore):
+    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', vllm_engine: RemoteVLLMEngine, lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore, eval_semaphore: asyncio.Semaphore):
         # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
         # asyncio.to_thread to bridge the async and sync world
         for _ in range(num_iterations):
@@ -952,56 +952,8 @@ class TrainActorGroup(SPMDActorGroup):
             await asyncio.to_thread(self.train_1_iter)
             # TODO decide where should we use the lock and the semaphore
             # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
-            await parameter_buffer.put({'actor_group': self, 'inference_server': inference_server, 'lock': lock, 'rollout_semaphore': rollout_semaphore, 'eval_semaphore': eval_semaphore})
+            await parameter_buffer.put({'actor_group': self, 'vllm_engine': vllm_engine, 'lock': lock, 'rollout_semaphore': rollout_semaphore, 'eval_semaphore': eval_semaphore})
 
-class InferenceServer:
-    """Remote vLLM HTTP server manager + client."""
-
-    def __init__(self, pretrain_model_name: str, vllm_tensor_parallel_size: int, num_vllm_servers: int = 1):
-        assert num_vllm_servers == 1, f"only support single vLLM server for now, got {num_vllm_servers}"
-        self.vllm_tensor_parallel_size = vllm_tensor_parallel_size
-        self.num_vllm_servers = num_vllm_servers
-        self._processes: list[subprocess.Popen] = []
-        addresses: list[str] = []
-
-        env = os.environ.copy()
-        training_world_size = dist.get_world_size() // 2
-        inference_gpus = range(training_world_size, training_world_size + self.vllm_tensor_parallel_size)
-        env['CUDA_VISIBLE_DEVICES'] = ','.join(map(str, inference_gpus))
-
-        p = subprocess.Popen([
-            'orl-vllm-server',
-            '--model', pretrain_model_name,
-            '--worker-extension-cls', 'orl_servers.vllm_worker_wrap.WorkerWrap',
-            '--tensor-parallel-size', str(self.vllm_tensor_parallel_size),
-            '--disable-custom-all-reduce'
-        ], env=env)
-        self._processes.append(p)
-        addresses = [f'localhost:{8000}']
-
-        self._engine = RemoteVLLMEngine(
-            config=InferenceEngineConfig(
-                setup_timeout=120.0,
-                request_timeout=300.0,
-                request_retries=3,
-            ),
-            addresses=addresses,
-        )
-        if dist.get_rank() == 0:
-            self._engine.initialize()
-
-    @property
-    def vllm_engine(self) -> RemoteVLLMEngine:
-        return self._engine
-
-    def shutdown(self):
-        if dist.get_rank() == 0:
-            for p in self._processes:
-                try:
-                    p.send_signal(signal.SIGINT)
-                    p.wait(timeout=10)
-                except Exception:
-                    p.kill()
 
 # Note: This needs to be re-worked once the repos are migrated.
 class EvalAgent:
@@ -1080,7 +1032,7 @@ class ParameterBuffer(Buffer):
         # TODO: Support eval_interval_num in a more generic way (e.g. handle more than just `iter`)
         self.eval_interval_num = int(config.eval_interval.strip("iter"))
 
-    def update_inference_model(self, actor: DistributedGPUActor, inference_server: InferenceServer):
+    def update_inference_model(self, actor: DistributedGPUActor, vllm_engine: RemoteVLLMEngine):
         start_time = time.time()
         print('Before broadcast to vLLM')
         # TODO (infra) instead of direcly broadcasting to vllm, we should
@@ -1090,7 +1042,7 @@ class ParameterBuffer(Buffer):
         actor.ppo_callback.actor_critic.model_update_group = actor.model_update_group
         run_async_sync(broadcast_to_vllm(
             model=actor.ppo_callback.actor_critic,
-            vllm_engine=inference_server.vllm_engine,
+            vllm_engine=vllm_engine,
             device=torch.device('cuda'),
             loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
             enable_prefix_caching=False,
@@ -1103,7 +1055,7 @@ class ParameterBuffer(Buffer):
         # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
         async with struct['lock']:
-            struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, inference_server=struct['inference_server']))
+            struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, vllm_engine=struct['vllm_engine']))
         # allow next rollout/generation step
         struct['rollout_semaphore'].release()
         # schedule eval if interval reached
@@ -1389,13 +1341,13 @@ class RolloutAgent:
 
     def __init__(
         self,
-        inference_server: InferenceServer,
+        vllm_engine: RemoteVLLMEngine,
         streaming_dataset_actor: StreamingDatasetActor,
         reward_actor: RewardActor,
         config: Any,
     ):
         # Actors
-        self.inference_server = inference_server
+        self.vllm_engine = vllm_engine
         self.streaming_dataset_actor = streaming_dataset_actor
         self.reward_actor = reward_actor
 
@@ -1447,7 +1399,7 @@ class RolloutAgent:
         # we should move this to the separate util file.
         with get_precision_context(self.precision), torch.no_grad():
             sequences, vllm_logprobs = vllm_generate_sync(
-                remote_engine=self.inference_server.vllm_engine,
+                remote_engine=self.vllm_engine,
                 max_gen_len=self.max_gen_len,
                 generation_kwargs=self.generation_kwargs,
                 pad_token_id=self.tokenizer_pad_token_id,
@@ -1665,7 +1617,7 @@ class PPOController:
     def __init__(
         self,
         train_actor: TrainActorGroup,
-        inference_server: InferenceServer,
+        vllm_engine: RemoteVLLMEngine,
         rollout_agent: RolloutAgent,
         parameter_buffer: ParameterBuffer,
         experience_buffer: ExperienceBuffer,
@@ -1673,7 +1625,7 @@ class PPOController:
         config: Any,
     ):
         self.train_actor = train_actor
-        self.inference_server = inference_server
+        self.vllm_engine = vllm_engine
         self.rollout_agent = rollout_agent
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
@@ -1692,15 +1644,15 @@ class PPOController:
 
         await setup_process_groups(
             master_actor=self.train_actor.master_actor,
-            vllm_engine=self.inference_server.vllm_engine,
-            gen_tp_size=self.inference_server.vllm_tensor_parallel_size,
-            num_vllm_servers=self.inference_server.num_vllm_servers,
+            vllm_engine=self.vllm_engine,
+            gen_tp_size=self.config.vllm_tensor_parallel_size,
+            num_vllm_servers=self.vllm_engine.num_servers,
         )
         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
-        await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'rollout_semaphore': self.rollout_semaphore, 'eval_semaphore': self.eval_semaphore})
+        await self.parameter_buffer.put({'actor_group': self.train_actor, 'vllm_engine': self.vllm_engine, 'lock': self.lock, 'rollout_semaphore': self.rollout_semaphore, 'eval_semaphore': self.eval_semaphore})
         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
         # eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
-        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.rollout_semaphore, self.eval_semaphore))
+        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.vllm_engine, self.lock, self.rollout_semaphore, self.eval_semaphore))
         await asyncio.gather(rollout_task, train_task)
         self.train_actor.collective_methods.close_trainer()
 
@@ -1739,12 +1691,30 @@ def _run_single_controller_ppo(
                 #     world_size - num_train_actors
                 # ) // vllm_tensor_parallel_size
                 num_vllm_servers = 1
-                # TODO: Encapsulate this into a inference server manager class
-                inference_server = InferenceServer(
-                    pretrain_model_name=config.model.pretrained_model_name_or_path,
-                    vllm_tensor_parallel_size=vllm_tensor_parallel_size,
-                    num_vllm_servers=num_vllm_servers,
+                # Launch vLLM server
+                env = os.environ.copy()
+                training_world_size = num_train_actors
+                inference_gpus = range(training_world_size, training_world_size + vllm_tensor_parallel_size)
+                env['CUDA_VISIBLE_DEVICES'] = ','.join(map(str, inference_gpus))
+
+                vllm_proc = subprocess.Popen([
+                    'orl-vllm-server',
+                    '--model', config.model.pretrained_model_name_or_path,
+                    '--worker-extension-cls', 'orl_servers.vllm_worker_wrap.WorkerWrap',
+                    '--tensor-parallel-size', str(vllm_tensor_parallel_size),
+                    '--disable-custom-all-reduce'
+                ], env=env)
+
+                addresses = [f'localhost:{8000}']
+                vllm_engine = RemoteVLLMEngine(
+                    config=InferenceEngineConfig(
+                        setup_timeout=120.0,
+                        request_timeout=300.0,
+                        request_retries=3,
+                    ),
+                    addresses=addresses,
                 )
+                vllm_engine.initialize()
 
                 # create SPMD training actors of the system
                 train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
@@ -1768,7 +1738,7 @@ def _run_single_controller_ppo(
                 uninstall_megablocks_if_exists()
                 streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote(config)
                 reward_actor = ray.remote(num_gpus=0)(RewardActor).remote(config)
-                rollout_agent = RolloutAgent(inference_server, streaming_dataset_actor, reward_actor, config)
+                rollout_agent = RolloutAgent(vllm_engine, streaming_dataset_actor, reward_actor, config)
 
                 
 
@@ -1778,7 +1748,7 @@ def _run_single_controller_ppo(
 
                 ppo_controller = PPOController(
                     train_actor,
-                    inference_server,
+                    vllm_engine,
                     rollout_agent,
                     parameter_buffer,
                     experience_buffer,
@@ -1787,7 +1757,8 @@ def _run_single_controller_ppo(
                 )
                 asyncio.run(ppo_controller.train_async(config.max_duration))
             finally:
-                inference_server.shutdown()
+                vllm_proc.send_signal(signal.SIGINT)
+                vllm_proc.wait(timeout=10)  # Wait up to 10 seconds for graceful shutdown
 
 
 if __name__ == '__main__':

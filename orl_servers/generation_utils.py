@@ -256,11 +256,13 @@ async def broadcast_to_vllm(
                     )
                     if not update or parsed_name in seen_updated_parsed_names:
                         continue
-
+                    
+                    # TODO: we should read datatype from vllm engine
+                    param_bf16 = param.data.bfloat16()
                     seen_updated_parsed_names.add(parsed_name)
                     count += 1
                     shape = tuple(param.shape)
-                    dtype_str = _torch_dtype_to_str(param.dtype)
+                    dtype_str = _torch_dtype_to_str(param_bf16.dtype)
 
                     spec = ParamSpec(name=parsed_name, shape=shape, dtype=dtype_str)
 
@@ -274,7 +276,7 @@ async def broadcast_to_vllm(
                         def _do_broadcast():
                             # Use the vLLM communicator exposed on the model (set by the actor)
                             communicator = getattr(model, 'model_update_group')
-                            communicator.broadcast(param.data, src=0, stream=torch.cuda.current_stream())
+                            communicator.broadcast(param_bf16, src=0, stream=torch.cuda.current_stream())
 
                         bcast_task = asyncio.to_thread(_do_broadcast)
                         await asyncio.gather(http_task, bcast_task)
