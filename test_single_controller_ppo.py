@@ -119,6 +119,50 @@ def get_and_validate_num_prompts_per_iteration(config: Any):
     return num_prompts_per_iteration
 
 
+def launch_vllm_servers(
+    pretrain_model_name: str,
+    tensor_parallel_size: int,
+    num_vllm_servers: int,
+    num_train_actors: int,
+) -> tuple[RemoteVLLMEngine, list[subprocess.Popen]]:
+    """Launch multiple vLLM HTTP servers and return processes and a RemoteVLLMEngine.
+
+    Servers are started on localhost with ports starting at 8000.
+    Each server is assigned a disjoint set of GPUs based on training_world_size.
+    """
+    processes: list[subprocess.Popen] = []
+    addresses: list[str] = []
+
+    for server_idx in range(num_vllm_servers):
+        env = os.environ.copy()
+        gpu_start = num_train_actors + server_idx * tensor_parallel_size
+        gpu_ids = list(range(gpu_start, gpu_start + tensor_parallel_size))
+        env['CUDA_VISIBLE_DEVICES'] = ','.join(map(str, gpu_ids))
+
+        port = 8000 + server_idx
+        cmd = [
+            'orl-vllm-server',
+            '--model', pretrain_model_name,
+            '--worker-extension-cls', 'orl_servers.vllm_worker_wrap.WorkerWrap',
+            '--tensor-parallel-size', str(tensor_parallel_size),
+            '--disable-custom-all-reduce',
+            '--port', str(port),
+        ]
+        p = subprocess.Popen(cmd, env=env)
+        processes.append(p)
+        addresses.append(f'localhost:{port}')
+
+    vllm_engine = RemoteVLLMEngine(
+        config=InferenceEngineConfig(
+            setup_timeout=120.0,
+            request_timeout=300.0,
+            request_retries=3,
+        ),
+        addresses=addresses,
+    )
+    vllm_engine.initialize()
+    return vllm_engine, processes
+
 class DistributedGPUActor(BaseDistributedGPUActor):
     """Distributed GPU actor for testing."""
 
@@ -1045,7 +1089,7 @@ class ParameterBuffer(Buffer):
             vllm_engine=vllm_engine,
             device=torch.device('cuda'),
             loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
-            enable_prefix_caching=False,
+            enable_prefix_caching=True,
         ))
         print('Finished broadcasting to vLLM')
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
@@ -1687,34 +1731,17 @@ def _run_single_controller_ppo(
                 # Create vLLM engines (or inference actors)
                 num_train_actors = world_size // 2
                 vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
-                # num_vllm_servers = (
-                #     world_size - num_train_actors
-                # ) // vllm_tensor_parallel_size
-                num_vllm_servers = 1
+                num_vllm_servers = (
+                    world_size - num_train_actors
+                ) // vllm_tensor_parallel_size
                 # Launch vLLM server
-                env = os.environ.copy()
-                training_world_size = num_train_actors
-                inference_gpus = range(training_world_size, training_world_size + vllm_tensor_parallel_size)
-                env['CUDA_VISIBLE_DEVICES'] = ','.join(map(str, inference_gpus))
-
-                vllm_proc = subprocess.Popen([
-                    'orl-vllm-server',
-                    '--model', config.model.pretrained_model_name_or_path,
-                    '--worker-extension-cls', 'orl_servers.vllm_worker_wrap.WorkerWrap',
-                    '--tensor-parallel-size', str(vllm_tensor_parallel_size),
-                    '--disable-custom-all-reduce'
-                ], env=env)
-
-                addresses = [f'localhost:{8000}']
-                vllm_engine = RemoteVLLMEngine(
-                    config=InferenceEngineConfig(
-                        setup_timeout=120.0,
-                        request_timeout=300.0,
-                        request_retries=3,
-                    ),
-                    addresses=addresses,
+                vllm_procs = []
+                vllm_engine, vllm_procs = launch_vllm_servers(
+                    pretrain_model_name=config.model.pretrained_model_name_or_path,
+                    tensor_parallel_size=vllm_tensor_parallel_size,
+                    num_vllm_servers=num_vllm_servers,
+                    num_train_actors=num_train_actors,
                 )
-                vllm_engine.initialize()
 
                 # create SPMD training actors of the system
                 train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
@@ -1757,8 +1784,9 @@ def _run_single_controller_ppo(
                 )
                 asyncio.run(ppo_controller.train_async(config.max_duration))
             finally:
-                vllm_proc.send_signal(signal.SIGINT)
-                vllm_proc.wait(timeout=10)  # Wait up to 10 seconds for graceful shutdown
+                for vllm_proc in vllm_procs:
+                    vllm_proc.send_signal(signal.SIGINT)
+                    vllm_proc.wait(timeout=10)  # Wait up to 10 seconds for graceful shutdown
 
 
 if __name__ == '__main__':
