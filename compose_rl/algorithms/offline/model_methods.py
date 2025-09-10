@@ -154,7 +154,7 @@ def _extract_segments(mask: torch.Tensor) -> list[tuple[int, int]]:
         mask: 1D tensor of 0s and 1s
         
     Returns:
-        List of (start, end) tuples for each contiguous segment of 1s
+        List of (start, end) tuples for each contiguous segment of 1s; both start and end are inclusive
     """
     # Convert to CPU and ensure integer type for reliable comparison
     mask_cpu = mask.cpu().int()
