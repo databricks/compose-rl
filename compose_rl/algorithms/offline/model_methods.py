@@ -273,7 +273,7 @@ def offline_loss(
             segments = _extract_segments(combined_mask)
             segment_losses = []
             
-            for segment in segments:
+            for k, segment in enumerate(segments):
                 seg_logp = torch.sum(token_policy_logps[i][segment[0]:segment[1]+1])
                 seg_ref_logp = torch.sum(ref_token_policy_logps[i][segment[0]:segment[1]+1])
                 logits_start = first_num_bins_logits[i, segment[0], :]
@@ -282,7 +282,10 @@ def offline_loss(
                 # use pre-computed arange tensor
                 # below is the implementation we wanted:
                 vstar_start = beta1*torch.log(torch.softmax(logits_start,dim=0).dot(torch.exp(bin_values/beta1)))
-                vstar_end = beta1*torch.log(torch.softmax(logits_end,dim=0).dot(torch.exp(bin_values/beta1)))
+                if k == len(segments) - 1:
+                    vstar_end = batch['reward'][i]
+                else:
+                    vstar_end = beta1*torch.log(torch.softmax(logits_end,dim=0).dot(torch.exp(bin_values/beta1)))
                 #vstar_start = beta1*torch.log(torch.sum(torch.softmax(logits_start,dim=0)*torch.exp(bin_values/beta1)))
                 #vstar_end = beta1*torch.log(torch.sum(torch.softmax(logits_end,dim=0)*torch.exp(bin_values/beta1)))
                 segment_loss = (beta2 * (seg_logp - seg_ref_logp) - (vstar_end - vstar_start))**2
