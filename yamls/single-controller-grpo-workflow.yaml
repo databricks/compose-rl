@@ -22,7 +22,7 @@ integrations:
   git_branch: main
 command: |-
   python /workspace/research-universe/dle/dle.py install --no-deps
-  pip install /workspace/compose-rl[servers] --no-deps
+  uv pip install --system /workspace/compose-rl[servers]
 
   cd /workspace/compose-rl
   composer test_single_controller_ppo.py --file_path /mnt/config/parameters.yaml
