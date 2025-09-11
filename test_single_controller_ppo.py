@@ -149,7 +149,8 @@ def launch_vllm_servers(
             '--max-model-len', str(max_model_len),
             '--tensor-parallel-size', str(tensor_parallel_size),
             '--seed', '1',
-            '--no-enable-prefix-caching' if enable_prefix_caching else '--enable-prefix-caching',
+            '--enable-prefix-caching' if enable_prefix_caching else '--no-enable-prefix-caching',
+            '--enforce-eager',
             # '--disable-custom-all-reduce',
             '--port', str(port),
         ]
