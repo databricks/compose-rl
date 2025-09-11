@@ -255,13 +255,13 @@ def offline_loss(
         assert batch['reward'] is not None, "reward must be in the batch. called from offline_loss fn"
         # option 1: single value learning. regress directly to the value.
         if distributional_value_learning == False:
-            assert batch['first_num_bins_logits'] is not None, "first_num_bins_logits must be in the batch. called from offline_loss fn"
-            losses = (batch['first_num_bins_logits'][:,:,0] - batch['reward']) ** 2
+            assert outputs['first_num_bins_logits'] is not None, "first_num_bins_logits must be in the batch. called from offline_loss fn"
+            losses = (outputs['first_num_bins_logits'][:,:,0] - batch['reward']) ** 2
             losses *= batch['attention_mask']
         
         # option 2: distributional value learning. given n logits, we predict and the do softmax to get a distribution.
         else: # (distributional_value_learning == True):
-            first_n_logits = batch['first_num_bins_logits']
+            first_n_logits = outputs['first_num_bins_logits']
             top_n_logits = first_n_logits.shape[2]
             bucketized_reward = torch.bucketize(batch['reward'], torch.linspace(0, 1, top_n_logits).to(batch['reward'].device)).to(batch['reward'].device)
 
