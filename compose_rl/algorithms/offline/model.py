@@ -150,7 +150,6 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
             eta = self.eta, 
             multistep = self.multistep,
             distributional_value_learning = self.distributional_value_learning,
-            top_n_logits = self.num_bins,
         )
 
 class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
