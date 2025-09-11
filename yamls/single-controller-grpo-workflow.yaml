@@ -193,6 +193,6 @@ parameters:
   global_train_batch_size: 64
   device_train_microbatch_size: 1
   vllm_tensor_parallel_size: 1
-  vllm_enable_prefix_caching: true
+  vllm_enable_prefix_caching: false
   save_num_checkpoints_to_keep: 1
   max_async_step: 1

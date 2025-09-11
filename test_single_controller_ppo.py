@@ -125,6 +125,7 @@ def launch_vllm_servers(
     num_vllm_servers: int,
     num_train_actors: int,
     max_model_len: int,
+    enable_prefix_caching: bool,
 ) -> tuple[RemoteVLLMEngine, list[subprocess.Popen]]:
     """Launch multiple vLLM HTTP servers and return processes and a RemoteVLLMEngine.
 
@@ -147,6 +148,8 @@ def launch_vllm_servers(
             '--worker-extension-cls', 'orl_servers.vllm_worker_wrap.WorkerWrap',
             '--max-model-len', str(max_model_len),
             '--tensor-parallel-size', str(tensor_parallel_size),
+            '--seed', '1',
+            '--no-enable-prefix-caching' if enable_prefix_caching else '--enable-prefix-caching',
             # '--disable-custom-all-reduce',
             '--port', str(port),
         ]
@@ -1091,7 +1094,7 @@ class ParameterBuffer(Buffer):
             vllm_engine=vllm_engine,
             device=torch.device('cuda'),
             loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
-            enable_prefix_caching=True,
+            enable_prefix_caching=self.config.vllm_enable_prefix_caching,
         ))
         print('Finished broadcasting to vLLM')
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
@@ -1744,6 +1747,7 @@ def _run_single_controller_ppo(
                     num_vllm_servers=num_vllm_servers,
                     num_train_actors=num_train_actors,
                     max_model_len=config.max_seq_len,
+                    enable_prefix_caching=config.vllm_enable_prefix_caching,
                 )
 
                 # create SPMD training actors of the system
