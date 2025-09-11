@@ -34,6 +34,7 @@ class RegressionOfflineEnum(Enum):
     APO = 'apo'
     QRPO = 'qrpo'
     APO_CRITIC = 'apo_critic'
+    VALUE_LEARNING = 'value_learning'
 
 
 class PairwiseOfflineEnum(Enum):
@@ -131,6 +132,7 @@ def offline_forward(
         'policy_logp': logps,
         'sequence_entropies': sequence_entropies,
         'token_policy_logps': token_policy_logps,
+        'policy_logits': output_logits,
     }
     if num_bins >= 1: 
         first_num_bins_logits = output_logits[:,:,:num_bins] # take the first num_bins logits (batch_size, seq_len, num_bins)
@@ -182,6 +184,8 @@ def offline_loss(
     eta: float,
     multistep: bool = False,
     bce: bool = False, 
+    distributional_value_learning: bool = True,
+    top_n_logits: int = 10,
 ):
     # eta: r + eta * bonus (bonus can be used to model things like tool use)
     
@@ -243,6 +247,36 @@ def offline_loss(
 
         losses = (reward_q - beta2 * torch.log(torch.tensor(beta2)) - 1 - beta2 * (policy_logp - ref_logp)) ** 2
     
+    elif loss_type == RegressionOfflineEnum.VALUE_LEARNING:
+        policy_logits = outputs['policy_logits']    # (batch_size, gen_len, vocab_size)
+
+        # loss for VALUE_LEARNING is just regressing the first logit in the batch to the value of batch['reward']
+        # shape of policy_logits: (batch_size, gen_len, 0)
+        # shape of batch['reward']: (batch_size, )
+        # and then the subtraction will broadcast.
+        
+        assert batch['reward'] is not None, "reward must be in the batch. called from offline_loss fn"
+        # option 1: single value learning. regress directly to the value.
+        if distributional_value_learning == False:    
+            losses = (policy_logits[:, :, 0] - batch['reward']) ** 2
+            losses *= batch['attention_mask']
+        
+        # option 2: distributional value learning. given n logits, we predict and the do softmax to get a distribution.
+        else: # (distributional_value_learning == True):
+            print("distributional value learning with top_n_logits: ", top_n_logits)
+            first_n_logits = policy_logits[:, :, :top_n_logits]
+            bucketized_reward = torch.bucketize(batch['reward'], torch.linspace(0, 1, top_n_logits).to(batch['reward'].device)).to(batch['reward'].device)
+
+            input = first_n_logits.reshape(-1, first_n_logits.size(-1))
+            target = bucketized_reward.repeat_interleave(first_n_logits.size(1))
+            
+            losses = F.cross_entropy(input, target, reduction='none')
+
+            # reshape masks to match flattened losses
+            losses *= batch['attention_mask'].view(-1)
+
+        # note in this case, you don't need to mask based on the next one, just the true tokens should get a value.
+
     elif loss_type == RegressionOfflineEnum.APO_CRITIC:
         # grab necessaryinformation for this actor-critic style APO loss:
         first_num_bins_logits = batch.get('aux_first_num_bins_logits', None) # from the auxiliary distributional value function model

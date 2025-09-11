@@ -12,6 +12,13 @@ import torch
 from llmfoundry.models import ComposerHFCausalLM, ComposerMPTCausalLM
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.modeling_outputs import CausalLMOutputWithPast
+from compose_rl.metrics.offline_learning_metrics import (
+    TestEstimatedRewardLossMetric,
+    TestImplicitRewardsLossMetric, 
+    TestKLDivergenceLossMetric, 
+    TestSequenceEntropiesLossMetric, 
+    TestTotalLossMetric
+)
 
 from compose_rl.algorithms.offline.model_methods import (
     RegressionOfflineEnum,
@@ -107,6 +114,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
+        self.val_metrics = {metric.__class__.__name__ : metric for metric in [TestEstimatedRewardLossMetric(), TestImplicitRewardsLossMetric(), TestKLDivergenceLossMetric(), TestSequenceEntropiesLossMetric(), TestTotalLossMetric()]}
 
     def forward(self, batch: MutableMapping) -> dict[str, torch.Tensor]:
         assert self.tokenizer is not None
@@ -121,9 +129,13 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
     def eval_forward(
         self,
         batch: MutableMapping,
-        outputs: CausalLMOutputWithPast,
-    ) -> None:
-        raise ValueError('Eval forward is not implemented for ComposerHFDPOLM.')
+        outputs: CausalLMOutputWithPast | None = None,
+    ) -> dict[str, torch.Tensor]:
+        with torch.no_grad():
+            fwd = self.forward(batch)
+            loss = self.loss(fwd, batch)
+        
+        return loss
 
     def loss(self, outputs: CausalLMOutputWithPast,
              batch: Mapping) -> dict[str, torch.Tensor]:
@@ -133,10 +145,11 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
             loss_type = self.loss_type,
             beta1 = self.beta1,
             beta2 = self.beta2,
-            eta = self.eta,
+            eta = self.eta, 
             multistep = self.multistep,
+            distributional_value_learning = self.distributional_value_learning,
+            top_n_logits = self.top_n_logits,
         )
-
 
 class ComposerMPTPairwiseOfflinePolicyLM(ComposerMPTCausalLM):
     """MPT model wrapper for DPO model."""
