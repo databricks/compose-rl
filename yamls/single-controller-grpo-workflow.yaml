@@ -45,14 +45,14 @@ parameters:
     normalize_advantage: true
     use_flash_attention_2: true
     length_normalize_policy_loss: true
-    pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+    pretrained_model_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
   loggers:
     mlflow:
       tags:
         run: test_single_controller_ppo_deepseek_l8b_open_r1_48k_server_async_1
         group: grpo
       tracking_uri: databricks
-      experiment_name: test_single_controller_ppo
+      experiment_name: test_single_controller_ppo_temp
   callbacks:
     ppo: {}
     orl_eval:
@@ -88,7 +88,7 @@ parameters:
     alpha: 1
     t_warmup: 10iter
   tokenizer:
-    name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+    name: Qwen/Qwen2.5-0.5B-Instruct
     kwargs:
       padding: longest
       pad_token: <|finetune_right_pad_id|>
@@ -125,7 +125,7 @@ parameters:
     kl_controller:
       kl_ctl_type: fixed
       init_kl_coef: 0
-    tokenizer_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+    tokenizer_name: Qwen/Qwen2.5-0.5B-Instruct
     num_train_nodes: 1
     reference_model:
       precision: amp_bf16
@@ -135,7 +135,7 @@ parameters:
         pretrained: true
         use_auth_token: true
         use_flash_attention_2: true
-        pretrained_model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+        pretrained_model_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
     generation_kwargs:
       top_p: 1
       do_sample: true

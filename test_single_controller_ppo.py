@@ -1081,6 +1081,7 @@ class ParameterBuffer(Buffer):
         self.num_times_param_updated = 0
         # TODO: Support eval_interval_num in a more generic way (e.g. handle more than just `iter`)
         self.eval_interval_num = int(config.eval_interval.strip("iter"))
+        self.enable_prefix_caching = config.vllm_enable_prefix_caching
 
     def update_inference_model(self, actor: DistributedGPUActor, vllm_engine: RemoteVLLMEngine):
         start_time = time.time()
@@ -1095,7 +1096,7 @@ class ParameterBuffer(Buffer):
             vllm_engine=vllm_engine,
             device=torch.device('cuda'),
             loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
-            enable_prefix_caching=self.config.vllm_enable_prefix_caching,
+            enable_prefix_caching=self.enable_prefix_caching,
         ))
         print('Finished broadcasting to vLLM')
         print(f'Took: {time.time() - start_time} to broadcast to vllm.')
