@@ -1682,7 +1682,7 @@ class PPOController:
         rollout_agent: RolloutAgent,
         parameter_buffer: ParameterBuffer,
         experience_buffer: ExperienceBuffer,
-        eval_agent: EvalAgent,
+        # eval_agent: EvalAgent,
         config: Any,
     ):
         self.train_actor = train_actor
@@ -1691,7 +1691,7 @@ class PPOController:
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
         self.train_actor.build_models(config)
-        self.eval_agent = eval_agent
+        # self.eval_agent = eval_agent
         setup_process_groups(
             self.train_actor.master_actor,
             inference_server.engines,
@@ -1711,9 +1711,9 @@ class PPOController:
         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
         await self.parameter_buffer.put({'actor_group': self.train_actor, 'inference_server': self.inference_server, 'lock': self.lock, 'rollout_semaphore': self.rollout_semaphore, 'eval_semaphore': self.eval_semaphore})
         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
-        eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
+        # eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.inference_server, self.lock, self.rollout_semaphore, self.eval_semaphore))
-        await asyncio.gather(rollout_task, eval_task, train_task)
+        await asyncio.gather(rollout_task, train_task)
         self.train_actor.collective_methods.close_trainer()
 
 def _run_single_controller_ppo(
@@ -1784,7 +1784,7 @@ def _run_single_controller_ppo(
 
             # EvalAgent doesn't need to be a Ray actor since we don't need to
             # set a world_size or use GPUs for this process.
-            eval_agent = EvalAgent(inference_server.engines, config)
+            # eval_agent = EvalAgent(inference_server.engines, config)
 
             ppo_controller = PPOController(
                 train_actor,
@@ -1792,7 +1792,7 @@ def _run_single_controller_ppo(
                 rollout_agent,
                 parameter_buffer,
                 experience_buffer,
-                eval_agent,
+                # eval_agent,
                 config,
             )
             asyncio.run(ppo_controller.train_async(config.max_duration))
