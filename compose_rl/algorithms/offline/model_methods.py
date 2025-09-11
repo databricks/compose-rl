@@ -254,7 +254,8 @@ def offline_loss(
         
         assert batch['reward'] is not None, "reward must be in the batch. called from offline_loss fn"
         # option 1: single value learning. regress directly to the value.
-        if distributional_value_learning == False:    
+        if distributional_value_learning == False:
+            assert batch['first_num_bins_logits'] is not None, "first_num_bins_logits must be in the batch. called from offline_loss fn"
             losses = (batch['first_num_bins_logits'][:,:,0] - batch['reward']) ** 2
             losses *= batch['attention_mask']
         
