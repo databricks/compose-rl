@@ -150,8 +150,8 @@ def launch_vllm_servers(
             '--tensor-parallel-size', str(tensor_parallel_size),
             '--seed', '1',
             '--enable-prefix-caching' if enable_prefix_caching else '--no-enable-prefix-caching',
-            '--enforce-eager',
-            # '--disable-custom-all-reduce',
+            # '--enforce-eager',  # TODO: check if we need to enforce eager
+            # '--disable-custom-all-reduce',  # A100 does not like it
             '--port', str(port),
         ]
         p = subprocess.Popen(cmd, env=env)
@@ -1718,6 +1718,8 @@ def _run_single_controller_ppo(
     # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend
     # takes too long to jit compile
     # os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
+    # Set vLLM to disable compile cache other wise if a single host has multiple vllm servers, the compile cache will run into race conditions
+    os.environ['VLLM_DISABLE_COMPILE_CACHE'] = '1'
 
     # Disable setting CUDA_VISIBLE_DEVICES by ray, we will set it manually
     os.environ['RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES'] = '1'
