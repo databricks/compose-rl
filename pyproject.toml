@@ -38,7 +38,7 @@ cpu_released = [
     'llm-foundry[all-cpu]>=0.21.0',
 ]
 servers = [
-    'orl-servers @ file:./orl_servers',
+    'orl-servers',
 ]
 
 # Registry entry points
@@ -598,3 +598,6 @@ ignore_patterns = [
 convention="google"
 add_ignore="D100,D101,D102,D103,D104,D105,D107,D400,D401,D415"
 add_select="D404"
+
+[tool.uv.sources]
+orl-servers = { path = "orl_servers", editable = true }
