@@ -209,7 +209,6 @@ def offline_loss(
         # and then the subtraction will broadcast.
         
         assert batch['reward'] is not None, "reward must be in the batch. called from offline_loss fn"
-        print("batch reward: ", batch['reward'])
         # option 1: single value learning. regress directly to the value.
         if distributional_value_learning == False:    
             losses = (policy_logits[:, :, 0] - batch['reward']) ** 2
@@ -227,12 +226,7 @@ def offline_loss(
             losses = F.cross_entropy(input, target, reduction='none')
 
             # reshape masks to match flattened losses
-            losses *= batch['mask'].view(-1)
             losses *= batch['attention_mask'].view(-1)
-
-
-
-
 
         # note in this case, you don't need to mask based on the next one, just the true tokens should get a value.
 
