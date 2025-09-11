@@ -281,8 +281,12 @@ def offline_loss(
                 
                 # use pre-computed arange tensor
                 # below is the implementation we wanted:
-                vstar_start = beta1*torch.log(torch.softmax(logits_start,dim=0).dot(torch.exp(bin_values/beta1)))
-                if k == len(segments) - 1:
+                if k == 0: # for first segment, we can just use vstar_reward r(y) as V*(y). 
+                    vstar_start = beta1*torch.log(torch.mean(torch.exp(batch['vstar_rewards'][i]/beta1)))
+                else:
+                    vstar_start = beta1*torch.log(torch.softmax(logits_start,dim=0).dot(torch.exp(bin_values/beta1)))
+                
+                if k == len(segments) - 1: # for last segment, we can just use reward r(y) as V*(y). 
                     vstar_end = batch['reward'][i]
                 else:
                     vstar_end = beta1*torch.log(torch.softmax(logits_end,dim=0).dot(torch.exp(bin_values/beta1)))
