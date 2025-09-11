@@ -14,15 +14,14 @@ integrations:
   path: /workspace/compose-rl
   git_repo: databricks/compose-rl
   ssh_clone: true
-  git_branch: single-controller-hackathon
+  git_branch: boweny/single-controller-no-eval
 - integration_type: git_repo
   path: /workspace/research-universe
   git_repo: databricks-mosaic/research-universe
   ssh_clone: true
-  git_branch: update-orl-eval
+  git_branch: main
 command: |-
-  python -m uv pip install --system /workspace/research-universe/minieval
-  python -m uv pip install --system /workspace/research-universe/orl_eval
+  python /workspace/research-universe/dle/dle.py install --no-deps
   python -m uv pip install --system /workspace/compose-rl[gpu] --no-deps
 
   cd /workspace/compose-rl
@@ -51,7 +50,7 @@ parameters:
   loggers:
     mlflow:
       tags:
-        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k
+        run: test_single_controller_ppo_deepseek_l8b_open_r1_48k_no_eval
         group: grpo
       tracking_uri: databricks
       experiment_name: test_single_controller_ppo
@@ -198,4 +197,4 @@ parameters:
   vllm_tensor_parallel_size: 1
   vllm_enable_prefix_caching: false
   save_num_checkpoints_to_keep: 1
-  max_async_step: 0
+  max_async_step: 1
