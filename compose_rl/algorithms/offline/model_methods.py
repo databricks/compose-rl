@@ -209,11 +209,10 @@ def offline_loss(
         # and then the subtraction will broadcast.
         
         assert batch['reward'] is not None, "reward must be in the batch. called from offline_loss fn"
-
+        print("batch reward: ", batch['reward'])
         # option 1: single value learning. regress directly to the value.
         if distributional_value_learning == False:    
             losses = (policy_logits[:, :, 0] - batch['reward']) ** 2
-            losses *= batch['mask']
             losses *= batch['attention_mask']
         
         # option 2: distributional value learning. given n logits, we predict and the do softmax to get a distribution.
