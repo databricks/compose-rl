@@ -124,6 +124,7 @@ def launch_vllm_servers(
     tensor_parallel_size: int,
     num_vllm_servers: int,
     num_train_actors: int,
+    max_model_len: int,
 ) -> tuple[RemoteVLLMEngine, list[subprocess.Popen]]:
     """Launch multiple vLLM HTTP servers and return processes and a RemoteVLLMEngine.
 
@@ -144,8 +145,9 @@ def launch_vllm_servers(
             'orl-vllm-server',
             '--model', pretrain_model_name,
             '--worker-extension-cls', 'orl_servers.vllm_worker_wrap.WorkerWrap',
+            '--max-model-len', str(max_model_len),
             '--tensor-parallel-size', str(tensor_parallel_size),
-            '--disable-custom-all-reduce',
+            # '--disable-custom-all-reduce',
             '--port', str(port),
         ]
         p = subprocess.Popen(cmd, env=env)
@@ -154,7 +156,7 @@ def launch_vllm_servers(
 
     vllm_engine = RemoteVLLMEngine(
         config=InferenceEngineConfig(
-            setup_timeout=120.0,
+            setup_timeout=180.0,
             request_timeout=300.0,
             request_retries=3,
         ),
@@ -1741,6 +1743,7 @@ def _run_single_controller_ppo(
                     tensor_parallel_size=vllm_tensor_parallel_size,
                     num_vllm_servers=num_vllm_servers,
                     num_train_actors=num_train_actors,
+                    max_model_len=config.max_seq_len,
                 )
 
                 # create SPMD training actors of the system
