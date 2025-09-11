@@ -11,6 +11,7 @@ from compose_rl.data.dataloader import (
     build_offline_dataloader,
     build_pairwise_preference_dataloader,
     build_prompt_dataloader,
+    build_rl_dataloader,
 )
 from compose_rl.data.messages_data import messages_dataset_collate_fn
 from compose_rl.data.offline_data import (
@@ -23,6 +24,10 @@ from compose_rl.data.preference_data import (
     pairwise_preference_dataset_collate_fn,
 )
 from compose_rl.data.prompt_data import prompt_dataset_collate_fn
+from compose_rl.data.rl_data import (
+    RLStreamingDataset,
+    dataset_collate_fn,
+)
 
 __all__ = [
     'build_pairwise_preference_dataloader',
@@ -30,6 +35,7 @@ __all__ = [
     'build_messages_dataloader',
     'build_offline_dataloader',
     'build_prompt_dataloader',
+    'build_rl_dataloader',
     'DummyDataset',
     'finegrained_preference_dataset_collate_fn',
     'MinibatchRolloutBuffer',
@@ -39,4 +45,6 @@ __all__ = [
     'pairwise_preference_dataset_collate_fn',
     'prompt_dataset_collate_fn',
     'messages_dataset_collate_fn',
+    'RLStreamingDataset',
+    'dataset_collate_fn',
 ]

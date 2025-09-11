@@ -104,6 +104,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         top_n_logits: int = 10,
         average_log_prob: bool = False,
         temperature: float = 1.0,
+        num_bins: int = 1,  # Add num_bins parameter
         **kwargs: Any,
     ):
         self.loss_type = RegressionOfflineEnum(loss_type)
@@ -115,6 +116,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
         self.top_n_logits = top_n_logits
         self.average_log_prob = average_log_prob
         self.temperature = temperature
+        self.num_bins = num_bins  # Store num_bins
 
         super().__init__(**kwargs)
         self.train_metrics = None  # DPOLM does not support eval_forward
@@ -132,6 +134,7 @@ class ComposerHFOfflinePolicyLM(ComposerHFCausalLM):
             batch=batch,
             average_log_prob=self.average_log_prob,
             temperature=self.temperature,
+            num_bins=self.num_bins,  # Pass num_bins to offline_forward
         )
 
     def eval_forward(

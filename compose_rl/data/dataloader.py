@@ -31,6 +31,10 @@ from compose_rl.data.prompt_data import (
     PromptStreamingDataset,
     prompt_dataset_collate_fn,
 )
+from compose_rl.data.rl_data import (
+    RLStreamingDataset,
+    dataset_collate_fn,
+)
 
 __all__ = [
     'build_finegrained_preference_dataloader',
@@ -38,6 +42,7 @@ __all__ = [
     'build_prompt_dataloader',
     'build_messages_dataloader',
     'build_offline_dataloader',
+    'build_rl_dataloader',
 ]
 
 log = logging.getLogger(__name__)
@@ -90,6 +95,11 @@ def generate_dataloader_builder(
         if issubclass(
             dataset_cls,
             MessagesStreamingDataset,
+        ) and 'tokenizer' not in dataset_cfg:
+            dataset_cfg['tokenizer'] = tokenizer
+        if issubclass(
+            dataset_cls,
+            RLStreamingDataset,
         ) and 'tokenizer' not in dataset_cfg:
             dataset_cfg['tokenizer'] = tokenizer
 
@@ -172,4 +182,9 @@ build_messages_dataloader = generate_dataloader_builder(
 build_offline_dataloader = generate_dataloader_builder(
     OfflineStreamingDataset,
     offline_dataset_collate_fn_test,
+)
+
+build_rl_dataloader = generate_dataloader_builder(
+    RLStreamingDataset,
+    dataset_collate_fn,
 )
