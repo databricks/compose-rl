@@ -943,10 +943,12 @@ class TrainActorGroup(SPMDActorGroup):
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
+        self.eval_interval_num: int = 1
 
     # TODO: Maybe rename to build components?
     def build_models(self, config: Any):
         """Build reference models and PPO trainers for all actors."""
+        self.eval_interval_num = int(config.eval_interval.strip("iter"))
         self.collective_methods.build_train_config(config)
         self.collective_methods.init_composer_dist()
 
@@ -997,7 +999,9 @@ class TrainActorGroup(SPMDActorGroup):
     async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', vllm_engine: RemoteVLLMEngine, lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore, eval_semaphore: asyncio.Semaphore):
         # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
         # asyncio.to_thread to bridge the async and sync world
-        for _ in range(num_iterations):
+        for i in range(num_iterations):
+            if i % self.eval_interval_num == 0:
+                eval_semaphore.release()
             # Simple example of adding elements to the experience buffer
             # Populate the train actor group with the rollouts and then train
             latest_rollouts = await experience_buffer.get()
@@ -1005,7 +1009,9 @@ class TrainActorGroup(SPMDActorGroup):
             await asyncio.to_thread(self.train_1_iter)
             # TODO decide where should we use the lock and the semaphore
             # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
-            await parameter_buffer.put({'actor_group': self, 'vllm_engine': vllm_engine, 'lock': lock, 'rollout_semaphore': rollout_semaphore, 'eval_semaphore': eval_semaphore})
+            await parameter_buffer.put({'actor_group': self, 'vllm_engine': vllm_engine, 'lock': lock})
+            rollout_semaphore.release()
+
 
 
 # Note: This needs to be re-worked once the repos are migrated.
@@ -1083,9 +1089,7 @@ class ParameterBuffer(Buffer):
 
     def __init__(self, config: Any):
         super().__init__()
-        self.num_times_param_updated = 0
         # TODO: Support eval_interval_num in a more generic way (e.g. handle more than just `iter`)
-        self.eval_interval_num = int(config.eval_interval.strip("iter"))
         self.enable_prefix_caching = config.vllm_enable_prefix_caching
 
     def update_inference_model(self, actor: DistributedGPUActor, vllm_engine: RemoteVLLMEngine):
@@ -1112,15 +1116,6 @@ class ParameterBuffer(Buffer):
         # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
         async with struct['lock']:
             struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, vllm_engine=struct['vllm_engine']))
-        # allow next rollout/generation step
-        struct['rollout_semaphore'].release()
-        # schedule eval if interval reached
-        self.num_times_param_updated += 1
-        # Since we updated the params, we need to check if we need to schedule an eval
-        # based on the previous value of num_times_param_updated as we want to run an eval
-        # at timestep 0.
-        if (self.num_times_param_updated - 1) % self.eval_interval_num == 0:
-            struct['eval_semaphore'].release()
 
 
 class ExperienceBuffer(Buffer):
@@ -1454,14 +1449,15 @@ class RolloutAgent:
         # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
         # we should move this to the separate util file.
         with get_precision_context(self.precision), torch.no_grad():
-            sequences, vllm_logprobs = vllm_generate_sync(
-                remote_engine=self.vllm_engine,
-                max_gen_len=self.max_gen_len,
-                generation_kwargs=self.generation_kwargs,
-                pad_token_id=self.tokenizer_pad_token_id,
-                all_prompts=all_prompts,
-                batch_sizes=[len(all_prompts)],
-            )
+            with time_it("rollout"):
+                sequences, vllm_logprobs = vllm_generate_sync(
+                    remote_engine=self.vllm_engine,
+                    max_gen_len=self.max_gen_len,
+                    generation_kwargs=self.generation_kwargs,
+                    pad_token_id=self.tokenizer_pad_token_id,
+                    all_prompts=all_prompts,
+                    batch_sizes=[len(all_prompts)],
+                )
 
         sequences = sequences[0]
         vllm_logprobs = vllm_logprobs[0]
@@ -1688,7 +1684,7 @@ class PPOController:
         self.train_actor.build_models(config)
         self.eval_agent = eval_agent
         self.lock = asyncio.Lock()
-        self.rollout_semaphore = asyncio.Semaphore(config.max_async_step)
+        self.rollout_semaphore = asyncio.Semaphore(config.max_async_step+ 1)
         self.eval_semaphore = asyncio.Semaphore(0)
         self.config = config
     
@@ -1705,7 +1701,7 @@ class PPOController:
             num_vllm_servers=self.vllm_engine.num_servers,
         )
         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
-        await self.parameter_buffer.put({'actor_group': self.train_actor, 'vllm_engine': self.vllm_engine, 'lock': self.lock, 'rollout_semaphore': self.rollout_semaphore, 'eval_semaphore': self.eval_semaphore})
+        await self.parameter_buffer.put({'actor_group': self.train_actor, 'vllm_engine': self.vllm_engine, 'lock': self.lock})
         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
         eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.vllm_engine, self.lock, self.rollout_semaphore, self.eval_semaphore))

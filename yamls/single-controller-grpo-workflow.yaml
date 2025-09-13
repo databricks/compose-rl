@@ -67,7 +67,7 @@ parameters:
       - name: math_competition
       eval_overrides:
         generation_params:
-          max_tokens: ${max_gen_len}
+          max_tokens: ${max_model_len}
     lr_monitor: {}
     scheduled_gc:
       batch_interval: 1000

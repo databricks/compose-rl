@@ -124,7 +124,7 @@ class AsyncCompletionsWithReward(BaseAsyncCompletions):
             max_new_tokens = max_tokens - len(prompt_token_ids)
             if max_new_tokens <= 0:
                 raise RuntimeError(
-                    "max_tokens must be greater than the number of prompt tokens"
+                    f"max_tokens: {max_tokens} must be greater than the number of prompt tokens: {len(prompt_token_ids)}"
                 )
         if max_completion_tokens is not NOT_GIVEN and max_completion_tokens is not None:
             max_new_tokens = min(max_new_tokens, max_completion_tokens)
