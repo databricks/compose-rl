@@ -3,6 +3,7 @@
 
 """VLLMMinievalCallback for evaluating models on GSM8K during training."""
 import concurrent.futures
+import asyncio
 import logging
 import time
 from collections.abc import Iterable
@@ -120,13 +121,19 @@ class VLLMEngineMinievalCallback(CallbackWithConfig):
 
                 if self.vllm_client is not None:
                     all_results = []
-                    for input in all_inputs:
-                        res = run_async_sync(self.vllm_client.chat.completions.create(
-                            messages=input.messages,
-                            **gen_params,
-                        ))
-                        all_results.append(GenerativeModelOutput(generation=res.choices[0].message.content))
-                    return all_results
+                    async def _run_batch():
+                        tasks = []
+                        for input in all_inputs:
+                            task = asyncio.create_task(self.vllm_client.chat.completions.create(
+                                messages=input.messages,
+                                **gen_params,
+                            ))
+                            tasks.append(task)
+                        results = await asyncio.gather(*tasks)
+                        return results
+                    all_results = run_async_sync(_run_batch())
+                    for result in all_results:
+                        all_results.append(GenerativeModelOutput(generation=result.choices[0].message.content))
 
                 assert self.vllm_engines is not None, 'vLLM engines not found in state'
                 n = len(self.vllm_engines)
