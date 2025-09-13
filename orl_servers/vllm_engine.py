@@ -92,16 +92,16 @@ class AsyncEngine:
         ans = None
         while max_retries == 0 or retry < max_retries:
             res = await self._generate(prompt_token_ids, sampling_params_with_retries)
-            print(f'res: {res.request_id}, num prompt tokens: {len(prompt_token_ids)}, num cached tokens: {res.num_cached_tokens}, num decoded tokens: {len(res.outputs[0].token_ids)}')
+            log.debug(f'res: {res.request_id}, num prompt tokens: {len(prompt_token_ids)}, num cached tokens: {res.num_cached_tokens}, num decoded tokens: {len(res.outputs[0].token_ids)}')
             if ans is None:
                 ans = res
             else:
                 ans.add(res, aggregate=True)
             if res.finished:
-                log.info(f'request {res.request_id} is finished, finishreason: {res.outputs[0].finish_reason}, stopreason: {res.outputs[0].stop_reason}')
+                log.debug(f'request {res.request_id} is finished, finishreason: {res.outputs[0].finish_reason}, stopreason: {res.outputs[0].stop_reason}')
                 return ans
             else:
-                print(f'request {res.request_id} is not finished, decoded tokens: {len(res.outputs[0].token_ids)} finishreason: {res.outputs[0].finish_reason}, stopreason: {res.outputs[0].stop_reason}, retrying...')
+                log.debug(f'request {res.request_id} is not finished, decoded tokens: {len(res.outputs[0].token_ids)} finishreason: {res.outputs[0].finish_reason}, stopreason: {res.outputs[0].stop_reason}, retrying...')
                 # TODO (handle n > 1)
                 assert sampling_params.n == 1, f'generate with retries does not work with sampling_params.n > 1, but got {sampling_params.n}'
                 retry += 1

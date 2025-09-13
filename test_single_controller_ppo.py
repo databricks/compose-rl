@@ -156,6 +156,7 @@ def launch_vllm_servers(
             # '--enforce-eager',  # TODO: check if we need to enforce eager
             # '--disable-custom-all-reduce',  # A100 does not like it
             '--port', str(port),
+            '--disable-log-requests',
         ]
         p = subprocess.Popen(cmd, env=env)
         processes.append(p)
