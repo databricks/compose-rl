@@ -120,7 +120,6 @@ class VLLMEngineMinievalCallback(CallbackWithConfig):
                 gen_params = all_inputs[0].generation_params
 
                 if self.vllm_client is not None:
-                    all_results = []
                     async def _run_batch():
                         tasks = []
                         for input in all_inputs:
@@ -129,11 +128,13 @@ class VLLMEngineMinievalCallback(CallbackWithConfig):
                                 **gen_params,
                             ))
                             tasks.append(task)
-                        results = await asyncio.gather(*tasks)
-                        return results
-                    all_results = run_async_sync(_run_batch())
-                    for result in all_results:
-                        all_results.append(GenerativeModelOutput(generation=result.choices[0].message.content))
+                        responses = await asyncio.gather(*tasks)
+                        return responses
+                    responses = run_async_sync(_run_batch())
+                    all_results = []
+                    for response in responses:
+                        all_results.append(GenerativeModelOutput(generation=response.choices[0].message.content))
+                    return all_results
 
                 assert self.vllm_engines is not None, 'vLLM engines not found in state'
                 n = len(self.vllm_engines)
