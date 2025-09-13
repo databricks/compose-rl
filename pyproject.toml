@@ -67,6 +67,7 @@ messages = "compose_rl.data:build_messages_dataloader"
 [project.entry-points."llmfoundry_callbacks_with_config"]
 offline_rl = "compose_rl.algorithms.offline:ReferencePolicyCallback"
 on_policy_rl = "compose_rl.algorithms.online:OnPolicyCallback"
+orl_eval = "compose_rl.algorithms.online:VLLMEngineMinievalCallback"
 # Backwards Compatibility
 dpo = "compose_rl.algorithms.offline:ReferencePolicyCallback"
 ppo = "compose_rl.algorithms.online:OnPolicyCallback"

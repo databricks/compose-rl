@@ -21,6 +21,8 @@ from compose_rl.algorithms.online.policy_configuration import (
 )
 from compose_rl.algorithms.online.single_controller_callback import \
     SingleControllerOnPolicyCallback
+
+from compose_rl.algorithms.online.eval_callback import VLLMEngineMinievalCallback
 from compose_rl.registry import kl_controllers
 
 kl_controllers.register('adaptive', func=AdaptiveKLController)
@@ -37,4 +39,5 @@ __all__ = [
     'HFPolicyConfig',
     'MPTPolicyConfig',
     'CausalLMOutputWithPastAndValues',
+    'VLLMEngineMinievalCallback'
 ]

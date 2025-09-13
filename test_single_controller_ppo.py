@@ -59,6 +59,7 @@ from orl_servers.generation_utils import (
 from orl_servers.vllm_remote import RemoteVLLMEngine
 from orl_servers.structs import InferenceEngineConfig
 from orl_servers.async_utils import run_async_sync
+from orl_servers.client import ArealOpenAI
 from compose_rl.utils.ray_utils import start_ray_server, uninstall_megablocks_if_exists
 from compose_rl.controllers import BaseDistributedGPUActor, SPMDActorGroup
 import subprocess
@@ -122,6 +123,7 @@ def get_and_validate_num_prompts_per_iteration(config: Any):
 def launch_vllm_servers(
     pretrain_model_name: str,
     tensor_parallel_size: int,
+    data_parallel_size: int,
     num_vllm_servers: int,
     num_train_actors: int,
     max_model_len: int,
@@ -148,6 +150,7 @@ def launch_vllm_servers(
             '--worker-extension-cls', 'orl_servers.vllm_worker_wrap.WorkerWrap',
             '--max-model-len', str(max_model_len),
             '--tensor-parallel-size', str(tensor_parallel_size),
+            '--data-parallel-size', str(data_parallel_size),
             '--seed', '1',
             '--enable-prefix-caching' if enable_prefix_caching else '--no-enable-prefix-caching',
             # '--enforce-eager',  # TODO: check if we need to enforce eager
@@ -1011,10 +1014,12 @@ class EvalAgent:
 
     def __init__(
         self,
-        vllm_engines: list[Any],
+        vllm_engine: RemoteVLLMEngine,
         config: Any,
     ):
-        self.vllm_engines = vllm_engines
+        self.vllm_engine = vllm_engine
+        self.tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.name, **config.tokenizer.kwargs)
+        self.vllm_client = ArealOpenAI(vllm_engine, self.tokenizer)
         self.config = config
 
         # Variables from the config used in the eval_agent
@@ -1044,9 +1049,9 @@ class EvalAgent:
         )
         # Need to create a fake state to pass to fit_start to help the callback register correctly.
         class _State:
-            vllm_engines = []
+            vllm_client = None
         fake_state = _State()
-        fake_state.vllm_engines = self.vllm_engines
+        fake_state.vllm_client = self.vllm_client
         # fit_start needs to be called to allow us to call _run_evaluation
         callback.fit_start(fake_state, logger=None)
         return callback
@@ -1672,7 +1677,7 @@ class PPOController:
         rollout_agent: RolloutAgent,
         parameter_buffer: ParameterBuffer,
         experience_buffer: ExperienceBuffer,
-        # eval_agent: EvalAgent,
+        eval_agent: EvalAgent,
         config: Any,
     ):
         self.train_actor = train_actor
@@ -1681,7 +1686,7 @@ class PPOController:
         self.parameter_buffer = parameter_buffer
         self.experience_buffer = experience_buffer
         self.train_actor.build_models(config)
-        self.eval_agent = None
+        self.eval_agent = eval_agent
         self.lock = asyncio.Lock()
         self.rollout_semaphore = asyncio.Semaphore(config.max_async_step)
         self.eval_semaphore = asyncio.Semaphore(0)
@@ -1702,9 +1707,9 @@ class PPOController:
         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
         await self.parameter_buffer.put({'actor_group': self.train_actor, 'vllm_engine': self.vllm_engine, 'lock': self.lock, 'rollout_semaphore': self.rollout_semaphore, 'eval_semaphore': self.eval_semaphore})
         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
-        # eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
+        eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.vllm_engine, self.lock, self.rollout_semaphore, self.eval_semaphore))
-        await asyncio.gather(rollout_task, train_task)
+        await asyncio.gather(rollout_task, train_task, eval_task)
         self.train_actor.collective_methods.close_trainer()
 
 def _run_single_controller_ppo(
@@ -1748,6 +1753,7 @@ def _run_single_controller_ppo(
                 vllm_engine, vllm_procs = launch_vllm_servers(
                     pretrain_model_name=config.model.pretrained_model_name_or_path,
                     tensor_parallel_size=vllm_tensor_parallel_size,
+                    data_parallel_size=1,
                     num_vllm_servers=num_vllm_servers,
                     num_train_actors=num_train_actors,
                     max_model_len=config.max_seq_len,
@@ -1782,15 +1788,15 @@ def _run_single_controller_ppo(
 
                 # EvalAgent doesn't need to be a Ray actor since we don't need to
                 # set a world_size or use GPUs for this process.
-                # eval_agent = EvalAgent([], config)
-
+                eval_agent = EvalAgent(vllm_engine, config)
+                print(f'Eval agent created')
                 ppo_controller = PPOController(
                     train_actor,
                     vllm_engine,
                     rollout_agent,
                     parameter_buffer,
                     experience_buffer,
-                    # eval_agent,
+                    eval_agent,
                     config,
                 )
                 asyncio.run(ppo_controller.train_async(config.max_duration))
@@ -1803,18 +1809,32 @@ def _run_single_controller_ppo(
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run single controller PPO with configuration file')
-    parser.add_argument('--file_path', type=str, required=False, default=None,
-                       help='Path to the OmegaConf YAML configuration file')
+    parser.add_argument(
+        '--file_path',
+        type=str,
+        required=False,
+        default=None,
+        help='Path to the OmegaConf YAML configuration file',
+    )
+    parser.add_argument(
+        'overrides',
+        nargs='*',
+        help='Override config parameters (e.g., n_nodes=1 actor.type._class=qwen3)',
+    )
     args = parser.parse_args()
-    
+
     # Load configuration using OmegaConf
     if args.file_path is None:
-        config = om.load("yamls/single-controller-grpo-workflow.yaml").parameters
+        config = om.load('yamls/single-controller-grpo-workflow.yaml').parameters
     else:
         config = om.load(args.file_path)
-    
-    # This is an example of how to move the controller logic from PPO Callback
-    # to a separate trainer actor above and this main single controller
-    # function.
+
+    # Apply command line overrides
+    if args.overrides:
+        # Convert list of key=value strings to OmegaConf overrides
+        override_config = om.from_dotlist(args.overrides)
+        config = om.merge(config, override_config)
+        print(f'args.overrides: {args.overrides}')
+        print(f'Config after overrides: {config}')
     _run_single_controller_ppo(config)
 
