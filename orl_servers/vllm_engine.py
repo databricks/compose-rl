@@ -92,6 +92,7 @@ class AsyncEngine:
         ans = None
         while max_retries == 0 or retry < max_retries:
             res = await self._generate(prompt_token_ids, sampling_params_with_retries)
+            # TODO setup logger properly
             log.debug(f'res: {res.request_id}, num prompt tokens: {len(prompt_token_ids)}, num cached tokens: {res.num_cached_tokens}, num decoded tokens: {len(res.outputs[0].token_ids)}')
             if ans is None:
                 ans = res

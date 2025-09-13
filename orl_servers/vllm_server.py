@@ -199,6 +199,8 @@ class AsyncLLMServer:
         sock_addr = (self.server_args.host or "", self.server_args.port)
         sock = create_server_socket(sock_addr)
 
+        # Disable access logs to avoid noisy per-request lines
+        uvicorn_kwargs.setdefault("access_log", False)
         shutdown_task = await serve_http(
             app,
             sock,
