@@ -88,7 +88,8 @@ def offline_forward(
     output_logits = model(**inputs).logits # (batch_size, seq_len, vocab_size)  
     token_policy_logps = get_log_probs_from_logits(
             output_logits[:,:-1], 
-            batch['input_ids'][:,1:]
+            batch['input_ids'][:,1:],
+            temperature=temperature,
         ) # tokenize logps (batch_size, seq_len-1) here seq_len-1 because we shifted
     # Calculate token entropies from the logits
     token_entropies = get_token_entropies(logits=output_logits)
