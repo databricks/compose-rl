@@ -12,11 +12,13 @@
 
 import argparse
 import asyncio
+import contextlib
 import copy
 from contextlib import contextmanager
 import logging
 import os
 import pickle
+import sys
 import time
 import datetime
 from itertools import chain
@@ -27,17 +29,14 @@ from multiprocessing.context import TimeoutError as MultiprocessingTimeoutError
 from multiprocessing.pool import AsyncResult, Pool
 
 from composer.loggers import MLFlowLogger
-import ray
-import spacy
 import torch
-import torch.distributed as dist
 from composer import Trainer
 from composer.core import get_precision_context, Precision
 from composer.core.data_spec import _default_split_batch
 from composer.trainer.trainer import _get_initial_device_train_microbatch_size
 from compose_rl.data.buffer import MinibatchRolloutBuffer
 from composer.optim import DecoupledAdamW
-from composer.utils import dist as composer_dist
+from composer.utils import dist
 from llmfoundry.data import build_dataloader
 from llmfoundry.utils import build_composer_model
 from llmfoundry.utils.config_utils import process_init_device  # type: ignore
@@ -96,17 +95,19 @@ from compose_rl.algorithms.online.reward_manager import (
 
 from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 
+log = logging.getLogger(__name__)
+
 
 @contextmanager
 def time_it(name: str):
     start_time = time.time()
     pst_start_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-8)))
-    print(f"[{name}] started at {pst_start_time.strftime('%Y-%m-%d %H:%M PST')}")
+    log.info(f"[{name}] started at {pst_start_time.strftime('%Y-%m-%d %H:%M PST')}")
     yield
     end_time = time.time()
     pst_end_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-8)))
-    print(f"[{name}] finished at {pst_end_time.strftime('%Y-%m-%d %H:%M PST')}")
-    print(f"[{name}] took {end_time - start_time:.2f} seconds")
+    log.info(f"[{name}] finished at {pst_end_time.strftime('%Y-%m-%d %H:%M PST')}")
+    log.info(f"[{name}] took {end_time - start_time:.2f} seconds")
 
 
 def get_and_validate_num_prompts_per_iteration(config: Any):
@@ -128,6 +129,7 @@ def launch_vllm_servers(
     num_train_actors: int,
     max_model_len: int,
     enable_prefix_caching: bool,
+    use_existing: bool,
 ) -> tuple[RemoteVLLMEngine, list[subprocess.Popen]]:
     """Launch multiple vLLM HTTP servers and return processes and a RemoteVLLMEngine.
 
@@ -144,22 +146,23 @@ def launch_vllm_servers(
         env['CUDA_VISIBLE_DEVICES'] = ','.join(map(str, gpu_ids))
 
         port = 8000 + server_idx
-        cmd = [
-            'orl-vllm-server',
-            '--model', pretrain_model_name,
-            '--worker-extension-cls', 'orl_servers.vllm_worker_wrap.WorkerWrap',
-            '--max-model-len', str(max_model_len),
-            '--tensor-parallel-size', str(tensor_parallel_size),
-            '--data-parallel-size', str(data_parallel_size),
-            '--seed', '1',
-            '--enable-prefix-caching' if enable_prefix_caching else '--no-enable-prefix-caching',
-            # '--enforce-eager',  # TODO: check if we need to enforce eager
-            # '--disable-custom-all-reduce',  # A100 does not like it
-            '--port', str(port),
-            '--disable-log-requests',
-        ]
-        p = subprocess.Popen(cmd, env=env)
-        processes.append(p)
+        if not use_existing:
+            cmd = [
+                'orl-vllm-server',
+                '--model', pretrain_model_name,
+                '--worker-extension-cls', 'orl_servers.vllm_worker_wrap.WorkerWrap',
+                '--max-model-len', str(max_model_len),
+                '--tensor-parallel-size', str(tensor_parallel_size),
+                '--data-parallel-size', str(data_parallel_size),
+                '--seed', '1',
+                '--enable-prefix-caching' if enable_prefix_caching else '--no-enable-prefix-caching',
+                # '--enforce-eager',  # TODO: check if we need to enforce eager
+                # '--disable-custom-all-reduce',  # A100 does not like it
+                '--port', str(port),
+                '--disable-log-requests',
+            ]
+            p = subprocess.Popen(cmd, env=env)
+            processes.append(p)
         addresses.append(f'localhost:{port}')
 
     vllm_engine = RemoteVLLMEngine(
@@ -173,28 +176,10 @@ def launch_vllm_servers(
     vllm_engine.initialize()
     return vllm_engine, processes
 
-class DistributedGPUActor(BaseDistributedGPUActor):
+class DistributedGPUActor:
     """Distributed GPU actor for testing."""
 
-    def __init__(
-        self,
-        rank: int,
-        world_size: int,
-        master_addr: Optional[str] = None,
-        master_port: Optional[int] = None,
-    ):
-        super().__init__(rank, world_size, master_addr, master_port)
-
-        # Configure Ray actor logging - this will go to Ray logs
-        self.logger = logging.getLogger(f"Actor-{rank}")
-        self.logger.setLevel(logging.INFO)
-
-        # Create console handler that will be captured by Ray
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter(f'[ACTOR-{rank}] %(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
-
+    def __init__(self):
         self.config = None
         self.model = None
         self.reference_model = None
@@ -233,21 +218,21 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def build_train_config(self, config: Any):
         self.config = config
-        self.logger.info(f"Starting build_train_config with model: {self.config.model.pretrained_model_name_or_path}")
+        log.info(f"Starting build_train_config with model: {self.config.model.pretrained_model_name_or_path}")
         self.pretrain_model_name = self.config.model.pretrained_model_name_or_path
 
         self.model_config = om.to_container(self.config.model, resolve=True)
         self.model_config['tokenizer'] = self.tokenizer
         self.loss_type = self.model_config.get('loss_type', OnPolicyEnum.GRPO)
-        print("--------------------------------")
-        print(f'loss_type: {self.loss_type}')
-        print("--------------------------------")
+        log.info("--------------------------------")
+        log.info(f'loss_type: {self.loss_type}')
+        log.info("--------------------------------")
 
         # Reference Model Initializing
         self.ref_model_config = om.to_container(self.config.variables.reference_model.model_config, resolve=True)
 
         self.global_train_batch_size = self.config.global_train_batch_size
-        self.device_train_batch_size = self.global_train_batch_size // self.world_size
+        self.device_train_batch_size = self.global_train_batch_size // dist.get_world_size()
         self.num_batches_per_update = self.config.variables.num_batches_per_update
         self.max_seq_len = self.config.max_seq_len
         self.max_gen_len = self.config.variables.max_gen_len
@@ -281,7 +266,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'precision': self.precision,
             'variables': variables,
             'algorithms': algorithm_config,
-            'global_train_batch_size': self.device_train_batch_size * self.world_size,
+            'global_train_batch_size': self.device_train_batch_size * dist.get_world_size(),
             'device_train_batch_size': self.device_train_batch_size,
             'device_train_microbatch_size': self.device_train_batch_size,
             'save_folder': self.config.save_folder,
@@ -290,11 +275,11 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             'python_log_level': self.config.python_log_level,
             'console_log_interval': self.config.console_log_interval,
         }
-        self.logger.info("Finished build_train_config")
+        log.info("Finished build_train_config")
 
     def build_buffer(self):
         self.buffer = MinibatchRolloutBuffer(self.variables_config['buffer'])
-        self.logger.info(f'Initialized minibatch buffer.')
+        log.info(f'Initialized minibatch buffer.')
 
     def build_tokenizer(self):
         # TODO (algo): decide if we should use tokens or messages given
@@ -312,8 +297,8 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         return self._tokenizer
 
     def init_composer_dist(self):
-        print('Initializing composer dist', composer_dist.get_local_rank(), composer_dist.get_global_rank(), composer_dist.get_world_size())
-        composer_dist.initialize_dist('gpu')
+        log.info(f'Initializing composer dist {dist.get_local_rank()}, {dist.get_global_rank()}, {dist.get_world_size()}')
+        dist.initialize_dist('gpu')
 
     def build_kl_controller(self):
         kl_controller_name = self.kl_controller_config.pop('kl_ctl_type')
@@ -321,7 +306,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             name=kl_controller_name,
             kwargs=self.kl_controller_config,
         )
-        self.logger.info(f'Built KL Controller')
+        log.info(f'Built KL Controller')
 
     def build_reference_model(self):
         name = self.ref_model_config.pop('name')
@@ -355,19 +340,19 @@ class DistributedGPUActor(BaseDistributedGPUActor):
             load_path=load_path,
             python_log_level='debug',
         )
-        self.logger.info(f'Initialized {name} reference model')
+        log.info(f'Initialized {name} reference model')
 
     def build_ppo_trainer(self):
         name = self.model_config.pop('name')
 
-        self.logger.info(f"Model type: {name}")
+        log.info(f"Model type: {name}")
         if name == 'hf_ppo_lm':
-            self.logger.info("Creating ComposerHFPolicyLM")
+            log.info("Creating ComposerHFPolicyLM")
             model = ComposerHFPolicyLM(**self.model_config)
         elif name == 'hf_critic_free_lm':
-            self.logger.info("Creating ComposerHFCriticFreePolicyLM")
+            log.info("Creating ComposerHFCriticFreePolicyLM")
             model = ComposerHFCriticFreePolicyLM(**self.model_config)
-        self.logger.info("Model created successfully")
+        log.info("Model created successfully")
 
         # TODO: Add weight decay
         optimizer = DecoupledAdamW(model.parameters(), lr=1e-6)
@@ -506,7 +491,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         self.ppo_trainer.state.model.train()
 
         # Reset and initialize state train dataloader
-        self.logger.warning(
+        log.warning(
             'trainer._train_data_spec should be updated whenever the dataloader is updated',
         )
         # Train Dataloader
@@ -522,13 +507,13 @@ class DistributedGPUActor(BaseDistributedGPUActor):
 
     def _update_ift_kl(self):
         local_kl = torch.stack(self.kl_ift)
-        global_ift_kl = torch.cat(composer_dist.all_gather_object(local_kl))
+        global_ift_kl = torch.cat(dist.all_gather_object(local_kl))
         ift_kl_update = torch.mean(global_ift_kl)
 
         self.kl_controller.update(
             ift_kl_update,
             self.num_batches_per_update * self.device_train_batch_size *  # type: ignore
-            composer_dist.get_world_size(),
+            dist.get_world_size(),
         )
 
         self.kl_ift = []
@@ -936,7 +921,7 @@ class DistributedGPUActor(BaseDistributedGPUActor):
         # After Iteration callback
         self.rl_iter += 1
         self.buffer.reset()
-        self.logger.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
+        log.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
 
 
 class TrainActorGroup(SPMDActorGroup):
@@ -965,35 +950,35 @@ class TrainActorGroup(SPMDActorGroup):
         # Build KL Controller
         self.collective_methods.build_kl_controller()
 
-    def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]) -> list[dict[str, Any]]:
-        """Partition the rollouts across all actors."""
-        partitioned_rollouts = []
-        per_rank_data_size = rollouts['prompt'].shape[0] // self.num_train_actors
-        for i in range(self.num_train_actors):
-            current_rank_start = i * per_rank_data_size
-            current_rank_end = (i + 1) * per_rank_data_size
-            current_rank_rollouts = {}
-            for k, v in rollouts.items():
-                if isinstance(v, torch.Tensor) or isinstance(v, list):
-                    current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
-                elif isinstance(v, dict):
-                    # This is the case with the rewards dict where it has (key, tensor) pairs
-                    rewards_dict_for_rank = {}
-                    for reward_key, reward_tensor in v.items():
-                        rewards_dict_for_rank[reward_key] = reward_tensor[current_rank_start:current_rank_end]
-                    current_rank_rollouts[k] = rewards_dict_for_rank
-                else:
-                    raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
-            partitioned_rollouts.append(current_rank_rollouts)
-        return partitioned_rollouts
+    # def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]) -> list[dict[str, Any]]:
+    #     """Partition the rollouts across all actors."""
+    #     partitioned_rollouts = []
+    #     per_rank_data_size = rollouts['prompt'].shape[0] // self.num_train_actors
+    #     for i in range(self.num_train_actors):
+    #         current_rank_start = i * per_rank_data_size
+    #         current_rank_end = (i + 1) * per_rank_data_size
+    #         current_rank_rollouts = {}
+    #         for k, v in rollouts.items():
+    #             if isinstance(v, torch.Tensor) or isinstance(v, list):
+    #                 current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
+    #             elif isinstance(v, dict):
+    #                 # This is the case with the rewards dict where it has (key, tensor) pairs
+    #                 rewards_dict_for_rank = {}
+    #                 for reward_key, reward_tensor in v.items():
+    #                     rewards_dict_for_rank[reward_key] = reward_tensor[current_rank_start:current_rank_end]
+    #                 current_rank_rollouts[k] = rewards_dict_for_rank
+    #             else:
+    #                 raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
+    #         partitioned_rollouts.append(current_rank_rollouts)
+    #     return partitioned_rollouts
 
-    def _add_latest_rollouts(self, rollouts: dict[str, Any]):
-        partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
-        assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
-        ray.get([train_actor.create_online_minibatches.remote(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)])
+    # def _add_latest_rollouts(self, rollouts: dict[str, Any]):
+    #     partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
+    #     assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
+    #     [train_actor.create_online_minibatches(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)]
 
     def train_1_iter(self):
-        # added this method to time the collectivetraining time otherwise we can time each rank but the print/logging becomes messy to read
+        # added this method to time the collectivetraining time otherwise we can time each rank but the log.info/logging becomes messy to read
         with time_it("training"):
             self.collective_methods.train_1_iter()
 
@@ -1014,6 +999,52 @@ class TrainActorGroup(SPMDActorGroup):
             rollout_semaphore.release()
 
 
+def partition_rollouts_across_ranks(num_train_actors: int, rollouts: dict[str, Any]) -> list[dict[str, Any]]:
+    """Partition the rollouts across all actors."""
+    partitioned_rollouts = []
+    per_rank_data_size = rollouts['prompt'].shape[0] // num_train_actors
+    for i in range(num_train_actors):
+        current_rank_start = i * per_rank_data_size
+        current_rank_end = (i + 1) * per_rank_data_size
+        current_rank_rollouts = {}
+        for k, v in rollouts.items():
+            if isinstance(v, torch.Tensor) or isinstance(v, list):
+                current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
+            elif isinstance(v, dict):
+                # This is the case with the rewards dict where it has (key, tensor) pairs
+                rewards_dict_for_rank = {}
+                for reward_key, reward_tensor in v.items():
+                    rewards_dict_for_rank[reward_key] = reward_tensor[current_rank_start:current_rank_end]
+                current_rank_rollouts[k] = rewards_dict_for_rank
+            else:
+                raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
+        partitioned_rollouts.append(current_rank_rollouts)
+    return partitioned_rollouts
+
+
+@contextlib.contextmanager
+def _patch_env(**environs: str):
+    """Returns a context manager that patches ``os.environ`` with ``environs``.
+
+    The original ``os.environ`` values are restored at the end.
+    """
+    # Adapted loosely from https://stackoverflow.com/a/34333710
+    # Capture the original environ values
+    original_environs = {k: os.environ.get(k) for k in environs}
+
+    # Patch the environment
+    for k, v in environs.items():
+        os.environ[k] = v
+    try:
+        # Run the context manager
+        yield
+    finally:
+        # Restore the original environ values
+        for k, v in original_environs.items():
+            if v is None:
+                del os.environ[k]
+            else:
+                os.environ[k] = v
 
 # Note: This needs to be re-worked once the repos are migrated.
 class EvalAgent:
@@ -1095,7 +1126,7 @@ class ParameterBuffer(Buffer):
 
     def update_inference_model(self, actor: DistributedGPUActor, vllm_engine: RemoteVLLMEngine):
         start_time = time.time()
-        print('Before broadcast to vLLM')
+        log.info('Before broadcast to vLLM')
         # TODO (infra) instead of direcly broadcasting to vllm, we should
         # push the model parameters to a parameter buffer manager and have
         # the buffer manager initiate broadcast of parameters to vllm engines
@@ -1108,8 +1139,8 @@ class ParameterBuffer(Buffer):
             loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
             enable_prefix_caching=self.enable_prefix_caching,
         ))
-        print('Finished broadcasting to vLLM')
-        print(f'Took: {time.time() - start_time} to broadcast to vllm.')
+        log.info('Finished broadcasting to vLLM')
+        log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
         dist.barrier()
 
     async def put(self, struct: dict[str, Any]):
@@ -1132,17 +1163,10 @@ class ExperienceBuffer(Buffer):
         return len(self.buffer)
 
 
-class StreamingDatasetActor(BaseDistributedGPUActor):
+class StreamingDatasetActor:
     """Streaming actor for loading prompts onto the experience buffer."""
 
     def __init__(self, config: Any):
-        # Setting up the distributed environment (WORLD_SIZE = 1)
-        super().__init__(
-            rank=0,
-            world_size=1,
-            master_addr=None,
-            master_port=None,
-        )
 
         # Setting up all of the configs
         # TODO: We should move these to dataclasses
@@ -1214,26 +1238,10 @@ class StreamingDatasetActor(BaseDistributedGPUActor):
         self.dataloader.load_state_dict(state_dict)
 
 
-class RewardActor(BaseDistributedGPUActor):
+class RewardActor:
     """Streaming actor for adding rewards on top the experience buffer."""
 
     def __init__(self, config: Any):
-        # Setting up the distributed environment (WORLD_SIZE = 1)
-        super().__init__(
-            rank=0,
-            world_size=1,
-            master_addr=None,
-            master_port=None,
-        )
-        # Configure Ray actor logging - this will go to Ray logs
-        self.logger = logging.getLogger(f"REWARD-ACTOR")
-        self.logger.setLevel(logging.INFO)
-
-        # Create console handler that will be captured by Ray
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter(f'[REWARD-ACTOR] %(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
         self.max_seq_len = config.max_seq_len
 
         self.reward_config = om.to_container(config.variables.rewards, resolve=True)
@@ -1248,7 +1256,7 @@ class RewardActor(BaseDistributedGPUActor):
                     f'The reward already has a model with {reward_name=}',
                 )
 
-            self.logger.info(f'Initializing reward with name {reward_name}')
+            log.info(f'Initializing reward with name {reward_name}')
 
             reward_type = reward_config.pop('reward_type')
             reward_cls = rewards_registry.get(reward_type)
@@ -1363,7 +1371,7 @@ class RewardActor(BaseDistributedGPUActor):
                     )
                 except (TimeoutError, MultiprocessingTimeoutError):
                     encountered_timeout = True
-                    self.logger.error(
+                    log.error(
                         f'Timeout while waiting for {reward_name} reward to finish. ' +
                         'This may indicate a problem with the reward. Using a default reward of 0.',
                     )
@@ -1406,14 +1414,14 @@ class RolloutAgent:
         self.generation_kwargs = config.variables.generation_kwargs
         self.precision = config.precision
 
-        self.tokenizer = ray.get(self.streaming_dataset_actor.get_tokenizer.remote())
-        self.tokenizer_pad_token_id = ray.get(self.streaming_dataset_actor.get_tokenizer_pad_token_id.remote())
+        self.tokenizer = self.streaming_dataset_actor.get_tokenizer()
+        self.tokenizer_pad_token_id = self.streaming_dataset_actor.get_tokenizer_pad_token_id()
         if self.tokenizer_pad_token_id is None:
             raise ValueError(
                 'Tokenizer does not have a pad token id. Please use a different tokenizer or add a pad token id.',
             )
 
-        self.prompt_handler_config = ray.get(self.streaming_dataset_actor.get_prompt_handler_config.remote())
+        self.prompt_handler_config = self.streaming_dataset_actor.get_prompt_handler_config()
         self.max_gen_len = self.prompt_handler_config['max_gen_len']
 
         # TODO: get from config
@@ -1432,12 +1440,12 @@ class RolloutAgent:
         self.latest_checkpoint = os.path.join(self.save_folder, 'latest.symlink')
 
         if config.autoresume and os.path.exists(self.latest_checkpoint):
-            print(f'Autoresuming from checkpoint for RolloutAgent.')
+            log.info(f'Autoresuming from checkpoint for RolloutAgent.')
             with open(self.latest_checkpoint, 'rb') as f:
                 checkpoint = pickle.load(f)
             self.iter_num = checkpoint['iter_num']
-            print(f'Loading streaming dataloader state dict for RolloutAgent.', checkpoint['streaming_dataloader'])
-            self.streaming_dataset_actor.load_dataloader_state_dict.remote(checkpoint['streaming_dataloader'])
+            log.info(f'Loading streaming dataloader state dict for RolloutAgent.', checkpoint['streaming_dataloader'])
+            self.streaming_dataset_actor.load_dataloader_state_dict(checkpoint['streaming_dataloader'])
 
     def get_next_iter_rollouts(self):
         """
@@ -1445,7 +1453,7 @@ class RolloutAgent:
 
         Since all ranks should see different data, we need to get the rollouts for each rank.
         """
-        iter_data = ray.get(self.streaming_dataset_actor.get_next_iter_prompts.remote())
+        iter_data = self.streaming_dataset_actor.get_next_iter_prompts()
         all_prompts = iter_data['prompt']
         # TODO: Since this functionality is (somewhat) shared across the OnPolicyCallback and the RolloutAgent,
         # we should move this to the separate util file.
@@ -1613,7 +1621,7 @@ class RolloutAgent:
 
         # TODO: we should parallelize reward_actor and vllm_generate
         with time_it("Calculating Rewards from Reward Actor"):
-            all_rewards = ray.get(self.reward_actor.calculate_reward.remote(
+            all_rewards = self.reward_actor.calculate_reward(
                 raw_untokenized_texts=untokenized_prompt_and_responses,
                 right_padded_obses=right_padded_obs,
                 attention_masks=right_padded_attn_mask,
@@ -1624,22 +1632,22 @@ class RolloutAgent:
                 actions=actions,
                 action_log_probs=dummy_log_probs,
                 verified_answers=verified_answers,
-            ))
+            )
         all_rewards_dict = all_rewards
         prompts_and_gens = untokenized_prompt_and_responses
 
         # Shove all the necessary info in the iter_data for custom handling later
         iter_data["all_rewards_dict"] = all_rewards_dict
-        print(f'Rollout agent generated {len(prompts_and_gens)} rollouts')
-        print(f'With {len(all_rewards_dict)} rewards containing {list(all_rewards_dict.keys())} keys')
+        log.info(f'Rollout agent generated {len(prompts_and_gens)} rollouts')
+        log.info(f'With {len(all_rewards_dict)} rewards containing {list(all_rewards_dict.keys())} keys')
 
         # Checkpointing
         save_folder_iter = os.path.join(self.save_folder, f'iter_{self.iter_num}')
         checkpoint_path = os.path.join(save_folder_iter, 'checkpoint.pt')
         self.iter_num += 1
 
-        streaming_dataloader_state_dict = ray.get(self.streaming_dataset_actor.get_dataloader_state_dict.remote())
-        print(f'Streaming dataloader state dict for RolloutAgent.', streaming_dataloader_state_dict)
+        streaming_dataloader_state_dict = self.streaming_dataset_actor.get_dataloader_state_dict()
+        log.info(f'Streaming dataloader state dict for RolloutAgent.', streaming_dataloader_state_dict)
 
         # make sure that the folder path can exist
         os.makedirs(save_folder_iter, exist_ok=True)
@@ -1664,52 +1672,53 @@ class RolloutAgent:
                 rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
             await experience_buffer.put(rollouts)
 
-class PPOController:
-    """PPO controller for training the policy and value networks."""
+# class PPOController:
+#     """PPO controller for training the policy and value networks."""
 
-    def __init__(
-        self,
-        train_actor: TrainActorGroup,
-        vllm_engine: RemoteVLLMEngine,
-        rollout_agent: RolloutAgent,
-        parameter_buffer: ParameterBuffer,
-        experience_buffer: ExperienceBuffer,
-        eval_agent: EvalAgent,
-        config: Any,
-    ):
-        self.train_actor = train_actor
-        self.vllm_engine = vllm_engine
-        self.rollout_agent = rollout_agent
-        self.parameter_buffer = parameter_buffer
-        self.experience_buffer = experience_buffer
-        self.train_actor.build_models(config)
-        self.eval_agent = eval_agent
-        self.lock = asyncio.Lock()
-        self.rollout_semaphore = asyncio.Semaphore(config.max_async_step+ 1)
-        self.eval_semaphore = asyncio.Semaphore(0)
-        self.config = config
+#     def __init__(
+#         self,
+#         train_actor: TrainActorGroup,
+#         vllm_engine: RemoteVLLMEngine,
+#         rollout_agent: RolloutAgent,
+#         parameter_buffer: ParameterBuffer,
+#         experience_buffer: ExperienceBuffer,
+#         eval_agent: EvalAgent,
+#         config: Any,
+#     ):
+#         self.train_actor = train_actor
+#         self.vllm_engine = vllm_engine
+#         self.rollout_agent = rollout_agent
+#         self.parameter_buffer = parameter_buffer
+#         self.experience_buffer = experience_buffer
+#         self.train_actor.build_models(config)
+#         self.eval_agent = eval_agent
+#         self.lock = asyncio.Lock()
+#         self.rollout_semaphore = asyncio.Semaphore(config.max_async_step+ 1)
+#         self.eval_semaphore = asyncio.Semaphore(0)
+#         self.config = config
     
-    async def train_async(self, max_duration: int | str):
-        if isinstance(max_duration, str):
-            num_iterations = int(max_duration.replace('iter', ''))
-        else:
-            num_iterations = max_duration
+#     async def train_async(self, max_duration: int | str):
+#         if isinstance(max_duration, str):
+#             num_iterations = int(max_duration.replace('iter', ''))
+#         else:
+#             num_iterations = max_duration
 
-        await setup_process_groups(
-            master_actor=self.train_actor.master_actor,
-            vllm_engine=self.vllm_engine,
-            gen_tp_size=self.config.vllm_tensor_parallel_size,
-            num_vllm_servers=self.vllm_engine.num_servers,
-        )
-        # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
-        await self.parameter_buffer.put({'actor_group': self.train_actor, 'vllm_engine': self.vllm_engine, 'lock': self.lock})
-        rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
-        eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
-        train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.vllm_engine, self.lock, self.rollout_semaphore, self.eval_semaphore))
-        await asyncio.gather(rollout_task, train_task, eval_task)
-        self.train_actor.collective_methods.close_trainer()
+#         await setup_process_groups(
+#             master_actor=self.train_actor.master_actor,
+#             vllm_engine=self.vllm_engine,
+#             gen_tp_size=self.config.vllm_tensor_parallel_size,
+#             num_vllm_servers=self.vllm_engine.num_servers,
+#         )
+#         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
+#         await self.parameter_buffer.put({'actor_group': self.train_actor, 'vllm_engine': self.vllm_engine, 'lock': self.lock})
+#         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
+#         # eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
+#         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.vllm_engine, self.lock, self.rollout_semaphore, self.eval_semaphore))
+#         # await asyncio.gather(rollout_task, train_task, eval_task)
+#         await asyncio.gather(rollout_task, train_task)
+#         self.train_actor.collective_methods.close_trainer()
 
-def _run_single_controller_ppo(
+async def _run_single_controller_ppo(
     config: Any,
 ):
     """Shared function for running single controller PPO.
@@ -1717,94 +1726,98 @@ def _run_single_controller_ppo(
     Args:
         config: OmegaConf configuration object containing all parameters
     """
-    # Set vLLM attention backend to FLASH_ATTN otherwise FlashInfer backend
-    # takes too long to jit compile
-    # os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASH_ATTN'
-    # Set vLLM to disable compile cache other wise if a single host has multiple vllm servers, the compile cache will run into race conditions
-    os.environ['VLLM_DISABLE_COMPILE_CACHE'] = '1'
+    # only rank 0 is the master controller
+    vllm_procs = []
+    try:
+        world_size = dist.get_world_size()
 
-    # Disable setting CUDA_VISIBLE_DEVICES by ray, we will set it manually
-    os.environ['RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES'] = '1'
+        # Create vLLM engines (or inference actors)
+        num_train_actors = world_size
+        vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
+        num_vllm_servers = num_train_actors # Make it the same as the number of train actors
+        if dist.get_global_rank() == 0:
+            # Launch vLLM server
+            vllm_procs = []
+            vllm_engine, vllm_procs = launch_vllm_servers(
+                pretrain_model_name=config.model.pretrained_model_name_or_path,
+                tensor_parallel_size=vllm_tensor_parallel_size,
+                data_parallel_size=1,
+                num_vllm_servers=num_vllm_servers,
+                num_train_actors=num_train_actors,
+                max_model_len=config.max_seq_len,
+                enable_prefix_caching=config.vllm_enable_prefix_caching,
+                use_existing=True,
+            )
 
-    with start_ray_server() as _address:
-        # only rank 0 is the master controller
-        if dist.get_rank() == 0:
-            try:
-                world_size = getattr(config, "world_size", 0)
-                if world_size == 0:
-                    world_size = dist.get_world_size()
+            with _patch_env(WORLD_SIZE='1', LOCAL_WORLD_SIZE='1'):
+                streaming_dataset_actor = StreamingDatasetActor(config)
+            reward_actor = RewardActor(config)
+            rollout_agent = RolloutAgent(vllm_engine, streaming_dataset_actor, reward_actor, config)
 
-                # Create buffers for the parameter and experience buffers
-                # first since they don't have external dependencies
-                parameter_buffer = ParameterBuffer(config)
-                experience_buffer = ExperienceBuffer()
 
-                # Create vLLM engines (or inference actors)
-                num_train_actors = world_size // 2
-                vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
-                num_vllm_servers = (
-                    world_size - num_train_actors
-                ) // vllm_tensor_parallel_size
-                # Launch vLLM server
-                vllm_procs = []
-                vllm_engine, vllm_procs = launch_vllm_servers(
-                    pretrain_model_name=config.model.pretrained_model_name_or_path,
-                    tensor_parallel_size=vllm_tensor_parallel_size,
-                    data_parallel_size=1,
-                    num_vllm_servers=num_vllm_servers,
-                    num_train_actors=num_train_actors,
-                    max_model_len=config.max_seq_len,
-                    enable_prefix_caching=config.vllm_enable_prefix_caching,
-                )
+        # Create buffers for the parameter and experience buffers
+        # first since they don't have external dependencies
+        parameter_buffer = ParameterBuffer(config)
+        experience_buffer = ExperienceBuffer()
 
-                # create SPMD training actors of the system
-                train_actor = TrainActorGroup(num_train_actors, DistributedGPUActor)
+        # # create SPMD training actors of the system
+        train_actor = DistributedGPUActor()
 
-                num_prompts_per_iteration = get_and_validate_num_prompts_per_iteration(config)
-                assert num_prompts_per_iteration % num_train_actors == 0, "Number of prompts per iteration must be divisible by number of train actors to ensure accurate advantage calculations."
+        train_actor.init_composer_dist()
 
-                # We are using a CPU worker for the StreamingActor
-                # and this involves a super hacky workaround by
-                # uninstalling megablocks if it exists. Better solutions
-                # would include:
-                # 1) decouple StreamingActor from llm-foundry altogether
-                # 2) don't broadly import llm-foundry in compose-rl (only
-                # import it into codepaths/files that will only be used by
-                # GPUActors as opposed to CPUActors)
-                # 3) Setting up ray actors with correct environments (which
-                # would involve creating a BaseDistributedActor instead of a
-                # BaseDistributedGPUActor so that we can use CPUs)
-                # We uninstall megablocks after the Train Actors have been
-                # created so that those actors still have megablocks functionality.
-                uninstall_megablocks_if_exists()
-                streaming_dataset_actor = ray.remote(num_gpus=0)(StreamingDatasetActor).remote(config)
-                reward_actor = ray.remote(num_gpus=0)(RewardActor).remote(config)
-                rollout_agent = RolloutAgent(vllm_engine, streaming_dataset_actor, reward_actor, config)
+        train_actor.build_train_config(config)
 
-                
+        # Build PPO trainers
+        train_actor.build_ppo_trainer()
 
-                # EvalAgent doesn't need to be a Ray actor since we don't need to
-                # set a world_size or use GPUs for this process.
-                eval_agent = EvalAgent(vllm_engine, config)
-                print(f'Eval agent created')
-                ppo_controller = PPOController(
-                    train_actor,
-                    vllm_engine,
-                    rollout_agent,
-                    parameter_buffer,
-                    experience_buffer,
-                    eval_agent,
-                    config,
-                )
-                asyncio.run(ppo_controller.train_async(config.max_duration))
-            finally:
-                for vllm_proc in vllm_procs:
-                    vllm_proc.send_signal(signal.SIGINT)
-                    vllm_proc.wait(timeout=10)  # Wait up to 10 seconds for graceful shutdown
+        # Build Minibatch Buffer
+        train_actor.build_buffer()
+
+        # Build Reference Model
+        train_actor.build_reference_model()
+
+        # Build KL Controller
+        train_actor.build_kl_controller()
+        
+        num_prompts_per_iteration = get_and_validate_num_prompts_per_iteration(config)
+        assert num_prompts_per_iteration % num_train_actors == 0, "Number of prompts per iteration must be divisible by number of train actors to ensure accurate advantage calculations."
+
+        # num_iterations = int(config.max_duration.strip("iter"))
+        num_iterations = 1
+        for i in range(num_iterations):
+            partitioned_rollouts = [None] * num_train_actors
+            if dist.get_global_rank() == 0:
+                rollouts = await asyncio.to_thread(rollout_agent.get_next_iter_rollouts)
+                # rollouts = rollout_agent.get_next_iter_rollouts()
+                partitioned_rollouts = partition_rollouts_across_ranks(num_train_actors, rollouts)
+            dist.barrier()
+            dist.broadcast_object_list(partitioned_rollouts, src=0)
+            print(dist.get_global_rank(),f'partitioned_rollouts: {len(partitioned_rollouts)}')
+            rollout_partition = partitioned_rollouts[dist.get_global_rank()]
+
+            train_actor.create_online_minibatches(rollout_partition)
+            train_actor.train_1_iter()
+    finally:
+        log.info(f'Shutting down vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
+        for vllm_proc in vllm_procs:
+            vllm_proc.send_signal(signal.SIGINT)
+            vllm_proc.wait(timeout=10)  # Wait up to 10 seconds for graceful shutdown
 
 
 if __name__ == '__main__':
     # Parse command line arguments
+
+    logging.basicConfig(
+        # Example of format string
+        # 2022-06-29 11:22:26,152: rank0[822018][MainThread]: INFO: Message here
+        format=
+        f'%(asctime)s: rank{dist.get_global_rank()}[%(process)d][%(threadName)s]: %(levelname)s: %(name)s: %(message)s',
+        force=True,
+    )
+    logging.getLogger(__name__).setLevel(
+        'INFO',
+    )  # Train script
+
     parser = argparse.ArgumentParser(description='Run single controller PPO with configuration file')
     parser.add_argument(
         '--file_path',
@@ -1818,20 +1831,46 @@ if __name__ == '__main__':
         nargs='*',
         help='Override config parameters (e.g., n_nodes=1 actor.type._class=qwen3)',
     )
+    parser.add_argument(
+        '--start_vllm_servers',
+        type=bool,
+        required=False,
+        default=False,
+        
+    )
     args = parser.parse_args()
 
-    # Load configuration using OmegaConf
+        # Load configuration using OmegaConf
     if args.file_path is None:
         config = om.load('yamls/single-controller-grpo-workflow.yaml').parameters
     else:
         config = om.load(args.file_path)
+
+    if args.start_vllm_servers:
+        vllm_procs = []
+        vllm_engine, vllm_procs = launch_vllm_servers(
+            pretrain_model_name=config.model.pretrained_model_name_or_path,
+            tensor_parallel_size=1,
+            data_parallel_size=1,
+            num_vllm_servers=4,
+            num_train_actors=4,
+            max_model_len=config.max_seq_len,
+            enable_prefix_caching=config.vllm_enable_prefix_caching,
+            use_existing=False,
+        )
+        print(f'Started vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
+        sys.exit()
+
+
 
     # Apply command line overrides
     if args.overrides:
         # Convert list of key=value strings to OmegaConf overrides
         override_config = om.from_dotlist(args.overrides)
         config = om.merge(config, override_config)
-        print(f'args.overrides: {args.overrides}')
-        print(f'Config after overrides: {config}')
-    _run_single_controller_ppo(config)
+        log.info(f'args.overrides: {args.overrides}')
+        log.info(f'Config after overrides: {config}')
+
+    log.info(f'config.model.pretrained_model_name_or_path: {config.model.pretrained_model_name_or_path}')
+    asyncio.run(_run_single_controller_ppo(config))
 

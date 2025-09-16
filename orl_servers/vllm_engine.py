@@ -58,22 +58,32 @@ class AsyncEngine:
         return cls(engine)
 
     async def _collect_outputs(self, prompt_token_ids: list[int], request_id: str, sampling_params: SamplingParams):
-        """Collect outputs for a single prompt."""
-        try:
-            async for request_output in self.engine.generate(
-                prompt=TokensPrompt(prompt_token_ids=prompt_token_ids),
+        # """Collect outputs for a single prompt."""
+        # try:
+        #     async for request_output in self.engine.generate(
+        #         prompt=TokensPrompt(prompt_token_ids=prompt_token_ids),
+        #         sampling_params=sampling_params,
+        #         request_id=request_id,
+        #     ):
+        #         final_output = request_output
+        # except asyncio.CancelledError:
+        #     # Local task was cancelled (likely due to abort() call)
+        #     # The actual generation in vLLM engine should have been aborted separately
+        #     log.info(f'local task for request {request_id} was aborted')
+        #     # TODO consider overwriting the "finish_reason" and "stop_reason" of the final_output
+        # finally:
+        #     return final_output
+
+        async for request_output in self.engine.generate(
+        prompt=TokensPrompt(prompt_token_ids=prompt_token_ids),
                 sampling_params=sampling_params,
                 request_id=request_id,
             ):
                 final_output = request_output
-        except asyncio.CancelledError:
-            # Local task was cancelled (likely due to abort() call)
-            # The actual generation in vLLM engine should have been aborted separately
-            log.info(f'local task for request {request_id} was aborted')
-            # TODO consider overwriting the "finish_reason" and "stop_reason" of the final_output
-        finally:
-            return final_output
-    
+
+        return final_output
+
+
     async def _generate(self, prompt_token_ids: list[int], sampling_params: SamplingParams):
         # Wait for generation to be enabled before proceeding
         await self._generation_enabled.wait()
