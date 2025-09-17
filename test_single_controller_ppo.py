@@ -1652,6 +1652,7 @@ async def _run_single_controller_ppo(
     # only rank 0 is the master controller
     vllm_procs = []
     try:
+        torch.cuda.set_device(dist.get_local_rank())
         world_size = dist.get_world_size()
 
         # Create vLLM engines (or inference actors)
