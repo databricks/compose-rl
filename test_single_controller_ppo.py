@@ -1199,8 +1199,11 @@ class StreamingDatasetActor:
         self.num_prompts_per_iteration = get_and_validate_num_prompts_per_iteration(config)
 
         # Creating main entities
+        log.info(f'Building tokenizer')
         self.tokenizer = self._build_tokenizer()
+        log.info(f'Building dataloader')
         self.dataloader = self._build_dataloader()
+        log.info(f'Building dataloader iterator')
         self.dataloader_iter = iter(self.dataloader)
 
     def _build_dataloader(self):
@@ -1741,7 +1744,9 @@ async def _produce_rollouts(rollout_agent: RolloutAgent | None, num_train_actors
 
 
 
-async def _train(train_actor: DistributedGPUActor, queue: asyncio.Queue, num_iterations: int, model_update_group: PyNcclCommunicator | None, enable_prefix_caching: bool):
+async def _train(
+            train_actor: DistributedGPUActor, 
+            queue: asyncio.Queue, num_iterations: int, model_update_group: PyNcclCommunicator | None, enable_prefix_caching: bool, vllm_engine: RemoteVLLMEngine):
     for i in range(num_iterations):
         rollout_partition = await queue.get()
         log.info(f'Training iteration {i}')
@@ -1835,29 +1840,39 @@ async def _run_single_controller_ppo(
         enable_prefix_caching=config.vllm_enable_prefix_caching
         rollout_agent = None
         model_update_group = None
-        # # create SPMD training actors of the system
-        train_actor = DistributedGPUActor()
-
-        train_actor.init_composer_dist()
         if dist.get_global_rank() == 0:
-            # Launch vLLM server
-            log.info(f'Launching vLLM servers')
-            vllm_procs = []
-            vllm_engine, vllm_procs = launch_vllm_servers(
-                pretrain_model_name=config.model.pretrained_model_name_or_path,
-                tensor_parallel_size=vllm_tensor_parallel_size,
-                data_parallel_size=1,
-                num_vllm_servers=num_vllm_servers,
-                num_train_actors=num_train_actors,
-                max_model_len=config.max_seq_len,
-                enable_prefix_caching=enable_prefix_caching,
-                use_existing=True,
-            )
-            log.info(f'Started vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
-
+            log.info(f'Setting up streaming dataset actor')
             with _patch_env(WORLD_SIZE='1', LOCAL_WORLD_SIZE='1'):
                 streaming_dataset_actor = StreamingDatasetActor(config)
+        # # create SPMD training actors of the system
+        train_actor = DistributedGPUActor()
+        log.info(f'Initilizing default training process group')
+        train_actor.init_composer_dist()
+        log.info(f'Initialized default training process group')
+
+
+
+        # Launch vLLM server
+        log.info(f'Launching vLLM servers')
+        log.info(f'Started vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
+
+
+        vllm_procs = []
+        vllm_engine, vllm_procs = launch_vllm_servers(
+            pretrain_model_name=config.model.pretrained_model_name_or_path,
+            tensor_parallel_size=vllm_tensor_parallel_size,
+            data_parallel_size=1,
+            num_vllm_servers=num_vllm_servers,
+            num_train_actors=num_train_actors,
+            max_model_len=config.max_seq_len,
+            enable_prefix_caching=enable_prefix_caching,
+            use_existing=True, # the vllm servers are already running
+        )
+        if dist.get_global_rank() == 0:
+
+            log.info(f'Setting up reward actor')
             reward_actor = RewardActor(config)
+            log.info(f'Setting up rollout agent')
             rollout_agent = RolloutAgent(vllm_engine, streaming_dataset_actor, reward_actor, config)
 
             log.info(f'Setting up process groups for weight_update')
@@ -1893,7 +1908,7 @@ async def _run_single_controller_ppo(
         queue = asyncio.Queue()
         await asyncio.gather(
             _produce_rollouts(rollout_agent, num_train_actors, queue, num_iterations),
-            _train(train_actor, queue, num_iterations, model_update_group, enable_prefix_caching),
+            _train(train_actor, queue, num_iterations, model_update_group, enable_prefix_caching, vllm_engine),
         )
 
     finally:

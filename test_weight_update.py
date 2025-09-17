@@ -153,7 +153,7 @@ def run_main():
         loop.close()
 
 if __name__ == "__main__":
-    dist.initialize_dist('gpu')
+    # dist.initialize_dist('gpu')
     run_main()
 
     # print('Initializing process group')
