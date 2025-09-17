@@ -47,6 +47,9 @@ async def arequest_with_retry(
     else:
         _session = session
 
+    print(f'client session created {_session}')
+    
+
     for attempt in range(max_retries):
         try:
             if verbose:
@@ -54,6 +57,7 @@ async def arequest_with_retry(
             if method.upper() == "GET":
                 ctx = _session.get(url, timeout=timeo)
             elif method.upper() == "POST":
+                print(f'posting to {url} with payload {payload}')
                 ctx = _session.post(url, json=payload, timeout=timeo)
             elif method.upper() == "PUT":
                 ctx = _session.put(url, json=payload, timeout=timeo)

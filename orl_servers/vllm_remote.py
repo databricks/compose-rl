@@ -185,6 +185,7 @@ class RemoteVLLMEngine:
             "rank_offset": rank_offset,
             "world_size": meta.gen_world_size + 1,
         }
+        print(f"init_weight_update_group: payload={payload}")
         _ = await arequest_with_retry(
             addr=addr,
             endpoint="/init_weight_update_group",

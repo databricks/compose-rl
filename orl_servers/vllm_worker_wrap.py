@@ -26,6 +26,8 @@ class WorkerWrap:
     ):
         """Init torch process group for model weights update"""
 
+        print(f"init_process_group: master_address={master_address}, master_port={master_port}, rank_offset={rank_offset}, world_size={world_size}")
+
         assert torch.distributed.is_initialized(), f"default torch process group must be initialized"
 
         rank = torch.distributed.get_rank() + rank_offset

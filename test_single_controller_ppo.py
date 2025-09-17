@@ -18,6 +18,7 @@ from contextlib import contextmanager
 import logging
 import os
 import pickle
+import socket
 import sys
 import time
 import datetime
@@ -51,12 +52,11 @@ from compose_rl.algorithms.online import (
     SingleControllerOnPolicyCallback,
 )
 from orl_servers.generation_utils import (
-    setup_process_groups,
     broadcast_to_vllm,
     vllm_generate_sync,
 )
 from orl_servers.vllm_remote import RemoteVLLMEngine
-from orl_servers.structs import InferenceEngineConfig
+from orl_servers.structs import InferenceEngineConfig, WeightUpdateMeta
 from orl_servers.async_utils import run_async_sync
 from orl_servers.client import ArealOpenAI
 from compose_rl.utils.ray_utils import start_ray_server, uninstall_megablocks_if_exists
@@ -95,6 +95,9 @@ from compose_rl.algorithms.online.reward_manager import (
 
 from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 
+from orl_servers.vllm_worker_wrap import stateless_init_process_group
+from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
+
 log = logging.getLogger(__name__)
 
 
@@ -129,7 +132,7 @@ def launch_vllm_servers(
     num_train_actors: int,
     max_model_len: int,
     enable_prefix_caching: bool,
-    use_existing: bool,
+    use_existing: bool = False,
 ) -> tuple[RemoteVLLMEngine, list[subprocess.Popen]]:
     """Launch multiple vLLM HTTP servers and return processes and a RemoteVLLMEngine.
 
@@ -159,10 +162,12 @@ def launch_vllm_servers(
                 # '--enforce-eager',  # TODO: check if we need to enforce eager
                 # '--disable-custom-all-reduce',  # A100 does not like it
                 '--port', str(port),
-                '--disable-log-requests',
+                '--enable-log-requests',
             ]
+            # Log to stdout and stderr
             p = subprocess.Popen(cmd, env=env)
             processes.append(p)
+            print(' '.join(cmd))
         addresses.append(f'localhost:{port}')
 
     vllm_engine = RemoteVLLMEngine(
@@ -173,7 +178,9 @@ def launch_vllm_servers(
         ),
         addresses=addresses,
     )
+    log.info(f'Initializing vLLM engine for addresses: {addresses}')
     vllm_engine.initialize()
+    log.info(f'Initialized vLLM engine')
     return vllm_engine, processes
 
 class DistributedGPUActor:
@@ -1718,6 +1725,96 @@ class RolloutAgent:
 #         await asyncio.gather(rollout_task, train_task)
 #         self.train_actor.collective_methods.close_trainer()
 
+
+async def _produce_rollouts(rollout_agent: RolloutAgent | None, num_train_actors: int, queue: asyncio.Queue, num_iterations: int):
+    for _ in range(num_iterations):
+        partitioned_rollouts = [None] * num_train_actors
+        if dist.get_global_rank() == 0:
+            assert rollout_agent is not None, "Rollout agent must be provided for rank 0"
+            rollouts = await asyncio.to_thread(rollout_agent.get_next_iter_rollouts)
+            partitioned_rollouts = partition_rollouts_across_ranks(num_train_actors, rollouts)
+        dist.barrier()
+        dist.broadcast_object_list(partitioned_rollouts, src=0)
+        log.info(f'Rank {dist.get_global_rank()} got rollouts {len(partitioned_rollouts)}')
+        await queue.put(partitioned_rollouts[dist.get_global_rank()])
+
+
+
+
+async def _train(train_actor: DistributedGPUActor, queue: asyncio.Queue, num_iterations: int, model_update_group: PyNcclCommunicator | None, enable_prefix_caching: bool):
+    for i in range(num_iterations):
+        rollout_partition = await queue.get()
+        log.info(f'Training iteration {i}')
+        train_actor.create_online_minibatches(rollout_partition)
+        train_actor.train_1_iter()
+
+        if dist.get_global_rank() == 0:
+            assert model_update_group is not None, "Model update group must be provided for rank 0"
+
+        start_time = time.time()
+        log.info('Before broadcast to vLLM')
+        # TODO (infra) instead of direcly broadcasting to vllm, we should
+        # push the model parameters to a parameter buffer manager and have
+        # the buffer manager initiate broadcast of parameters to vllm engines
+        # TODO fix this monkey patching
+        train_actor.ppo_callback.actor_critic.model_update_group = model_update_group
+        run_async_sync(broadcast_to_vllm(
+            model=train_actor.ppo_callback.actor_critic,
+            vllm_engine=vllm_engine,
+            device=torch.device('cuda'),
+            loss_type=train_actor.ppo_callback.actor_critic.loss_type,  # type: ignore
+            enable_prefix_caching=enable_prefix_caching,
+        ))
+        log.info('Finished broadcasting to vLLM')
+        log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
+        dist.barrier()
+        log.info(f'Training iteration {i} completed')
+
+async def _setup_process_groups(
+    vllm_engine: RemoteVLLMEngine,
+    gen_tp_size: int,
+    num_vllm_servers: int,
+) -> PyNcclCommunicator:
+    """Initialize trainer and vLLM servers' weight-update process group.
+
+    This mirrors the logic used in test_single_controller_vllm.py by:
+      - Getting a free TCP port from the master actor
+      - Initializing the vLLM servers' NCCL communicators via HTTP
+      - Adding a matching process group on the trainer side (rank 0)
+    """
+
+
+    # with socket.socket() as sock:
+    #     sock.bind(('', 0))
+    #     new_port = sock.getsockname()[1]
+
+    new_port = 9000
+
+
+    meta = WeightUpdateMeta(
+        nccl_master_address="127.0.0.1",
+        nccl_master_port=new_port,
+        gen_tp_size=gen_tp_size,
+        gen_world_size=num_vllm_servers * gen_tp_size,
+    )
+
+    # await vllm_engine.ainit_weight_update_group(meta)
+
+    print('Initializing rank 0 process group')
+    init_rank_0 = asyncio.to_thread(stateless_init_process_group, 
+      "127.0.0.1", new_port, 0, num_vllm_servers * gen_tp_size + 1, torch.cuda.current_device()
+    )
+    print('init_rank_0', init_rank_0)
+
+    assert init_rank_0 is not None
+
+    # Initialize both sides concurrently
+    _, model_update_group = await asyncio.gather(
+        vllm_engine.ainit_weight_update_group(meta),
+        init_rank_0,
+    )
+    return model_update_group
+
 async def _run_single_controller_ppo(
     config: Any,
 ):
@@ -1735,8 +1832,16 @@ async def _run_single_controller_ppo(
         num_train_actors = world_size
         vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
         num_vllm_servers = num_train_actors # Make it the same as the number of train actors
+        enable_prefix_caching=config.vllm_enable_prefix_caching
+        rollout_agent = None
+        model_update_group = None
+        # # create SPMD training actors of the system
+        train_actor = DistributedGPUActor()
+
+        train_actor.init_composer_dist()
         if dist.get_global_rank() == 0:
             # Launch vLLM server
+            log.info(f'Launching vLLM servers')
             vllm_procs = []
             vllm_engine, vllm_procs = launch_vllm_servers(
                 pretrain_model_name=config.model.pretrained_model_name_or_path,
@@ -1745,14 +1850,18 @@ async def _run_single_controller_ppo(
                 num_vllm_servers=num_vllm_servers,
                 num_train_actors=num_train_actors,
                 max_model_len=config.max_seq_len,
-                enable_prefix_caching=config.vllm_enable_prefix_caching,
+                enable_prefix_caching=enable_prefix_caching,
                 use_existing=True,
             )
+            log.info(f'Started vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
 
             with _patch_env(WORLD_SIZE='1', LOCAL_WORLD_SIZE='1'):
                 streaming_dataset_actor = StreamingDatasetActor(config)
             reward_actor = RewardActor(config)
             rollout_agent = RolloutAgent(vllm_engine, streaming_dataset_actor, reward_actor, config)
+
+            log.info(f'Setting up process groups for weight_update')
+            model_update_group = await _setup_process_groups(vllm_engine, vllm_tensor_parallel_size, num_vllm_servers)
 
 
         # Create buffers for the parameter and experience buffers
@@ -1760,10 +1869,7 @@ async def _run_single_controller_ppo(
         parameter_buffer = ParameterBuffer(config)
         experience_buffer = ExperienceBuffer()
 
-        # # create SPMD training actors of the system
-        train_actor = DistributedGPUActor()
 
-        train_actor.init_composer_dist()
 
         train_actor.build_train_config(config)
 
@@ -1784,19 +1890,12 @@ async def _run_single_controller_ppo(
 
         # num_iterations = int(config.max_duration.strip("iter"))
         num_iterations = 1
-        for i in range(num_iterations):
-            partitioned_rollouts = [None] * num_train_actors
-            if dist.get_global_rank() == 0:
-                rollouts = await asyncio.to_thread(rollout_agent.get_next_iter_rollouts)
-                # rollouts = rollout_agent.get_next_iter_rollouts()
-                partitioned_rollouts = partition_rollouts_across_ranks(num_train_actors, rollouts)
-            dist.barrier()
-            dist.broadcast_object_list(partitioned_rollouts, src=0)
-            print(dist.get_global_rank(),f'partitioned_rollouts: {len(partitioned_rollouts)}')
-            rollout_partition = partitioned_rollouts[dist.get_global_rank()]
+        queue = asyncio.Queue()
+        await asyncio.gather(
+            _produce_rollouts(rollout_agent, num_train_actors, queue, num_iterations),
+            _train(train_actor, queue, num_iterations, model_update_group, enable_prefix_caching),
+        )
 
-            train_actor.create_online_minibatches(rollout_partition)
-            train_actor.train_1_iter()
     finally:
         log.info(f'Shutting down vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
         for vllm_proc in vllm_procs:
@@ -1859,6 +1958,7 @@ if __name__ == '__main__':
             use_existing=False,
         )
         print(f'Started vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
+        [vllm_proc.wait() for vllm_proc in vllm_procs]
         sys.exit()
 
 
