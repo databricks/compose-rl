@@ -931,81 +931,6 @@ class DistributedGPUActor:
         log.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
 
 
-class TrainActorGroup(SPMDActorGroup):
-    """Group of training actors for PPO."""
-
-    def __init__(self, *args: Any, **kwargs: Any):
-        super().__init__(*args, **kwargs)
-        self.eval_interval_num: int = 1
-
-    # TODO: Maybe rename to build components?
-    def build_models(self, config: Any):
-        """Build reference models and PPO trainers for all actors."""
-        self.eval_interval_num = int(config.eval_interval.strip("iter"))
-        self.collective_methods.build_train_config(config)
-        self.collective_methods.init_composer_dist()
-
-        # Build PPO trainers
-        self.collective_methods.build_ppo_trainer()
-
-        # Build Minibatch Buffer
-        self.collective_methods.build_buffer()
-
-        # Build Reference Model
-        self.collective_methods.build_reference_model()
-
-        # Build KL Controller
-        self.collective_methods.build_kl_controller()
-
-    # def _partition_rollouts_across_ranks(self, rollouts: dict[str, Any]) -> list[dict[str, Any]]:
-    #     """Partition the rollouts across all actors."""
-    #     partitioned_rollouts = []
-    #     per_rank_data_size = rollouts['prompt'].shape[0] // self.num_train_actors
-    #     for i in range(self.num_train_actors):
-    #         current_rank_start = i * per_rank_data_size
-    #         current_rank_end = (i + 1) * per_rank_data_size
-    #         current_rank_rollouts = {}
-    #         for k, v in rollouts.items():
-    #             if isinstance(v, torch.Tensor) or isinstance(v, list):
-    #                 current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
-    #             elif isinstance(v, dict):
-    #                 # This is the case with the rewards dict where it has (key, tensor) pairs
-    #                 rewards_dict_for_rank = {}
-    #                 for reward_key, reward_tensor in v.items():
-    #                     rewards_dict_for_rank[reward_key] = reward_tensor[current_rank_start:current_rank_end]
-    #                 current_rank_rollouts[k] = rewards_dict_for_rank
-    #             else:
-    #                 raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
-    #         partitioned_rollouts.append(current_rank_rollouts)
-    #     return partitioned_rollouts
-
-    # def _add_latest_rollouts(self, rollouts: dict[str, Any]):
-    #     partitioned_rollouts = self._partition_rollouts_across_ranks(rollouts)
-    #     assert len(partitioned_rollouts) == self.num_train_actors, "Number of partitioned rollouts should be equal to the number of train actors"
-    #     [train_actor.create_online_minibatches(partition) for train_actor, partition in zip(self.train_actors, partitioned_rollouts)]
-
-    def train_1_iter(self):
-        # added this method to time the collectivetraining time otherwise we can time each rank but the log.info/logging becomes messy to read
-        with time_it("training"):
-            self.collective_methods.train_1_iter()
-
-    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', parameter_buffer: 'ParameterBuffer', vllm_engine: RemoteVLLMEngine, lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore, eval_semaphore: asyncio.Semaphore):
-        # the overall design rn is we have a async def run function for each of the subcontroller that is responsible for async primitives but leave the rest of the logic to be sync function and use
-        # asyncio.to_thread to bridge the async and sync world
-        for i in range(num_iterations):
-            if i % self.eval_interval_num == 0:
-                eval_semaphore.release()
-            # Simple example of adding elements to the experience buffer
-            # Populate the train actor group with the rollouts and then train
-            latest_rollouts = await experience_buffer.get()
-            self._add_latest_rollouts(latest_rollouts)
-            await asyncio.to_thread(self.train_1_iter)
-            # TODO decide where should we use the lock and the semaphore
-            # it is more explicit to use them at this level but more abstracted away from trainer if we put them as input to the parameter buffer
-            await parameter_buffer.put({'actor_group': self, 'vllm_engine': vllm_engine, 'lock': lock})
-            rollout_semaphore.release()
-
-
 def partition_rollouts_across_ranks(num_train_actors: int, rollouts: dict[str, Any]) -> list[dict[str, Any]]:
     """Partition the rollouts across all actors."""
     partitioned_rollouts = []
@@ -1121,53 +1046,6 @@ class EvalAgent:
             await eval_semaphore.acquire()
             async with lock:
                 await asyncio.to_thread(self.run_evaluation, step=iteration*self.num_batches_per_update)
-
-
-class ParameterBuffer(Buffer):
-    """Buffer for updating the inference model."""
-
-    def __init__(self, config: Any):
-        super().__init__()
-        # TODO: Support eval_interval_num in a more generic way (e.g. handle more than just `iter`)
-        self.enable_prefix_caching = config.vllm_enable_prefix_caching
-
-    def update_inference_model(self, actor: DistributedGPUActor, vllm_engine: RemoteVLLMEngine):
-        start_time = time.time()
-        log.info('Before broadcast to vLLM')
-        # TODO (infra) instead of direcly broadcasting to vllm, we should
-        # push the model parameters to a parameter buffer manager and have
-        # the buffer manager initiate broadcast of parameters to vllm engines
-        # TODO fix this monkey patching
-        actor.ppo_callback.actor_critic.model_update_group = actor.model_update_group
-        run_async_sync(broadcast_to_vllm(
-            model=actor.ppo_callback.actor_critic,
-            vllm_engine=vllm_engine,
-            device=torch.device('cuda'),
-            loss_type=actor.ppo_callback.actor_critic.loss_type,  # type: ignore
-            enable_prefix_caching=self.enable_prefix_caching,
-        ))
-        log.info('Finished broadcasting to vLLM')
-        log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
-        dist.barrier()
-
-    async def put(self, struct: dict[str, Any]):
-        # prefers to implement the model update logic in the Buffer class as the buffer is a bridge between the trainer actor and the inference server
-        # and knows the best way to transfer the model parameters. Trainer just needs to put necessary struct to this api
-        async with struct['lock']:
-            struct['actor_group'].collective_methods.execute(partial(self.update_inference_model, vllm_engine=struct['vllm_engine']))
-
-
-class ExperienceBuffer(Buffer):
-    """Buffer for storing experiences."""
-
-    async def put(self, struct: dict[str, Any]):
-        await self.buffer.put(struct)
-
-    async def get(self, struct: Optional[dict[str, Any]] = None):
-        return await self.buffer.get()
-
-    def __len__(self):
-        return len(self.buffer)
 
 
 class StreamingDatasetActor:
@@ -1673,63 +1551,8 @@ class RolloutAgent:
         os.symlink(checkpoint_path, self.latest_checkpoint)
         return iter_data
 
-    async def run(self, num_iterations: int, experience_buffer: 'ExperienceBuffer', lock: asyncio.Lock, rollout_semaphore: asyncio.Semaphore):
-        for _ in range(num_iterations):
-            # semaphore has be to acquired before the lock is acquired
-            # otherwise it could hang the parameter_buffer due to lock is already acquired
-            await rollout_semaphore.acquire()
-            async with lock:
-                rollouts = await asyncio.to_thread(self.get_next_iter_rollouts)
-            await experience_buffer.put(rollouts)
 
-# class PPOController:
-#     """PPO controller for training the policy and value networks."""
-
-#     def __init__(
-#         self,
-#         train_actor: TrainActorGroup,
-#         vllm_engine: RemoteVLLMEngine,
-#         rollout_agent: RolloutAgent,
-#         parameter_buffer: ParameterBuffer,
-#         experience_buffer: ExperienceBuffer,
-#         eval_agent: EvalAgent,
-#         config: Any,
-#     ):
-#         self.train_actor = train_actor
-#         self.vllm_engine = vllm_engine
-#         self.rollout_agent = rollout_agent
-#         self.parameter_buffer = parameter_buffer
-#         self.experience_buffer = experience_buffer
-#         self.train_actor.build_models(config)
-#         self.eval_agent = eval_agent
-#         self.lock = asyncio.Lock()
-#         self.rollout_semaphore = asyncio.Semaphore(config.max_async_step+ 1)
-#         self.eval_semaphore = asyncio.Semaphore(0)
-#         self.config = config
-    
-#     async def train_async(self, max_duration: int | str):
-#         if isinstance(max_duration, str):
-#             num_iterations = int(max_duration.replace('iter', ''))
-#         else:
-#             num_iterations = max_duration
-
-#         await setup_process_groups(
-#             master_actor=self.train_actor.master_actor,
-#             vllm_engine=self.vllm_engine,
-#             gen_tp_size=self.config.vllm_tensor_parallel_size,
-#             num_vllm_servers=self.vllm_engine.num_servers,
-#         )
-#         # we need to sync the train actor and the rollout agent once otherwise in async the rollout agent could start with params not synced with the train actor
-#         await self.parameter_buffer.put({'actor_group': self.train_actor, 'vllm_engine': self.vllm_engine, 'lock': self.lock})
-#         rollout_task = asyncio.create_task(self.rollout_agent.run(num_iterations, self.experience_buffer, self.lock, self.rollout_semaphore))
-#         # eval_task = asyncio.create_task(self.eval_agent.run(num_iterations, self.lock, self.eval_semaphore))
-#         train_task = asyncio.create_task(self.train_actor.run(num_iterations, self.experience_buffer, self.parameter_buffer, self.vllm_engine, self.lock, self.rollout_semaphore, self.eval_semaphore))
-#         # await asyncio.gather(rollout_task, train_task, eval_task)
-#         await asyncio.gather(rollout_task, train_task)
-#         self.train_actor.collective_methods.close_trainer()
-
-
-async def _produce_rollouts(rollout_agent: RolloutAgent | None, num_train_actors: int, queue: asyncio.Queue, num_iterations: int):
+async def _produce_rollouts(rollout_agent: RolloutAgent | None, num_train_actors: int, experience_buffer: asyncio.Queue, num_iterations: int):
     for _ in range(num_iterations):
         partitioned_rollouts = [None] * num_train_actors
         if dist.get_global_rank() == 0:
@@ -1737,17 +1560,14 @@ async def _produce_rollouts(rollout_agent: RolloutAgent | None, num_train_actors
             rollouts = await asyncio.to_thread(rollout_agent.get_next_iter_rollouts)
             partitioned_rollouts = partition_rollouts_across_ranks(num_train_actors, rollouts)
 
-        await queue.put(partitioned_rollouts)
-
-
-
+        await experience_buffer.put(partitioned_rollouts)
 
 async def _train(
             train_actor: DistributedGPUActor, 
-            queue: asyncio.Queue, num_iterations: int, model_update_group: PyNcclCommunicator | None, enable_prefix_caching: bool, vllm_engine: RemoteVLLMEngine):
+            experience_buffer: asyncio.Queue, num_iterations: int, model_update_group: PyNcclCommunicator | None, enable_prefix_caching: bool, vllm_engine: RemoteVLLMEngine):
     for i in range(num_iterations):
         log.info(f'Training iteration {i}')
-        all_rollouts = await queue.get()
+        all_rollouts = await experience_buffer.get()
         dist.barrier()
         dist.broadcast_object_list(all_rollouts, src=0)
         rollout_partition = all_rollouts[dist.get_global_rank()]
@@ -1881,12 +1701,6 @@ async def _run_single_controller_ppo(
             log.info(f'Setting up process groups for weight_update')
             model_update_group = await _setup_process_groups(vllm_engine, vllm_tensor_parallel_size, num_vllm_servers)
 
-
-        # Create buffers for the parameter and experience buffers
-        # first since they don't have external dependencies
-        parameter_buffer = ParameterBuffer(config)
-        experience_buffer = ExperienceBuffer()
-
         train_actor.build_train_config(config)
 
         # Build PPO trainers
@@ -1906,10 +1720,10 @@ async def _run_single_controller_ppo(
 
         # num_iterations = int(config.max_duration.strip("iter"))
         num_iterations = 2
-        queue = asyncio.Queue()
+        experience_buffer = asyncio.Queue()
         await asyncio.gather(
-            _produce_rollouts(rollout_agent, num_train_actors, queue, num_iterations),
-            _train(train_actor, queue, num_iterations, model_update_group, enable_prefix_caching, vllm_engine),
+            _produce_rollouts(rollout_agent, num_train_actors, experience_buffer, num_iterations),
+            _train(train_actor, experience_buffer, num_iterations, model_update_group, enable_prefix_caching, vllm_engine),
         )
     except Exception as e:
         log.error(f'Error in _run_single_controller_ppo: {e}')
