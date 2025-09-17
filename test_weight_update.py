@@ -94,6 +94,7 @@ def launch_vllm_servers(
             # '--disable-custom-all-reduce',  # A100 does not like it
             '--port', str(port),
             '--enable-log-requests',
+            '--uvicorn-log-level', 'debug',
             '--no-disable-uvicorn-access-log',
         ]
         # Log to stdout and stderr
@@ -153,7 +154,8 @@ def run_main():
         loop.close()
 
 if __name__ == "__main__":
-    # dist.initialize_dist('gpu')
+    # CUDA_VISIBLE_DEVICES=0,1,2,3 composer -n 4 --world_size 4 test_weight_update.py
+    dist.initialize_dist('gpu')
     run_main()
 
     # print('Initializing process group')

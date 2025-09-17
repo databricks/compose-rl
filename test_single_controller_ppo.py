@@ -1736,10 +1736,8 @@ async def _produce_rollouts(rollout_agent: RolloutAgent | None, num_train_actors
             assert rollout_agent is not None, "Rollout agent must be provided for rank 0"
             rollouts = await asyncio.to_thread(rollout_agent.get_next_iter_rollouts)
             partitioned_rollouts = partition_rollouts_across_ranks(num_train_actors, rollouts)
-        dist.barrier()
-        dist.broadcast_object_list(partitioned_rollouts, src=0)
-        log.info(f'Rank {dist.get_global_rank()} got rollouts {len(partitioned_rollouts)}')
-        await queue.put(partitioned_rollouts[dist.get_global_rank()])
+
+        await queue.put(partitioned_rollouts)
 
 
 
@@ -1748,8 +1746,11 @@ async def _train(
             train_actor: DistributedGPUActor, 
             queue: asyncio.Queue, num_iterations: int, model_update_group: PyNcclCommunicator | None, enable_prefix_caching: bool, vllm_engine: RemoteVLLMEngine):
     for i in range(num_iterations):
-        rollout_partition = await queue.get()
         log.info(f'Training iteration {i}')
+        all_rollouts = await queue.get()
+        dist.barrier()
+        dist.broadcast_object_list(all_rollouts, src=0)
+        rollout_partition = all_rollouts[dist.get_global_rank()]
         train_actor.create_online_minibatches(rollout_partition)
         train_actor.train_1_iter()
 
@@ -1766,7 +1767,7 @@ async def _train(
         run_async_sync(broadcast_to_vllm(
             model=train_actor.ppo_callback.actor_critic,
             vllm_engine=vllm_engine,
-            device=torch.device('cuda'),
+            device=torch.device(f'cuda:{dist.get_local_rank()}'),
             loss_type=train_actor.ppo_callback.actor_critic.loss_type,  # type: ignore
             enable_prefix_caching=enable_prefix_caching,
         ))
@@ -1858,6 +1859,7 @@ async def _run_single_controller_ppo(
 
 
         vllm_procs = []
+        
         vllm_engine, vllm_procs = launch_vllm_servers(
             pretrain_model_name=config.model.pretrained_model_name_or_path,
             tensor_parallel_size=vllm_tensor_parallel_size,
@@ -1866,8 +1868,9 @@ async def _run_single_controller_ppo(
             num_train_actors=num_train_actors,
             max_model_len=config.max_seq_len,
             enable_prefix_caching=enable_prefix_caching,
-            use_existing=True, # the vllm servers are already running
+            use_existing=dist.get_global_rank() != 0, # whether the vllm servers are already running
         )
+        dist.barrier()
         if dist.get_global_rank() == 0:
 
             log.info(f'Setting up reward actor')
@@ -1883,8 +1886,6 @@ async def _run_single_controller_ppo(
         # first since they don't have external dependencies
         parameter_buffer = ParameterBuffer(config)
         experience_buffer = ExperienceBuffer()
-
-
 
         train_actor.build_train_config(config)
 
@@ -1904,17 +1905,19 @@ async def _run_single_controller_ppo(
         assert num_prompts_per_iteration % num_train_actors == 0, "Number of prompts per iteration must be divisible by number of train actors to ensure accurate advantage calculations."
 
         # num_iterations = int(config.max_duration.strip("iter"))
-        num_iterations = 1
+        num_iterations = 2
         queue = asyncio.Queue()
         await asyncio.gather(
             _produce_rollouts(rollout_agent, num_train_actors, queue, num_iterations),
             _train(train_actor, queue, num_iterations, model_update_group, enable_prefix_caching, vllm_engine),
         )
-
+    except Exception as e:
+        log.error(f'Error in _run_single_controller_ppo: {e}')
+        raise e
     finally:
         log.info(f'Shutting down vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
         for vllm_proc in vllm_procs:
-            vllm_proc.send_signal(signal.SIGINT)
+            vllm_proc.send_signal(signal.SIGTERM)
             vllm_proc.wait(timeout=10)  # Wait up to 10 seconds for graceful shutdown
 
 
