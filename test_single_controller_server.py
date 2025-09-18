@@ -30,6 +30,7 @@ from multiprocessing.context import TimeoutError as MultiprocessingTimeoutError
 from multiprocessing.pool import AsyncResult, Pool
 
 from composer.loggers import MLFlowLogger
+import requests
 import torch
 from composer import Trainer
 from composer.core import get_precision_context, Precision
@@ -41,7 +42,7 @@ from composer.utils import dist
 from llmfoundry.data import build_dataloader
 from llmfoundry.utils import build_composer_model
 from llmfoundry.utils.config_utils import process_init_device  # type: ignore
-from omegaconf import OmegaConf as om
+from omegaconf import DictConfig, OmegaConf as om
 from transformers import AutoTokenizer
 from composer.callbacks import MemoryMonitor, SpeedMonitor, LRMonitor
 
@@ -98,6 +99,8 @@ from compose_rl.algorithms.online.model_methods import OnPolicyEnum
 from orl_servers.vllm_worker_wrap import stateless_init_process_group
 from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
 
+from orl_servers.http_utils import arequest_with_retry
+
 log = logging.getLogger(__name__)
 
 
@@ -124,7 +127,7 @@ def get_and_validate_num_prompts_per_iteration(config: Any):
     return num_prompts_per_iteration
 
 
-def launch_vllm_servers(
+async def launch_vllm_servers(
     pretrain_model_name: str,
     tensor_parallel_size: int,
     data_parallel_size: int,
@@ -141,6 +144,8 @@ def launch_vllm_servers(
     """
     processes: list[subprocess.Popen] = []
     addresses: list[str] = []
+
+    log.info(f'num_vllm_servers: {num_vllm_servers}, num_train_actors: {num_train_actors}, tensor_parallel_size: {tensor_parallel_size}, data_parallel_size: {data_parallel_size}')
 
     for server_idx in range(num_vllm_servers):
         env = os.environ.copy()
@@ -183,753 +188,6 @@ def launch_vllm_servers(
     log.info(f'Initialized vLLM engine')
     return vllm_engine, processes
 
-class DistributedGPUActor:
-    """Distributed GPU actor for testing."""
-
-    def __init__(self):
-        self.config = None
-        self.model = None
-        self.reference_model = None
-        self.model_update_group = None
-        self.ref_path = None
-        self._dataloader = None
-        self._tokenizer = None
-        self.ppo_callback = None
-        self.ppo_trainer: Trainer = None  # type: ignore
-        self.buffer: MinibatchRolloutBuffer = None  # type: ignore
-
-        self.pretrain_model_name = None
-        self.device_train_batch_size = None
-        self.num_batches_per_update = None
-        self.max_seq_len = None
-        self.precision = None  # type: ignore
-        self.train_config: dict = None  # type: ignore
-        self.variables_config: dict = None  # type: ignore
-        self.model_config = None
-        self.ref_model_config = None
-        self.global_train_batch_size = None
-        self.max_gen_len = None
-        self.loss_type = None
-
-        # KL Penalty and Controller
-        self.kl_ift = []
-        self.kl_controller = None
-        self.kl_controller_config = None
-        self.kl_penalty_in_reward = None
-
-        # Reward info
-        self.reward_coefficients: dict = None  # type: ignore
-
-        # RL iteration variables
-        self.rl_iter = 0
-
-    def build_train_config(self, config: Any):
-        self.config = config
-        log.info(f"Starting build_train_config with model: {self.config.model.pretrained_model_name_or_path}")
-        self.pretrain_model_name = self.config.model.pretrained_model_name_or_path
-
-        self.model_config = om.to_container(self.config.model, resolve=True)
-        self.model_config['tokenizer'] = self.tokenizer
-        self.loss_type = self.model_config.get('loss_type', OnPolicyEnum.GRPO)
-        log.info("--------------------------------")
-        log.info(f'loss_type: {self.loss_type}')
-        log.info("--------------------------------")
-
-        # Reference Model Initializing
-        self.ref_model_config = om.to_container(self.config.variables.reference_model.model_config, resolve=True)
-
-        self.global_train_batch_size = self.config.global_train_batch_size
-        self.device_train_batch_size = self.global_train_batch_size // dist.get_world_size()
-        self.num_batches_per_update = self.config.variables.num_batches_per_update
-        self.max_seq_len = self.config.max_seq_len
-        self.max_gen_len = self.config.variables.max_gen_len
-        self.precision = self.config.precision
-
-        # NOTE: if compute kl loss then no reward penalty
-        # TODO: we should be more explicit about this toggle / make each kl regularization mechanism explicit
-        self.kl_controller_config = om.to_container(self.config.variables.kl_controller, resolve=True)
-        self.kl_penalty_in_reward = not self.model_config.get('compute_kl_loss', False)
-
-        # Reward Coefficients
-        all_rewards_config = om.to_container(self.config.variables.rewards, resolve=True)
-        self.reward_coefficients = {}
-        for reward_name, reward_config in all_rewards_config.items():
-            self.reward_coefficients[reward_name] = reward_config.get(
-                'reward_coefficient',
-                1.0,
-            )
-
-        variables = om.to_container(self.config.variables, resolve=True)
-        self.variables_config = variables
-        algorithm_config = self.config.algorithms
-
-        self.train_config = {
-            'seed': self.config.seed,
-            'model': self.model_config,
-            'ref_model': self.ref_model_config,
-            'fsdp_config': self.config.fsdp_config,
-            'kl_controller': self.kl_controller_config,
-            'non_train_fsdp_config': self.variables_config.get('non_train_fsdp_config', self.config.fsdp_config),
-            'precision': self.precision,
-            'variables': variables,
-            'algorithms': algorithm_config,
-            'global_train_batch_size': self.device_train_batch_size * dist.get_world_size(),
-            'device_train_batch_size': self.device_train_batch_size,
-            'device_train_microbatch_size': self.device_train_batch_size,
-            'save_folder': self.config.save_folder,
-            'log_config': self.config.log_config,
-            'max_seq_len': self.max_seq_len,
-            'python_log_level': self.config.python_log_level,
-            'console_log_interval': self.config.console_log_interval,
-        }
-        log.info("Finished build_train_config")
-
-    def build_buffer(self):
-        self.buffer = MinibatchRolloutBuffer(self.variables_config['buffer'])
-        log.info(f'Initialized minibatch buffer.')
-
-    def build_tokenizer(self):
-        # TODO (algo): decide if we should use tokens or messages given
-        # we may need token level log prob
-        # TODO (infra): use the tokenizer/texts for prompt dataloader but
-        # token (ids) for the experience buffer/manager
-        kwargs = self.config.tokenizer.kwargs
-        tokenizer = AutoTokenizer.from_pretrained(self.pretrain_model_name, **kwargs)
-        return tokenizer
-
-    @property
-    def tokenizer(self):
-        if self._tokenizer is None:
-            self._tokenizer = self.build_tokenizer()
-        return self._tokenizer
-
-    def init_composer_dist(self):
-        log.info(f'Initializing composer dist {dist.get_local_rank()}, {dist.get_global_rank()}, {dist.get_world_size()}')
-        dist.initialize_dist('gpu')
-
-    def build_kl_controller(self):
-        kl_controller_name = self.kl_controller_config.pop('kl_ctl_type')
-        self.kl_controller = build_kl_controller(
-            name=kl_controller_name,
-            kwargs=self.kl_controller_config,
-        )
-        log.info(f'Built KL Controller')
-
-    def build_reference_model(self):
-        name = self.ref_model_config.pop('name')
-        fsdp_config = self.variables_config.get('non_train_fsdp_config', self.config.fsdp_config)
-
-        init_context = process_init_device(
-            self.ref_model_config,
-            fsdp_config,
-        )
-
-        self.reference_model = build_composer_model(
-            name=name,
-            cfg=self.ref_model_config,
-            tokenizer=self.tokenizer,
-            init_context=init_context,
-            master_weights_dtype=self.ref_model_config.get('master_weights_dtype', None),
-        )
-
-        parallelism_config = {'fsdp': fsdp_config}
-
-        load_path = self.variables_config['reference_model'].get('load_path', None)
-
-        # Create a Trainer object to load from checkpoint and FSDP the model
-        # TODO: use FSDP2 utils to FSDP module.
-        _ = Trainer(
-            model=self.reference_model,
-            parallelism_config=parallelism_config,
-            precision=self.precision,
-            load_weights_only=True,
-            load_strict_model_weights=False,
-            load_path=load_path,
-            python_log_level='debug',
-        )
-        log.info(f'Initialized {name} reference model')
-
-    def build_ppo_trainer(self):
-        name = self.model_config.pop('name')
-
-        log.info(f"Model type: {name}")
-        if name == 'hf_ppo_lm':
-            log.info("Creating ComposerHFPolicyLM")
-            model = ComposerHFPolicyLM(**self.model_config)
-        elif name == 'hf_critic_free_lm':
-            log.info("Creating ComposerHFCriticFreePolicyLM")
-            model = ComposerHFCriticFreePolicyLM(**self.model_config)
-        log.info("Model created successfully")
-
-        # TODO: Add weight decay
-        optimizer = DecoupledAdamW(model.parameters(), lr=1e-6)
-
-        # NOTE: there is no reliance on the callback anymore
-        self.ppo_callback = SingleControllerOnPolicyCallback(
-            train_config=self.train_config,
-        )
-
-        # Create a dummy dataloader to make sure trainer can call .fit() with
-        # the dataloader that exists at ITERATION_START. This dataloader
-        # will NOT be used for training.
-        dummy_dataset = torch.utils.data.TensorDataset(torch.randn(16, 1))
-        dummy_distributed_sampler = torch.utils.data.distributed.DistributedSampler(dummy_dataset)
-        dummy_dataloader = torch.utils.data.DataLoader(dummy_dataset, sampler=dummy_distributed_sampler)
-
-        mlflow_logger = MLFlowLogger(
-            experiment_name=self.config.loggers.mlflow.experiment_name,
-            run_name=self.config.loggers.mlflow.tags.run,
-            tracking_uri=self.config.loggers.mlflow.tracking_uri,
-        )
-
-        callbacks = [
-            self.ppo_callback,
-            # callbacks for scheduled garbage collection
-            # this helps improve throughput by garbage collecting
-            # at regular intervals on all training processes
-            # ScheduledGarbageCollector(
-            #     batch_interval='1000',
-            # ), # TODO: Add it back after we resolve some error because we are using a dummy dataloader
-            # callbacks for monitoring other metrics
-            LRMonitor(),
-            MemoryMonitor(),
-            SpeedMonitor(window_size=10),
-        ]
-
-        self.ppo_trainer = Trainer(
-            model=model,
-            optimizers=optimizer,
-            callbacks=callbacks,
-            train_dataloader=dummy_dataloader,
-            precision=self.precision,
-            parallelism_config={'fsdp': self.config.fsdp_config},
-            max_duration=self.config.max_duration,
-            loggers=[mlflow_logger],
-            device_train_microbatch_size=self.config.device_train_microbatch_size,
-            load_path=self.ref_path,
-            save_folder=self.config.save_folder,
-            save_interval=self.config.save_interval,
-            autoresume=self.config.autoresume,
-        )
-
-    def close_trainer(self):
-        self.ppo_trainer.close()
-
-    # TODO: maybe make the name more informative?
-    # TODO: think about how best to split this function up?
-    def create_online_minibatches(self, current_rank_rollouts: dict[str, Any]):
-        """Processes rollouts and creates minibatches for online learning.
-
-        This function takes the rollouts, computes the log probs, kl, and advantages
-        and splits them into minibatches for the PPO Trainer.
-        """
-        for k, v in current_rank_rollouts.items():
-            assert isinstance(v, torch.Tensor) or isinstance(v, list) or isinstance(v, dict), f"Expected a tensor or list or dict, got {type(v)}"
-            if isinstance(v, torch.Tensor):
-                current_rank_rollouts[k] = v.to(torch.device('cuda'))
-            elif isinstance(v, dict):
-                # This is the case with the rewards dict where it has (key, tensor) pairs
-                rewards_dict_for_rank = {}
-                for reward_key, reward_tensor in v.items():
-                    rewards_dict_for_rank[reward_key] = reward_tensor.to(torch.device('cuda'))
-                current_rank_rollouts[k] = rewards_dict_for_rank
-            elif not (isinstance(v, list)):
-                raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
-
-        device = torch.device('cuda')
-        with get_precision_context(self.precision), torch.no_grad():
-            # 1) Compute Log Probs and Entropy
-            partial_batch = self.get_log_probs_and_entropy(current_rank_rollouts, device)
-            # 2) Compute Reference Log Probs and KL
-            reference_output = self.get_reference_log_probs_and_kl(partial_batch)
- 
-            # Log to callback for KL Controller Update
-            mean_ift = masked_mean(
-                reference_output['kl'],
-                partial_batch['action_mask'],
-            )
-            self.kl_ift.append(mean_ift.cpu())
-
-            # 3) Scale rewards and apply KL Penalty
-            reward_output = self.update_rewards(current_rank_rollouts['all_rewards_dict'], reference_output, partial_batch['action_mask'], device)
-
-            # 4) Compute Advantages
-            # TODO: For full correctness do all gather
-            advantage_output = self.compute_advantages(partial_batch, reward_output)
-
-            # Construct batch
-            bs = partial_batch['prompt_id'].shape[0]
-            batch = {
-                'max_gen_len': torch.ones(bs).to(torch.int32) * self.max_gen_len,
-                'ift_kl_scalar': torch.ones(bs) * self.kl_controller.value,
-                **partial_batch,
-                **reference_output,
-                **reward_output,
-                **advantage_output,
-            }
-
-            # Moving minibatches to CPU to not take additional GPU memory
-            for k, v in batch.items():
-                if hasattr(v, 'cpu'):
-                    batch[k] = v.cpu()
-
-        # NOTE: Probably should break things up but putting it here for now for clarity
-        # Delete Non-tensor keys for training batch
-        for key in ['verified_answer', 'messages']:
-            if key in batch.keys():
-                del batch[key]
-
-        # We need to split the resolved outputs into minibatches
-        for idx in range(
-            batch['prompt_id'].shape[0] // self.device_train_batch_size,
-        ):
-            minibatch = self._extract_minibatch(
-                batch,
-                idx,
-                self.device_train_batch_size,
-            )
-            self.buffer.add(minibatch)
-
-        # Making sure we correctly parsed the minibatches
-        assert len(
-            self.buffer,
-        ) == self.num_batches_per_update, f'{len(self.buffer)} != {self.num_batches_per_update}'
-
-        self.ppo_trainer.state.model.train()
-
-        # Reset and initialize state train dataloader
-        log.warning(
-            'trainer._train_data_spec should be updated whenever the dataloader is updated',
-        )
-        # Train Dataloader
-        self.ppo_trainer.state.set_dataloader(self.buffer, 'ep')
-        self.ppo_trainer.state.train_dataloader = self.ppo_trainer.state.dataloader
-        self.ppo_trainer.state.device_train_microbatch_size = _get_initial_device_train_microbatch_size(
-            self.ppo_trainer.state.device_train_microbatch_size,
-            self.ppo_trainer.state.auto_microbatching,
-            self.ppo_trainer.state.train_dataloader,
-        )
-
-        self._update_ift_kl()
-
-    def _update_ift_kl(self):
-        local_kl = torch.stack(self.kl_ift)
-        global_ift_kl = torch.cat(dist.all_gather_object(local_kl))
-        ift_kl_update = torch.mean(global_ift_kl)
-
-        self.kl_controller.update(
-            ift_kl_update,
-            self.num_batches_per_update * self.device_train_batch_size *  # type: ignore
-            dist.get_world_size(),
-        )
-
-        self.kl_ift = []
-
-    def _extract_minibatch(
-        self,
-        batch: dict[str, torch.Tensor],
-        idx: int,
-        minibatch_size: int,
-    ) -> dict[str, torch.Tensor]:
-        """Extracts a minibatch from a composite batch.
-
-        This helper is used to extract a particular minibatch of size
-        minibatch_size from `batch`, where `batch` may
-        have a batch size that exceeds the minibatch size.
-
-        Args:
-            batch (dict[str, torch.Tensor]): an arbitrary batch, where
-                each entry has batch size >= minibatch_size,
-                representing the concatenation of >= 1 minibatches.
-            idx (int): The index of the batch (see above description) to extract.
-
-        Returns:
-            curr_gen_batch (dict[str, torch.Tensor]): The gen_batch_idx'th
-                gen_batch extracted from the batch input.
-        """
-        start_idx = idx * minibatch_size
-        end_idx = (idx + 1) * minibatch_size
-        curr_gen_batch = {
-            batch_key: tensor[start_idx:end_idx]
-            for batch_key, tensor in batch.items()
-        }
-        return curr_gen_batch
-
-    def get_log_probs_and_entropy(self, current_rank_rollouts: dict[str, Any], device: torch.device):
-        prompt_tokens = current_rank_rollouts['prompt']
-        batch_size, _ = prompt_tokens.shape
-        pad_token_id = self.tokenizer.pad_token_id
-        eos_token_ids = self.variables_config['eos_token_ids']
-        prompt_len = current_rank_rollouts['prompt_len']
-        prompt_id = current_rank_rollouts['prompt_id']
-        prompt_dtype = prompt_tokens.dtype
-
-        assert 'sequences' in current_rank_rollouts, f'sequences is not in batch {current_rank_rollouts.keys()=}'
-        assert 'vllm_logprobs' in current_rank_rollouts, f'vllm_logprobs is not in batch {current_rank_rollouts.keys()=}'
-        sequences = current_rank_rollouts['sequences']
-        vllm_logprobs = current_rank_rollouts['vllm_logprobs']
-        generated_len = torch.ones(
-            batch_size,
-            device=device,
-            dtype=prompt_dtype,
-        ) * self.max_gen_len
-
-        # If all the processes early exit generate, then we need to manually pad everything
-        # we can pad this with pad tokens, since we switch the padding between left and right
-        # padding based on the sequence length + max_sequence_length.
-        if prompt_tokens.size(1) + self.max_gen_len > sequences.size(1):
-            len_to_pad = self.max_gen_len - (
-                sequences.size(1) - prompt_tokens.size(1)
-            )
-
-            extra_padding = torch.ones(
-                (batch_size, len_to_pad),
-                device=device,
-                dtype=prompt_dtype,
-            ) * pad_token_id
-            sequences = torch.cat(
-                [sequences, extra_padding],  # type: ignore
-                dim=-1,  # type: ignore
-            )
-
-            extra_zero_padding = torch.zeros(
-                (batch_size, len_to_pad),
-                device=device,
-                dtype=torch.float,
-            )
-            vllm_logprobs = torch.cat(
-                [vllm_logprobs, extra_zero_padding],  # type: ignore
-                dim=-1,  # type: ignore
-            )
-
-        # Sanity checking we're adding max_gen_len to prompt_tokens
-        if prompt_tokens.size(1) + self.max_gen_len != sequences.size(1):
-            raise ValueError(
-                f'Prompts {prompt_tokens.size(1)} + max_gen_len {self.max_gen_len} != sequences {sequences.size(1)}',
-            )
-
-        # Actions are what tokens the current policy would generate.
-        actions = sequences[:, -self.max_gen_len:]  # type: ignore
-        vllm_logprobs_gen = vllm_logprobs[:, -self.max_gen_len:]  # type: ignore
-
-        right_padded_obs = switch_left_to_right_padding(
-            sequences,
-            prompt_len,
-            self.max_gen_len,
-            pad_token_id,  # type: ignore
-        )
-        right_padded_attn_mask = torch.logical_not(
-            torch.eq(right_padded_obs, pad_token_id),  # type: ignore
-        )
-
-        (
-            right_padded_obs,
-            right_padded_attn_mask,
-            generated_len,
-            action_mask,
-        ) = mask_eos(
-            actions=actions,
-            right_padded_obs=right_padded_obs,
-            right_padded_attn_mask=right_padded_attn_mask,
-            prompt_len=prompt_len,
-            generated_len=generated_len,
-            max_gen_len=self.max_gen_len,
-            eos_token_ids=eos_token_ids,  # type: ignore
-            pad_token=pad_token_id,  # type: ignore
-        )
-        log_probs = []
-        entropies = []
-        values = []
-
-        input_model_kwargs = {
-            'obs': right_padded_obs,
-            'right_padded_attn_mask': right_padded_attn_mask,
-            'prompt_len': prompt_len,
-            'max_gen_len': self.max_gen_len,
-            'action_mask': action_mask,
-            'actions': actions,
-        }
-
-        microbatch_splits = _default_split_batch(
-            batch=input_model_kwargs,
-            microbatch_size=self.config.device_train_microbatch_size,
-        )
-        # Compute the device_train_microbatch_log_probs inside the for loop to reduce the softmax overhead
-        for split in microbatch_splits:
-            curr_kwargs = split
-
-            cur_output = self.ppo_trainer.state.model(curr_kwargs)
-            cur_logits = cur_output['logits']
-            # need to pull out current actions and prompt len
-            cur_actions = curr_kwargs['actions']
-            cur_action_mask = curr_kwargs['action_mask']
-            cur_prompt_len = curr_kwargs['prompt_len']
-
-            cur_log_probs = get_log_probs(
-                logits=cur_logits,
-                actions=cur_actions,
-                prompt_len=cur_prompt_len,
-                max_gen_len=self.max_gen_len,
-            )
-            cur_entropies = get_entropies(
-                logits=cur_logits,
-                action_mask=cur_action_mask,
-                prompt_len=cur_prompt_len,
-                max_gen_len=self.max_gen_len,
-            )
-            log_probs.append(cur_log_probs)
-            entropies.append(cur_entropies)
-            # Ignore values when the model doesn't have a value head
-            if 'values' in cur_output:
-                cur_values = cur_output['values']
-                values.append(cur_values)
-
-        device_train_microbatch_log_probs = torch.cat(log_probs)
-        device_train_microbatch_entropies = torch.cat(entropies)
-
-        assert vllm_logprobs_gen.shape == device_train_microbatch_log_probs.shape, f'vllm_logprobs_gen and device_train_microbatch_log_probs have different shapes {vllm_logprobs_gen.shape=}, {device_train_microbatch_log_probs.shape=}'
-
-
-        partial_env_output = {
-            'prompt_id': prompt_id,
-            'old_log_probs': device_train_microbatch_log_probs,
-            'old_entropies': device_train_microbatch_entropies,
-            'obs': right_padded_obs,
-            'right_padded_attn_mask': right_padded_attn_mask,
-            'actions': actions,
-            'action_mask': action_mask,
-            'generated_len': generated_len,
-            'prompt_len': prompt_len,
-            'vllm_logprobs': vllm_logprobs_gen,
-        }
-        if len(values) > 0:
-            device_train_microbatch_values = torch.cat(values)
-
-            # Need to add in the padding for the value function
-            value_action_mask = torch.cat([
-                action_mask,
-                torch.zeros((batch_size, 1), device=device),
-            ],
-                                          dim=-1)
-            device_train_microbatch_values *= value_action_mask
-            partial_env_output['values'] = device_train_microbatch_values
-
-        # TODO: old_log_probs, old_entropies, metadata as a clearer output
-        return partial_env_output
-
-    def get_reference_log_probs_and_kl(self, batch: dict[str, Any]):
-        """
-        This function computes the reference log probs and computes KL estimates between pi and pi_ref.
-        """
-        kl = []
-        ref_model_log_probs = []
-
-        microbatch_splits = _default_split_batch(
-            batch=batch,
-            microbatch_size=self.config.device_train_microbatch_size,
-        )
-        for split in microbatch_splits:
-            curr_batch = split
-            curr_ref_output = self.reference_model({  # type: ignore
-                "input_ids": curr_batch['obs'],
-                "attention_mask": curr_batch['right_padded_attn_mask'],
-            })
-            curr_ref_log_probs = get_log_probs(
-                logits=curr_ref_output.logits,
-                actions=curr_batch['actions'],
-                prompt_len=curr_batch['prompt_len'],
-                max_gen_len=self.max_gen_len,
-                temperature=self.variables_config['generation_kwargs']['temperature'],
-            )
-
-            kl_dict = approx_kl(
-                log_p=curr_ref_log_probs,
-                log_q=curr_batch['old_log_probs'],
-                kl_clip_range=self.model_config['kl_clip_range'],  # pyright: ignore
-            )
-            curr_kl = kl_dict[self.model_config['kl_estimator']]  # pyright: ignore
-
-            kl.append(curr_kl)
-            ref_model_log_probs.append(curr_ref_log_probs)
-
-        kl = torch.cat(kl)
-        ref_model_log_probs = torch.cat(ref_model_log_probs)
-        ref_output = {
-            "kl": kl,
-            # TODO: rename to reference_log_probs
-            #"reference_log_probs": ref_model_log_probs,
-            "ift_log_probs": ref_model_log_probs,
-        }
-        return ref_output
-
-    def update_rewards(self, raw_rewards_dict: dict[str, Any], ref_output: dict[str, Any], action_mask: torch.Tensor, device: torch.device):
-        resolved_reward_outputs: dict[str, torch.Tensor] = {}
-        bad_end_generation_name, bad_end_generation_mask = None, None
-        for name, subreward in raw_rewards_dict.items():
-            # Functional Rewards
-            resolved_reward_outputs[name] = subreward.to(device=device)
-
-            # NOTE: all rewards is not accesible here
-            #if isinstance(self.all_rewards[name], BadGenerationEndReward):
-            if name == "bad_generation_end":
-                bad_end_generation_name = name
-                bad_generation_row_mask = torch.any(subreward != 0, dim=1)
-
-                bad_end_generation_mask = (
-                    ~bad_generation_row_mask
-                ).unsqueeze(1).expand_as(subreward)
-                bad_end_generation_mask = bad_end_generation_mask.to(
-                    device=device,
-                )
-
-        # Reward Penalty
-        ref_kl = ref_output['kl'].to(device=device)
-
-        if self.kl_penalty_in_reward:
-            rewards: torch.Tensor = -self.kl_controller.value * ref_kl.detach()
-        else:
-            rewards: torch.Tensor = torch.zeros_like(ref_kl)
-
-        env_rewards = torch.zeros_like(rewards)
-        rews_dict_out: dict[str, torch.Tensor] = {}
-        for name, subreward in resolved_reward_outputs.items():
-            if name not in self.reward_coefficients:
-                raise KeyError(
-                    f'Reward with {name=} is not recognized by the reward manager.',
-                )
-            env_rewards += subreward.detach() * self.reward_coefficients[name]
-
-            # In the output, make sure each key has 'reward' in it to engage
-            # proper logging (see .loss of policy class)
-            out_name = name + '_reward' if 'reward' not in name else ''
-            rews_dict_out[out_name] = subreward.detach() * action_mask
-
-        # Masking out all rewards if the generation ends with a bad token
-        # And strictly adding a penalty for bad generation ending.
-        if bad_end_generation_mask is not None and bad_end_generation_name is not None:
-            env_rewards *= bad_end_generation_mask
-            env_rewards += (
-                resolved_reward_outputs[bad_end_generation_name].detach() *
-                self.reward_coefficients[bad_end_generation_name]
-            )
-
-        # Optionally apply an offset to the environment rewards
-        # TODO: General scaling of reward values through whitening should be revisited
-        # if center_reward_mean is not None:
-        #    env_rewards -= center_reward_mean
-        #
-
-        # Final rewards is total env rewards + KL penalties
-        rewards += env_rewards
-
-        # Zero rewards at padded tokens
-        rewards *= action_mask
-        env_rewards *= action_mask
-
-        outputs = {
-            'rewards': rewards.detach(),
-            'env_rewards': env_rewards.detach(),
-        }
-        outputs.update(rews_dict_out)
-
-        return outputs
-
-    # TODO: For different algorithms, have different Advantage functions. This one is specifically GRPO
-    def compute_advantages(self, batch: dict[str, Any], reward_output: dict[str, Any]):
-        # compute GRPO advantages
-        bs = batch['prompt_id'].shape[0]
-        prompt_id = batch['prompt_id']
-        rewards = reward_output['rewards']
-
-        # Flatten the rewards by summing on sequence length/action_mask
-        flat_rewards = masked_sum(
-            rewards,
-            batch['action_mask'],
-            dim=-1,
-        )
-
-        # Get unique prompt IDs and their indices
-        unique_prompt_ids, inverse_indices = torch.unique(
-            prompt_id,
-            return_inverse=True,
-        )
-
-        # Use scatter to compute means and standard deviations
-        # First, we'll create a tensor to track counts, sums, and sum of squares
-        n_unique = len(unique_prompt_ids)
-        counts = torch.zeros(n_unique, device=prompt_id.device)
-        sums = torch.zeros(n_unique, device=prompt_id.device)
-        sum_squares = torch.zeros(n_unique, device=prompt_id.device)
-
-        # Use scatter_add to accumulate values
-        counts.scatter_add_(
-            0,
-            inverse_indices,
-            torch.ones_like(flat_rewards),
-        )
-        sums.scatter_add_(0, inverse_indices, flat_rewards)
-        sum_squares.scatter_add_(0, inverse_indices, flat_rewards**2)
-
-        # Compute means and standard deviations
-        means = sums / counts
-        variances = (sum_squares / counts) - (means**2)
-        stds = torch.sqrt(variances)
-
-        # Map back to original tensor shape
-        mean_rewards = means[inverse_indices]
-        std_rewards = stds[inverse_indices]
-
-        # Calculate GRPO advantage
-        grpo_advantage = (flat_rewards - mean_rewards)
-        # Only normalize the advantage if flag is set
-        if self.model_config['normalize_advantage']:  # type: ignore
-            grpo_advantage /= (std_rewards + 1e-4)
-
-        # Create advantages of the same shape as original rewards
-        advantages = torch.zeros_like(rewards)
-        # Copy the flat grpo_advantage according to action_mask
-        expanded_advantages = grpo_advantage.unsqueeze(1).expand_as(
-            batch['action_mask'],
-        )
-        advantages = torch.where(
-            batch['action_mask'].bool(),
-            expanded_advantages,
-            advantages,
-        )
-
-        batch_adv_mean, batch_adv_var = dist_compute_masked_mean_and_var(
-            advantages,
-            batch['action_mask'],
-        )
-
-        advantage_output = {
-            'advantages': advantages,
-            'prompt_advantages': grpo_advantage,
-            'adv_masked_mean': torch.ones(bs) * batch_adv_mean.cpu(),
-            'adv_masked_var': torch.ones(bs) * batch_adv_var.cpu(),
-            'reward_std': torch.ones(bs) * rewards.std().to('cpu'),
-        }
-        return advantage_output
-
-    def train_1_iter(self):
-        # TODO (algo): implement the top level PPO algo here instead of the
-        # callback. Algorithmic researchers are expected to implement this
-        # function along with above policy/value/reward/ref trainers or models
-        # TODO (infra): try multiple fit to see if the (mlflow) logger, etc
-        # TODO (infra): fault tolerance at iteration level first
-        # TODO (infra): enable batch level control
-
-        # NOTE: Trainer has a train microbatches function that should be used here to get low level control.
-        # fit() checks if there is existing checkpoint, make a full forward pass, it will run eval pass and save pass.
-        # We potentially want to run this https://github.com/mosaicml/composer/blob/dev/composer/trainer/trainer.py#L2826
-        # fit() can also potentially overwrite the mlflow
-        self.ppo_trainer.fit(duration='1iter')
-
-        # After Iteration callback
-        self.rl_iter += 1
-        self.buffer.reset()
-        log.info(f"#### Finished training 1 iter with loss: {self.ppo_trainer.state.loss}")
-
 
 def partition_rollouts_across_ranks(num_train_actors: int, rollouts: dict[str, Any]) -> list[dict[str, Any]]:
     """Partition the rollouts across all actors."""
@@ -941,12 +199,18 @@ def partition_rollouts_across_ranks(num_train_actors: int, rollouts: dict[str, A
         current_rank_rollouts = {}
         for k, v in rollouts.items():
             if isinstance(v, torch.Tensor) or isinstance(v, list):
-                current_rank_rollouts[k] = v[current_rank_start:current_rank_end]
+                sliced_v = v[current_rank_start:current_rank_end]
+                if isinstance(sliced_v, torch.Tensor):
+                    sliced_v = sliced_v.tolist()
+                current_rank_rollouts[k] = sliced_v
             elif isinstance(v, dict):
                 # This is the case with the rewards dict where it has (key, tensor) pairs
                 rewards_dict_for_rank = {}
                 for reward_key, reward_tensor in v.items():
-                    rewards_dict_for_rank[reward_key] = reward_tensor[current_rank_start:current_rank_end]
+                    sliced_reward_tensor = reward_tensor[current_rank_start:current_rank_end]
+                    if isinstance(sliced_reward_tensor, torch.Tensor):
+                        sliced_reward_tensor = sliced_reward_tensor.tolist()
+                    rewards_dict_for_rank[reward_key] = sliced_reward_tensor
                 current_rank_rollouts[k] = rewards_dict_for_rank
             else:
                 raise ValueError(f"Expected a tensor or list or dict of tensors, got {type(v)}")
@@ -1552,30 +816,117 @@ class RolloutAgent:
         return iter_data
 
 
-async def _produce_rollouts(rollout_agent: RolloutAgent | None, num_train_actors: int, experience_buffer: asyncio.Queue, num_iterations: int):
+async def _produce_rollouts(rollout_agent: RolloutAgent, num_train_actors: int, experience_buffer: asyncio.Queue, num_iterations: int):
     for _ in range(num_iterations):
-        partitioned_rollouts = [None] * num_train_actors
-        if dist.get_global_rank() == 0:
-            assert rollout_agent is not None, "Rollout agent must be provided for rank 0"
-            rollouts = await asyncio.to_thread(rollout_agent.get_next_iter_rollouts)
-            partitioned_rollouts = partition_rollouts_across_ranks(num_train_actors, rollouts)
+        rollouts = await asyncio.to_thread(rollout_agent.get_next_iter_rollouts)
+        partitioned_rollouts = partition_rollouts_across_ranks(num_train_actors, rollouts)
 
         await experience_buffer.put(partitioned_rollouts)
 
+
+class TrainEngine:
+    def __init__(self, num_train_actors: int):
+        self.addresses = [
+            f'localhost:{8500 + i}' for i in range(num_train_actors)
+        ]
+        self.setup_timeout = 60
+    
+    def _wait_for_server(self, address: str):
+        base_url = f"http://{address}"
+        tik = time.time()
+        while time.time() - tik < self.setup_timeout:
+            if self.check_health(base_url):
+                return
+            time.sleep(1)
+        raise RuntimeError("server launch failed")
+
+    def check_health(self, base_url: str):
+        # Check server endpoint
+        try:
+            response = requests.get(f"{base_url}/health", timeout=30)
+            return response.status_code == 200
+        except requests.exceptions.RequestException:
+            return False
+
+    async def initialize(self):
+        log.info("Waiting for server ready...")
+        for addr_ in self.addresses:
+            log.info(f'Waiting for server {addr_} to be ready')
+            self._wait_for_server(addr_)
+            log.info(f'Server {addr_} is ready')
+        log.info("Servers are all ready!")
+
+
+    async def build_trainer(self, config: Any):
+        if isinstance(config, DictConfig):
+            # convert to dict
+            config = om.to_container(config, resolve=True)
+        await asyncio.gather(*[
+            arequest_with_retry(
+            addr,
+            endpoint='/initialize',
+                method='POST',
+                payload={'config': config},
+            )
+            for addr in self.addresses
+        ])
+        return
+
+    async def create_online_minibatches(self, all_rollouts: list[dict[str, Any]]):
+        await asyncio.gather(*[
+            arequest_with_retry(
+            addr,
+            endpoint='/create_online_minibatches',
+            method='POST',
+            payload={'current_rank_rollouts': all_rollouts[i]},
+            )
+        for i, addr in enumerate(self.addresses)])
+        return
+
+    async def initialize_model_update_group(self, new_port: int, num_vllm_servers: int, gen_tp_size: int):
+        await asyncio.gather(*[
+            arequest_with_retry(
+            addr,
+            endpoint='/initialize_model_update_group',
+            method='POST',
+            payload={'new_port': new_port, 'num_vllm_servers': num_vllm_servers, 'gen_tp_size': gen_tp_size},
+        )
+        for addr in self.addresses])
+        return
+
+    async def broadcast_to_vllm(self, addresses: list[str]):
+        await asyncio.gather(*[
+            arequest_with_retry(
+            addr,
+            endpoint='/broadcast_to_vllm',
+            method='POST',
+            payload={'addresses': addresses},
+        )
+        for addr in self.addresses])
+        return
+
+    async def train_1_iter(self):
+        await asyncio.gather(*[
+            arequest_with_retry(
+            addr,
+            endpoint='/train_1_iter',
+            method='POST',
+            )
+        for addr in self.addresses])
+        return
+
+
 async def _train(
-            train_actor: DistributedGPUActor, 
-            experience_buffer: asyncio.Queue, num_iterations: int, model_update_group: PyNcclCommunicator | None, enable_prefix_caching: bool, vllm_engine: RemoteVLLMEngine):
+            train_engine: TrainEngine, 
+            experience_buffer: asyncio.Queue, 
+            num_iterations: int, 
+            vllm_engine: RemoteVLLMEngine,
+):
     for i in range(num_iterations):
         log.info(f'Training iteration {i}')
         all_rollouts = await experience_buffer.get()
-        dist.barrier()
-        dist.broadcast_object_list(all_rollouts, src=0)
-        rollout_partition = all_rollouts[dist.get_global_rank()]
-        train_actor.create_online_minibatches(rollout_partition)
-        train_actor.train_1_iter()
-
-        if dist.get_global_rank() == 0:
-            assert model_update_group is not None, "Model update group must be provided for rank 0"
+        await train_engine.create_online_minibatches(all_rollouts)
+        await train_engine.train_1_iter()
 
         start_time = time.time()
         log.info('Before broadcast to vLLM')
@@ -1583,24 +934,17 @@ async def _train(
         # push the model parameters to a parameter buffer manager and have
         # the buffer manager initiate broadcast of parameters to vllm engines
         # TODO fix this monkey patching
-        train_actor.ppo_callback.actor_critic.model_update_group = model_update_group
-        run_async_sync(broadcast_to_vllm(
-            model=train_actor.ppo_callback.actor_critic,
-            vllm_engine=vllm_engine,
-            device=torch.device(f'cuda:{dist.get_local_rank()}'),
-            loss_type=train_actor.ppo_callback.actor_critic.loss_type,  # type: ignore
-            enable_prefix_caching=enable_prefix_caching,
-        ))
+        await train_engine.broadcast_to_vllm(vllm_engine.addresses)
         log.info('Finished broadcasting to vLLM')
         log.info(f'Took: {time.time() - start_time} to broadcast to vllm.')
-        dist.barrier()
         log.info(f'Training iteration {i} completed')
 
 async def _setup_process_groups(
     vllm_engine: RemoteVLLMEngine,
+    train_engine: TrainEngine,
     gen_tp_size: int,
     num_vllm_servers: int,
-) -> PyNcclCommunicator:
+):
     """Initialize trainer and vLLM servers' weight-update process group.
 
     This mirrors the logic used in test_single_controller_vllm.py by:
@@ -1608,11 +952,6 @@ async def _setup_process_groups(
       - Initializing the vLLM servers' NCCL communicators via HTTP
       - Adding a matching process group on the trainer side (rank 0)
     """
-
-
-    # with socket.socket() as sock:
-    #     sock.bind(('', 0))
-    #     new_port = sock.getsockname()[1]
 
     new_port = 9000
 
@@ -1623,26 +962,38 @@ async def _setup_process_groups(
         gen_tp_size=gen_tp_size,
         gen_world_size=num_vllm_servers * gen_tp_size,
     )
-
-    # await vllm_engine.ainit_weight_update_group(meta)
-
-    print('Initializing rank 0 process group')
-    init_rank_0 = asyncio.to_thread(stateless_init_process_group, 
-      "127.0.0.1", new_port, 0, num_vllm_servers * gen_tp_size + 1, torch.cuda.current_device()
-    )
-    print('init_rank_0', init_rank_0)
-
-    assert init_rank_0 is not None
-
     # Initialize both sides concurrently
-    _, model_update_group = await asyncio.gather(
+    await asyncio.gather(
         vllm_engine.ainit_weight_update_group(meta),
-        init_rank_0,
+        train_engine.initialize_model_update_group(new_port, num_vllm_servers, gen_tp_size),
     )
-    return model_update_group
+
+
+
+
+async def launch_train_servers(num_train_actors: int) -> tuple[TrainEngine, list[subprocess.Popen]]:
+    train_procs = []
+    cmd = [
+        'composer',
+        '-n', str(num_train_actors),
+        '--world_size', str(num_train_actors),
+        'train_server.py',
+    ]
+    with open("train_server.out", "w") as outfile:
+        p = subprocess.Popen(cmd, stdout=outfile, stderr=outfile)
+    log.info(' '.join(cmd))
+    train_procs.append(p)
+    log.info(f'Started train servers {[p.pid for p in train_procs]}')
+
+    train_engine = TrainEngine(num_train_actors)
+
+    await train_engine.initialize()
+    return train_engine, train_procs
 
 async def _run_single_controller_ppo(
     config: Any,
+    num_train_actors: int,
+    num_vllm_servers: int,
 ):
     """Shared function for running single controller PPO.
 
@@ -1652,36 +1003,31 @@ async def _run_single_controller_ppo(
     # only rank 0 is the master controller
     vllm_procs = []
     try:
-        torch.cuda.set_device(dist.get_local_rank())
-        world_size = dist.get_world_size()
-
-        # Create vLLM engines (or inference actors)
-        num_train_actors = world_size
         vllm_tensor_parallel_size = config.vllm_tensor_parallel_size
-        num_vllm_servers = num_train_actors # Make it the same as the number of train actors
         enable_prefix_caching=config.vllm_enable_prefix_caching
         rollout_agent = None
         model_update_group = None
-        if dist.get_global_rank() == 0:
-            log.info(f'Setting up streaming dataset actor')
-            with _patch_env(WORLD_SIZE='1', LOCAL_WORLD_SIZE='1'):
-                streaming_dataset_actor = StreamingDatasetActor(config)
-        # # create SPMD training actors of the system
-        train_actor = DistributedGPUActor()
-        log.info(f'Initilizing default training process group')
-        train_actor.init_composer_dist()
-        log.info(f'Initialized default training process group')
+        log.info(f'Launching train servers')
+        train_engine, train_procs = await launch_train_servers(num_train_actors)
 
+        log.info(f'Setting up streaming dataset actor')
+        streaming_dataset_actor = StreamingDatasetActor(config)
+        # # create SPMD training actors of the system
+        # log.info(f'Initilizing default training process group')
+        # train_actor.init_composer_dist()
+        # log.info(f'Initialized default training process group')
 
 
         # Launch vLLM server
+        log.info(f'Building trainer')
+        await train_engine.build_trainer(config)
+
         log.info(f'Launching vLLM servers')
-        log.info(f'Started vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
 
 
         vllm_procs = []
         
-        vllm_engine, vllm_procs = launch_vllm_servers(
+        vllm_engine, vllm_procs = await launch_vllm_servers(
             pretrain_model_name=config.model.pretrained_model_name_or_path,
             tensor_parallel_size=vllm_tensor_parallel_size,
             data_parallel_size=1,
@@ -1689,32 +1035,20 @@ async def _run_single_controller_ppo(
             num_train_actors=num_train_actors,
             max_model_len=config.max_seq_len,
             enable_prefix_caching=enable_prefix_caching,
-            use_existing=dist.get_global_rank() != 0, # only rank 0 will launch the vllm servers
+            use_existing=False
         )
-        dist.barrier()
-        if dist.get_global_rank() == 0:
+        log.info(f'Started vLLM servers {[vllm_proc.pid for vllm_proc in vllm_procs]}')
 
-            log.info(f'Setting up reward actor')
-            reward_actor = RewardActor(config)
-            log.info(f'Setting up rollout agent')
-            rollout_agent = RolloutAgent(vllm_engine, streaming_dataset_actor, reward_actor, config)
+        log.info(f'Setting up reward actor')
+        reward_actor = RewardActor(config)
+        log.info(f'Setting up rollout agent')
+        rollout_agent = RolloutAgent(vllm_engine, streaming_dataset_actor, reward_actor, config)
 
-            log.info(f'Setting up process groups for weight_update')
-            model_update_group = await _setup_process_groups(vllm_engine, vllm_tensor_parallel_size, num_vllm_servers)
+        log.info(f'Setting up process groups for weight_update')
+        model_update_group = await _setup_process_groups(
+            vllm_engine, train_engine, vllm_tensor_parallel_size, num_vllm_servers)
 
-        train_actor.build_train_config(config)
 
-        # Build PPO trainers
-        train_actor.build_ppo_trainer()
-
-        # Build Minibatch Buffer
-        train_actor.build_buffer()
-
-        # Build Reference Model
-        train_actor.build_reference_model()
-
-        # Build KL Controller
-        train_actor.build_kl_controller()
         
         num_prompts_per_iteration = get_and_validate_num_prompts_per_iteration(config)
         assert num_prompts_per_iteration % num_train_actors == 0, "Number of prompts per iteration must be divisible by number of train actors to ensure accurate advantage calculations."
@@ -1724,7 +1058,7 @@ async def _run_single_controller_ppo(
         experience_buffer = asyncio.Queue()
         await asyncio.gather(
             _produce_rollouts(rollout_agent, num_train_actors, experience_buffer, num_iterations),
-            _train(train_actor, experience_buffer, num_iterations, model_update_group, enable_prefix_caching, vllm_engine),
+            _train(train_engine, experience_buffer, num_iterations, vllm_engine),
         )
     except Exception as e:
         log.error(f'Error in _run_single_controller_ppo: {e}')
@@ -1734,6 +1068,10 @@ async def _run_single_controller_ppo(
         for vllm_proc in vllm_procs:
             vllm_proc.send_signal(signal.SIGTERM)
             vllm_proc.wait(timeout=10)  # Wait up to 10 seconds for graceful shutdown
+
+        for train_proc in train_procs:
+            train_proc.send_signal(signal.SIGTERM)
+            train_proc.wait(timeout=10)  # Wait up to 10 seconds for graceful shutdown
 
 
 if __name__ == '__main__':
@@ -1805,5 +1143,12 @@ if __name__ == '__main__':
         log.info(f'Config after overrides: {config}')
 
     log.info(f'config.model.pretrained_model_name_or_path: {config.model.pretrained_model_name_or_path}')
-    asyncio.run(_run_single_controller_ppo(config))
+    num_train_actors = dist.get_world_size() // 2
+    num_vllm_servers = dist.get_world_size() // 2
+    with _patch_env(WORLD_SIZE='1', LOCAL_WORLD_SIZE='1'):
+        asyncio.run(_run_single_controller_ppo(config, num_train_actors, num_vllm_servers))
+
+    # train_engine, _ = launch_train_servers(4)
+    # train_engine = TrainEngine(4)
+    # train_engine.initialize()
 
